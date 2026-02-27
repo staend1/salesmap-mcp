@@ -167,4 +167,37 @@ export function registerExtrasTools(server: McpServer) {
       }
     },
   );
+
+  // ── Record URL ─────────────────────────────────────────
+  const URL_PATH_MAP: Record<string, string> = {
+    people: "contact/people",
+    organization: "organization",
+    deal: "deal",
+    lead: "lead",
+    "custom-object": "custom-object",
+    product: "product",
+    quote: "quote",
+  };
+
+  server.tool(
+    "salesmap_get_record_url",
+    "레코드의 CRM 웹 URL 생성.",
+    {
+      type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "quote"])
+        .describe("오브젝트 타입"),
+      id: z.string().describe("레코드 ID"),
+    },
+    READ,
+    async ({ type, id }, extra) => {
+      try {
+        const client = getClient(extra);
+        const me = await client.get<{ user: { room: { id: string } } }>("/v2/user/me");
+        const roomId = me.user.room.id;
+        const path = URL_PATH_MAP[type];
+        return ok({ url: `https://salesmap.kr/${roomId}/${path}/${id}` });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
 }
