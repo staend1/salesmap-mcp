@@ -139,7 +139,13 @@ export function err(message: string) {
 }
 
 export function errWithSchemaHint(message: string, objectType: string) {
-  return err(
-    `${message}\n\n[힌트] 필드명 오류일 수 있습니다. salesmap_describe_object(type: "${objectType}")로 정확한 필드명을 확인하세요.`
-  );
+  let hint: string;
+  if (message.includes("Invalid fieldName")) {
+    hint = `필드명은 한글입니다 (예: 'name' → '이름'). salesmap_describe_object(type: "${objectType}") 결과를 다시 확인하세요.`;
+  } else if (message.includes("relation field")) {
+    hint = `relation 필드는 UUID만 허용합니다. salesmap_get_pipeline_ids 또는 salesmap_list_users로 UUID를 확인하세요.`;
+  } else {
+    hint = `필드명 오류일 수 있습니다. salesmap_describe_object(type: "${objectType}")로 정확한 필드명을 확인하세요.`;
+  }
+  return err(`${message}\n\n[힌트] ${hint}`);
 }
