@@ -64,8 +64,8 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
-    "salesmap_list_pipelines",
-    "파이프라인 목록. 딜/리드 생성 시 pipelineId 확인용.",
+    "salesmap_get_pipeline_ids",
+    "딜/리드 생성 시 필요한 pipelineId·pipelineStageId 조회 전용.",
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
