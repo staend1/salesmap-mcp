@@ -38,10 +38,7 @@ export function registerSearchTools(server: McpServer) {
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
 
-        const url = new URL(`https://salesmap.kr/api/v2/object/${targetType}/search`);
-        if (cursor) url.searchParams.set("cursor", cursor);
-
-        const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList });
+        const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList }, query);
         return ok(data);
       } catch (e: unknown) {
         return err((e as Error).message);
