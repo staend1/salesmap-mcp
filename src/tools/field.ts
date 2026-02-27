@@ -8,7 +8,7 @@ const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true 
 export function registerFieldTools(server: McpServer) {
   server.tool(
     "salesmap_describe_object",
-    "오브젝트의 필드 이름·타입·옵션 조회.\n필드명이 한글이며 고객 워크스페이스마다 다르므로, 검색·생성·수정 전에 반드시 이 도구로 스키마를 확인해야 합니다.",
+    "오브젝트의 필드 이름·타입·옵션 조회. 검색·생성·수정 전에 반드시 이 도구로 스키마를 확인해야 합니다.",
     {
       type: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
         .describe("오브젝트 타입"),

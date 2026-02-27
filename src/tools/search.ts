@@ -28,7 +28,7 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap_search_records",
-    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND).\n선행 필수: salesmap_describe_object — 필드명이 고객마다 다르므로 추측하면 실패합니다.",
+    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND) 선행 필수: salesmap_describe_object. null 필드는 응답에서 생략됨",
     {
       targetType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
       filterGroupList: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
