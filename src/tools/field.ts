@@ -6,7 +6,7 @@ import { getClient } from "../types";
 export function registerFieldTools(server: McpServer) {
   server.tool(
     "salesmap_get_fields",
-    "CRM 스키마 파악.",
+    "CRM 스키마 파악. 작업 전 반드시 먼저 실행하여 필드 구조 확인.",
     {
       type: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
         .describe("오브젝트 타입"),
