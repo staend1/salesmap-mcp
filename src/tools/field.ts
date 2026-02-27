@@ -6,7 +6,7 @@ import { getClient } from "../types";
 export function registerFieldTools(server: McpServer) {
   server.tool(
     "salesmap_get_fields",
-    "오브젝트 타입별 필드 정의 조회. 필드 이름, 타입, 필수 여부, 선택형 옵션 목록 반환. 생성/수정 API의 fieldList에 넣을 필드명과 유효한 옵션값을 확인할 때 필수. type에 custom-object는 하이픈 필수.",
+    "CRM 탐색의 시작점. 오브젝트별 필드 이름·타입·옵션 반환. 이 도구로 구조 파악 → salesmap_search_records로 조건 검색 → 개별 CRUD 순서를 권장.",
     {
       type: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
         .describe("오브젝트 타입"),
