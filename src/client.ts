@@ -77,8 +77,8 @@ export class SalesMapClient {
     return this.request<T>("GET", path, undefined, query);
   }
 
-  async post<T = unknown>(path: string, body?: Record<string, unknown>): Promise<T> {
-    return this.request<T>("POST", path, body);
+  async post<T = unknown>(path: string, body?: Record<string, unknown>, query?: Record<string, string>): Promise<T> {
+    return this.request<T>("POST", path, body, query);
   }
 
   // 단일 조회 헬퍼 — 배열 래핑 자동 추출
