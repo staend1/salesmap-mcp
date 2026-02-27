@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err } from "../client";
+import { ok, err, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const filterSchema = z.object({
@@ -39,7 +39,7 @@ export function registerSearchTools(server: McpServer) {
         if (cursor) query.cursor = cursor;
 
         const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList }, query);
-        return ok(data);
+        return ok(compactRecords(data));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
