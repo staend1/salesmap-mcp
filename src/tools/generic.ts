@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, compactRecords } from "../client";
+import { ok, err, compactRecord, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -24,7 +24,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Get ───────────────────────────────────────────────
   server.tool(
     "salesmap_get_record",
-    "레코드 상세 조회.",
+    "레코드 상세 조회. 응답에 없는 필드는 null.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
         .describe("오브젝트 타입"),
@@ -35,10 +35,13 @@ export function registerGenericTools(server: McpServer) {
       try {
         const client = getClient(extra);
         const path = `/v2/${type}/${id}`;
+        let data: unknown;
         if (GET_ONE_TYPES.has(type)) {
-          return ok(await client.getOne(path, type));
+          data = await client.getOne(path, type);
+        } else {
+          data = await client.get(path);
         }
-        return ok(await client.get(path));
+        return ok(compactRecord(data as Record<string, unknown>));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -48,7 +51,7 @@ export function registerGenericTools(server: McpServer) {
   // ── List ──────────────────────────────────────────────
   server.tool(
     "salesmap_list_records",
-    "레코드 목록 조회.",
+    "레코드 목록 조회. 응답에 없는 필드는 null.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "todo", "memo"])
         .describe("오브젝트 타입"),
