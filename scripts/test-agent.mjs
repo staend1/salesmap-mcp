@@ -142,6 +142,28 @@ const SCENARIOS = [
     name: "특정 단계 딜 조회",
     prompt: "제안서 보낸 딜들 뭐 있어?",
   },
+
+  // 시나리오 v2 — 쓰기·연관·복합 선행조건·날짜 필터
+  {
+    persona: "영업사원",
+    name: "담당자 변경",
+    prompt: "딜 019c8e79-ec35-7cc1-b9fe-cc64309c3486 담당자를 최재원으로 바꿔줘",
+  },
+  {
+    persona: "영업사원",
+    name: "연관 레코드 탐색",
+    prompt: "그립컴퍼니 딜에 연결된 고객이랑 회사 정보 알려줘",
+  },
+  {
+    persona: "매니저",
+    name: "신규 딜 생성",
+    prompt: "새 딜 만들어줘. 고객은 김성수, 파이프라인은 new 딜 파이프라인, 단계는 미팅 일정 확정, 금액 500만원",
+  },
+  {
+    persona: "매니저",
+    name: "월간 매출 분석",
+    prompt: "이번 달 성사된 딜 총 매출 얼마야?",
+  },
 ];
 
 // ── 에이전트 루프 ───────────────────────────────────────
@@ -291,12 +313,18 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\n${SCENARIOS.length}개 시나리오 테스트 (model: ${MODEL}, max_turns: ${MAX_TURNS})\n`);
+  // SCENARIO_RANGE=8,12 → index 8~11만 실행
+  const range = process.env.SCENARIO_RANGE;
+  const scenarios = range
+    ? SCENARIOS.slice(...range.split(",").map(Number))
+    : SCENARIOS;
+
+  console.log(`\n${scenarios.length}개 시나리오 테스트 (model: ${MODEL}, max_turns: ${MAX_TURNS})\n`);
   console.log("=".repeat(70));
 
   const allResults = [];
 
-  for (const scenario of SCENARIOS) {
+  for (const scenario of scenarios) {
     console.log(`\n[${scenario.persona}] ${scenario.name}`);
     console.log(`  Q: "${scenario.prompt}"`);
 

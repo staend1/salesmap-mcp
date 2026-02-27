@@ -24,7 +24,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Get ───────────────────────────────────────────────
   server.tool(
     "salesmap_get_record",
-    "레코드 상세 조회. 모든 필드 포함 (값 없으면 null).",
+    "레코드 상세 조회. null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
         .describe("오브젝트 타입"),
@@ -51,7 +51,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Get ────────────────────────────────────────
   server.tool(
     "salesmap_batch_get_records",
-    "여러 레코드 일괄 조회 (최대 20개). 모든 필드 포함 (값 없으면 null).",
+    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
@@ -89,7 +89,7 @@ export function registerGenericTools(server: McpServer) {
   // ── List ──────────────────────────────────────────────
   server.tool(
     "salesmap_list_records",
-    "레코드 목록 조회 (커서 페이지네이션). null 필드와 파이프라인 자동생성 필드는 응답에서 제거됨.",
+    "레코드 목록 조회 (커서 페이지네이션). null 필드는 응답에서 생략됨.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "todo", "memo"])
         .describe("오브젝트 타입"),
