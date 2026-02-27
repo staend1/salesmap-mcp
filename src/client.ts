@@ -137,3 +137,9 @@ export function err(message: string) {
     isError: true,
   };
 }
+
+export function errWithSchemaHint(message: string, objectType: string) {
+  return err(
+    `${message}\n\n[힌트] 필드명 오류일 수 있습니다. salesmap_describe_object(type: "${objectType}")로 정확한 필드명을 확인하세요.`
+  );
+}

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, compactRecord, compactRecords } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -24,7 +24,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Get ───────────────────────────────────────────────
   server.tool(
     "salesmap_get_record",
-    "레코드 상세 조회. 응답에 없는 필드는 null.",
+    "레코드 상세 조회. 모든 필드 포함 (값 없으면 null).",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
         .describe("오브젝트 타입"),
@@ -51,7 +51,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Get ────────────────────────────────────────
   server.tool(
     "salesmap_batch_get_records",
-    "여러 레코드 일괄 조회. 응답에 없는 필드는 null.",
+    "여러 레코드 일괄 조회 (최대 20개). 모든 필드 포함 (값 없으면 null).",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
@@ -89,7 +89,7 @@ export function registerGenericTools(server: McpServer) {
   // ── List ──────────────────────────────────────────────
   server.tool(
     "salesmap_list_records",
-    "레코드 목록 조회. 응답에 없는 필드는 null.",
+    "레코드 목록 조회 (커서 페이지네이션). null 필드와 파이프라인 자동생성 필드는 응답에서 제거됨.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "todo", "memo"])
         .describe("오브젝트 타입"),
@@ -111,7 +111,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap_create_record",
-    "레코드 생성. salesmap_describe_object로 필드 구조 확인 후 사용.",
+    "레코드 생성.\n선행 필수: salesmap_describe_object로 필드명·타입 확인. deal/lead는 salesmap_get_pipeline_ids로 pipelineId도 필요.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
@@ -136,7 +136,7 @@ export function registerGenericTools(server: McpServer) {
         }
         return ok(await client.post(`/v2/${type}`, body));
       } catch (e: unknown) {
-        return err((e as Error).message);
+        return errWithSchemaHint((e as Error).message, type);
       }
     },
   );
@@ -144,7 +144,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap_update_record",
-    "레코드 수정. salesmap_describe_object로 필드명/타입 확인 후 사용.",
+    "레코드 수정.\n선행 필수: salesmap_describe_object로 필드명·타입 확인. 담당자 변경은 salesmap_list_users로 userValueId 확인.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
@@ -167,7 +167,7 @@ export function registerGenericTools(server: McpServer) {
         );
         return ok(await client.post(`/v2/${type}/${id}`, body));
       } catch (e: unknown) {
-        return err((e as Error).message);
+        return errWithSchemaHint((e as Error).message, type);
       }
     },
   );

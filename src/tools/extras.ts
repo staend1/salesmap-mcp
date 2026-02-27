@@ -28,7 +28,7 @@ export function registerExtrasTools(server: McpServer) {
 
   server.tool(
     "salesmap_get_lead_time",
-    "딜/리드의 파이프라인 스테이지별 체류 시간 분석.",
+    "딜/리드의 파이프라인 스테이지별 체류 시간 분석. 진입·퇴장 시각과 누적 체류 시간을 파이프라인별로 그룹핑하여 반환.",
     {
       type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       id: z.string().describe("레코드 ID"),
@@ -124,7 +124,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap_get_association",
-    "레코드 간 연관관계 조회.",
+    "레코드에 연결된 다른 레코드들 조회.",
     {
       targetType: objectType.describe("출발 오브젝트 타입"),
       targetId: z.string().describe("출발 오브젝트 ID"),
@@ -151,7 +151,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Memo (Note) ────────────────────────────────────────
   server.tool(
     "salesmap_create_memo",
-    "레코드에 노트(메모) 추가.",
+    "레코드에 메모(노트) 추가.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("대상 오브젝트 타입"),
@@ -172,7 +172,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (get) ───────────────────────────────────────
   server.tool(
     "salesmap_get_quotes",
-    "딜/리드에 연결된 견적서 조회.",
+    "딜/리드에 연결된 견적서 목록 조회.",
     {
       type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       id: z.string().describe("딜/리드 UUID"),
@@ -191,7 +191,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (create) ────────────────────────────────────
   server.tool(
     "salesmap_create_quote",
-    "견적서 생성. 딜 또는 리드에 연결.",
+    "견적서 생성. dealId 또는 leadId로 딜/리드에 연결.",
     {
       name: z.string().describe("견적서 이름"),
       dealId: z.string().optional().describe("딜 ID"),
@@ -219,7 +219,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap_get_pipeline_ids",
-    "딜/리드 생성 시 필요한 pipelineId·pipelineStageId 조회 전용.",
+    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. salesmap_create_record에서 deal/lead 생성 시 필요.",
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
@@ -237,7 +237,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Users ───────────────────────────────────────────
   server.tool(
     "salesmap_list_users",
-    "CRM 사용자 목록. 담당자 변경 시 userValueId 확인용.",
+    "CRM 사용자 목록 조회. 담당자(userValueId) 지정·변경 시 필요.",
     {
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
@@ -257,7 +257,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Current User ──────────────────────────────────────
   server.tool(
     "salesmap_get_current_user",
-    "현재 API 토큰 소유자 정보.",
+    "현재 API 토큰 소유자 정보 조회.",
     {},
     READ,
     async (_params, extra) => {
