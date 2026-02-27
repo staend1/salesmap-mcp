@@ -92,6 +92,38 @@ export class SalesMapClient {
   }
 }
 
+// ── 응답 필터링 (list/search용) ──────────────────────
+const PIPELINE_SUFFIXES = [
+  "로 진입한 날짜",
+  "에서 보낸 누적 시간",
+  "에서 퇴장한 날짜",
+];
+
+function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value === null) continue;
+    if (PIPELINE_SUFFIXES.some((s) => key.endsWith(s))) continue;
+    result[key] = value;
+  }
+  return result;
+}
+
+/** list/search 응답에서 null 필드 + 파이프라인 자동생성 필드 제거 */
+export function compactRecords(data: unknown): unknown {
+  if (data == null || typeof data !== "object") return data;
+  const obj = data as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value) && value.length > 0 && typeof value[0] === "object") {
+      result[key] = value.map((r) => compactRecord(r as Record<string, unknown>));
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 // Tool 응답 헬퍼
 export function ok(data: unknown) {
   return {

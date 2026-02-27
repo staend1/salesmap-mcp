@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err } from "../client";
+import { ok, err, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const fieldListItem = z.object({
@@ -55,7 +55,7 @@ export function registerGenericTools(server: McpServer) {
         const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
-        return ok(await client.get(`/v2/${type}`, query));
+        return ok(compactRecords(await client.get(`/v2/${type}`, query)));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
