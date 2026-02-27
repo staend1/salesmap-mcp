@@ -3,6 +3,9 @@ import { z } from "zod";
 import { ok, err } from "../client";
 import { getClient } from "../types";
 
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
+
 const objectType = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
 
 const quoteProductSchema = z.object({
@@ -27,6 +30,7 @@ export function registerExtrasTools(server: McpServer) {
       associationType: z.enum(["primary", "custom"]).describe("primary=FK 직접, custom=커스텀 필드"),
       cursor: z.string().optional(),
     },
+    READ,
     async ({ targetType, targetId, toTargetType, associationType, cursor }, extra) => {
       try {
         const client = getClient(extra);
@@ -52,6 +56,7 @@ export function registerExtrasTools(server: McpServer) {
       id: z.string().describe("대상 레코드 UUID"),
       memo: z.string().describe("메모 내용"),
     },
+    WRITE,
     async ({ type, id, memo }, extra) => {
       try {
         const client = getClient(extra);
@@ -69,6 +74,7 @@ export function registerExtrasTools(server: McpServer) {
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
+    READ,
     async ({ entityType }, extra) => {
       try {
         const client = getClient(extra);
@@ -92,6 +98,7 @@ export function registerExtrasTools(server: McpServer) {
       quoteProductList: z.array(quoteProductSchema).optional().describe("상품 목록"),
       fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
     },
+    WRITE,
     async ({ name, ...rest }, extra) => {
       try {
         const client = getClient(extra);
@@ -114,6 +121,7 @@ export function registerExtrasTools(server: McpServer) {
       type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       id: z.string().describe("딜/리드 UUID"),
     },
+    READ,
     async ({ type, id }, extra) => {
       try {
         const client = getClient(extra);
@@ -131,6 +139,7 @@ export function registerExtrasTools(server: McpServer) {
     {
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
+    READ,
     async ({ cursor }, extra) => {
       try {
         const client = getClient(extra);
@@ -148,6 +157,7 @@ export function registerExtrasTools(server: McpServer) {
     "salesmap_get_current_user",
     "현재 API 토큰 소유자 정보.",
     {},
+    READ,
     async (_params, extra) => {
       try {
         const client = getClient(extra);

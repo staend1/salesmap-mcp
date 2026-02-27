@@ -3,6 +3,9 @@ import { z } from "zod";
 import { ok, err, compactRecords } from "../client";
 import { getClient } from "../types";
 
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
+
 const fieldListItem = z.object({
   name: z.string(),
   stringValue: z.string().optional(),
@@ -27,6 +30,7 @@ export function registerGenericTools(server: McpServer) {
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
     },
+    READ,
     async ({ type, id }, extra) => {
       try {
         const client = getClient(extra);
@@ -50,6 +54,7 @@ export function registerGenericTools(server: McpServer) {
         .describe("오브젝트 타입"),
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
+    READ,
     async ({ type, cursor }, extra) => {
       try {
         const client = getClient(extra);
@@ -80,6 +85,7 @@ export function registerGenericTools(server: McpServer) {
       price: z.number().optional().describe("금액 (deal)"),
       customObjectDefinitionId: z.string().optional().describe("Definition ID (custom-object 필수)"),
     },
+    WRITE,
     async ({ type, ...rest }, extra) => {
       try {
         const client = getClient(extra);
@@ -111,6 +117,7 @@ export function registerGenericTools(server: McpServer) {
       status: z.enum(["Won", "Lost", "In progress"]).optional(),
       price: z.number().optional().describe("금액 (deal)"),
     },
+    WRITE,
     async ({ type, id, ...rest }, extra) => {
       try {
         const client = getClient(extra);

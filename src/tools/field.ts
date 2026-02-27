@@ -3,6 +3,8 @@ import { z } from "zod";
 import { ok, err } from "../client";
 import { getClient } from "../types";
 
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+
 export function registerFieldTools(server: McpServer) {
   server.tool(
     "salesmap_describe_object",
@@ -11,6 +13,7 @@ export function registerFieldTools(server: McpServer) {
       type: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
         .describe("오브젝트 타입"),
     },
+    READ,
     async ({ type }, extra) => {
       try {
         const client = getClient(extra);
