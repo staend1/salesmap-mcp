@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, compactRecords } from "../client";
+import { ok, errWithSchemaHint, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -28,7 +28,7 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap_search_records",
-    "조건 기반 검색. salesmap_describe_object로 필드명 확인 후 사용.",
+    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND).\n선행 필수: salesmap_describe_object — 필드명이 고객마다 다르므로 추측하면 실패합니다.",
     {
       targetType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
       filterGroupList: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
@@ -44,7 +44,7 @@ export function registerSearchTools(server: McpServer) {
         const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList }, query);
         return ok(compactRecords(data));
       } catch (e: unknown) {
-        return err((e as Error).message);
+        return errWithSchemaHint((e as Error).message, targetType);
       }
     },
   );
