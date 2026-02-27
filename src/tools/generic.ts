@@ -48,6 +48,44 @@ export function registerGenericTools(server: McpServer) {
     },
   );
 
+  // ── Batch Get ────────────────────────────────────────
+  server.tool(
+    "salesmap_batch_get_records",
+    "여러 레코드 일괄 조회. 응답에 없는 필드는 null.",
+    {
+      type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
+        .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
+      ids: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
+    },
+    READ,
+    async ({ type, ids }, extra) => {
+      try {
+        const client = getClient(extra);
+        const useGetOne = GET_ONE_TYPES.has(type);
+        const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
+
+        for (const id of ids) {
+          try {
+            const path = `/v2/${type}/${id}`;
+            let data: unknown;
+            if (useGetOne) {
+              data = await client.getOne(path, type);
+            } else {
+              data = await client.get(path);
+            }
+            results.push({ id, data: compactRecord(data as Record<string, unknown>) });
+          } catch (e: unknown) {
+            results.push({ id, error: (e as Error).message });
+          }
+        }
+
+        return ok({ total: results.length, records: results });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   // ── List ──────────────────────────────────────────────
   server.tool(
     "salesmap_list_records",
