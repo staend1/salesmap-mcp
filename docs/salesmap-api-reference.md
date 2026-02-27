@@ -127,14 +127,29 @@ Rate Limit 초과 시: HTTP 429 { "success": false, "message": "Too Many Request
 
 > 2026-02-27 전수 테스트 완료. 커스텀 필드는 기본적으로 모두 수정 가능. 아래는 **수정 불가능한 시스템 필드만** 정리.
 
-#### top-level 파라미터 (fieldList가 아닌 body 최상위)
+#### 수정 API 파라미터 정리 (2026-02-27 실제 검증)
 
-| 오브젝트 | 파라미터 | 용도 |
-|----------|----------|------|
-| People | `name`, `email`, `phone`, `ownerId`, `organizationId` | 이름/이메일/전화/담당자/회사 |
-| Organization | `name`, `phone`, `industry`, `parentOrganizationId` | 이름/전화/종목/모회사 |
-| Deal | `name`, `price`, `status`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/파이프라인/고객/회사 |
-| Lead | `name`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/파이프라인/고객/회사 |
+**top-level 파라미터** (실제 작동하는 것만):
+
+| 오브젝트 | 작동하는 top-level | 용도 |
+|----------|-------------------|------|
+| People | `name`, `ownerId`, `organizationId` | 이름/담당자/회사 |
+| Organization | `name` | 이름 (이것만 작동) |
+| Deal | `name`, `price`, `status`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/담당자/파이프라인/고객/회사 |
+| Lead | `name`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/담당자/파이프라인/고객/회사 |
+
+**담당자 변경 방법**:
+- People/Deal/Lead: `ownerId`(top-level) 또는 `fieldList` + `userValueId` 둘 다 가능
+- Organization: **`fieldList` + `userValueId`만 가능** (`ownerId` silent no-op)
+- `stringValue`(사용자 이름)로는 불가. 에러: `"담당자에 userValueId가 없습니다"`
+
+**이메일/전화 변경**: `fieldList` + `stringValue`로만 가능 (top-level `email`, `phone` silent no-op)
+
+**Deal status 값** (대소문자 구분): `"Won"`, `"Lost"`, `"In progress"` (소문자 불가)
+
+**⚠️ Silent No-op 주의**: 아래 top-level 파라미터는 201 성공을 반환하지만 **실제 값이 변경되지 않음**:
+- People: `email`, `phone`
+- Organization: `ownerId`, `phone`, `industry`, `parentOrganizationId`
 
 #### People (고객) — 읽기전용 시스템 필드
 
