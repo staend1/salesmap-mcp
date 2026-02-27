@@ -65,7 +65,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap_create_record",
-    "레코드 생성. salesmap_get_fields로 필드 구조 확인 후 사용.",
+    "레코드 생성. salesmap_describe_object로 필드 구조 확인 후 사용.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
@@ -97,7 +97,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap_update_record",
-    "레코드 수정. salesmap_get_fields로 필드명/타입 확인 후 사용.",
+    "레코드 수정. salesmap_describe_object로 필드명/타입 확인 후 사용.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
