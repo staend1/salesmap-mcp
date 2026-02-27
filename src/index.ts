@@ -18,8 +18,8 @@ export function createServer(): McpServer {
   // 범용 CRUD (4 tools)
   registerGenericTools(server);  // 3-6: list, get, create, update
 
-  // 지원 도구 (8 tools)
-  registerExtrasTools(server);   // 7-14: association, memo, pipeline, quote, quotes, users, me, record_url
+  // 지원 도구 (9 tools)
+  registerExtrasTools(server);   // 7-15: association, memo, pipeline, quote, quotes, users, me, lead_time, record_url
 
   return server;
 }
