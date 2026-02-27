@@ -99,7 +99,7 @@ const PIPELINE_SUFFIXES = [
   "에서 퇴장한 날짜",
 ];
 
-function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
+export function compactRecord(record: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(record)) {
     if (value === null) continue;
