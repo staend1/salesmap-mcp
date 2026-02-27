@@ -65,15 +65,15 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap_create_record",
-    "레코드 생성. 필수: deal→name+pipelineId+pipelineStageId+status, custom-object→customObjectDefinitionId, 나머지→name.",
+    "레코드 생성.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
       name: z.string().optional().describe("이름 (custom-object 제외 필수)"),
       memo: z.string().optional().describe("초기 메모"),
       fieldList: z.array(fieldListItem).optional().describe("커스텀 필드"),
-      peopleId: z.string().optional().describe("고객 ID"),
-      organizationId: z.string().optional().describe("회사 ID"),
+      peopleId: z.string().optional().describe("고객 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
+      organizationId: z.string().optional().describe("회사 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       pipelineId: z.string().optional().describe("파이프라인 ID (deal 필수)"),
       pipelineStageId: z.string().optional().describe("단계 ID (deal 필수)"),
       status: z.enum(["Won", "Lost", "In progress"]).optional().describe("딜 상태 (deal 필수)"),
@@ -103,18 +103,13 @@ export function registerGenericTools(server: McpServer) {
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
       name: z.string().optional(),
-      fieldList: z.array(fieldListItem).optional(),
-      ownerId: z.string().optional().describe("담당자 ID"),
+      fieldList: z.array(fieldListItem).optional().describe("커스텀 필드. 담당자 변경은 userValueId 사용 (salesmap_list_users로 ID 확인)"),
       peopleId: z.string().optional(),
       organizationId: z.string().optional(),
       pipelineId: z.string().optional(),
       pipelineStageId: z.string().optional(),
       status: z.enum(["Won", "Lost", "In progress"]).optional(),
       price: z.number().optional().describe("금액 (deal)"),
-      email: z.string().optional().describe("이메일 (people)"),
-      phone: z.string().optional().describe("전화번호 (people/organization)"),
-      industry: z.string().optional().describe("업종 (organization)"),
-      parentOrganizationId: z.string().optional().describe("모회사 ID (organization)"),
     },
     async ({ type, id, ...rest }, extra) => {
       try {

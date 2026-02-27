@@ -19,7 +19,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap_get_association",
-    "오브젝트 간 연관관계 조회. primary=FK 직접 연결(회사↔고객, 딜↔고객 등), custom=커스텀 필드 참조 연결.",
+    "레코드 간 연관관계 조회.",
     {
       targetType: objectType.describe("출발 오브젝트 타입"),
       targetId: z.string().describe("출발 오브젝트 ID"),
@@ -124,20 +124,19 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Users / Teams ─────────────────────────────────────
+  // ── Users ───────────────────────────────────────────
   server.tool(
     "salesmap_list_users",
-    "사용자 또는 팀 목록.",
+    "CRM 사용자 목록. 담당자 변경 시 userValueId 확인용.",
     {
-      type: z.enum(["user", "team"]).describe("사용자 또는 팀"),
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
-    async ({ type, cursor }, extra) => {
+    async ({ cursor }, extra) => {
       try {
         const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
-        return ok(await client.get(`/v2/${type}`, query));
+        return ok(await client.get("/v2/user", query));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
