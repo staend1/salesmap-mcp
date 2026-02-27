@@ -3,6 +3,8 @@ import { z } from "zod";
 import { ok, err, compactRecords } from "../client";
 import { getClient } from "../types";
 
+const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
+
 const filterSchema = z.object({
   fieldName: z.string().describe("필드 한글 이름"),
   operator: z.enum([
@@ -32,6 +34,7 @@ export function registerSearchTools(server: McpServer) {
       filterGroupList: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
+    READ,
     async ({ targetType, filterGroupList, cursor }, extra) => {
       try {
         const client = getClient(extra);
