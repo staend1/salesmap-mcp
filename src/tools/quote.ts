@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SalesMapClient, ok, err } from "../client.js";
+import { ok, err } from "../client";
+import { getClient } from "../types";
 
 const quoteProductSchema = z.object({
   name: z.string().describe("상품 이름"),
@@ -12,7 +13,7 @@ const quoteProductSchema = z.object({
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
 });
 
-export function registerQuoteTools(server: McpServer, client: SalesMapClient) {
+export function registerQuoteTools(server: McpServer) {
   server.tool(
     "salesmap_create_quote",
     "견적서 생성. 딜 또는 리드에 연결. quoteProductList로 상품 추가. isMainQuote로 메인 견적서 지정.",
@@ -25,8 +26,9 @@ export function registerQuoteTools(server: McpServer, client: SalesMapClient) {
       quoteProductList: z.array(quoteProductSchema).optional().describe("포함할 상품 목록"),
       fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
     },
-    async ({ name, ...rest }) => {
+    async ({ name, ...rest }, extra) => {
       try {
+        const client = getClient(extra);
         const body: Record<string, unknown> = { name };
         for (const [k, v] of Object.entries(rest)) {
           if (v !== undefined) body[k] = v;

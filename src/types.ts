@@ -1,6 +1,4 @@
-export interface Env {
-  SALESMAP_API_TOKEN: string;
-}
+import { SalesMapClient } from "./client";
 
 export interface SalesMapResponse<T = unknown> {
   success: boolean;
@@ -38,3 +36,15 @@ export type EntityType = "people" | "organization" | "deal" | "lead" | "custom-o
 export type SearchTargetType = "people" | "organization" | "deal" | "lead";
 export type FieldTargetType = "deal" | "lead" | "people" | "organization" | "product" | "quote" | "todo" | "custom-object";
 export type PipelineEntityType = "deal" | "lead";
+
+/**
+ * MCP tool 콜백의 extra 파라미터에서 SalesMap API 토큰을 추출하여 클라이언트 생성.
+ * 토큰이 없으면 에러.
+ */
+export function getClient(extra: { authInfo?: { token?: string } }): SalesMapClient {
+  const token = extra.authInfo?.token;
+  if (!token) {
+    throw new Error("인증 토큰이 없습니다. Authorization: Bearer <SalesMap API Token> 헤더를 확인하세요.");
+  }
+  return new SalesMapClient(token);
+}

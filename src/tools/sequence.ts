@@ -1,14 +1,16 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SalesMapClient, ok, err } from "../client.js";
+import { ok, err } from "../client";
+import { getClient } from "../types";
 
-export function registerSequenceTools(server: McpServer, client: SalesMapClient) {
+export function registerSequenceTools(server: McpServer) {
   server.tool(
     "salesmap_list_sequences",
     "시퀀스 목록. 자동화된 이메일 캠페인. 콜드메일, 팔로우업, 리텐션 등. 주의: ID 필드가 _id (id 아님).",
     {},
-    async () => {
+    async (_params, extra) => {
       try {
+        const client = getClient(extra);
         return ok(await client.get("/v2/sequence"));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -20,8 +22,9 @@ export function registerSequenceTools(server: McpServer, client: SalesMapClient)
     "salesmap_get_sequence",
     "시퀀스 단일 조회. 이름, 설명, 생성일.",
     { sequenceId: z.string().describe("시퀀스 ID (_id 값)") },
-    async ({ sequenceId }) => {
+    async ({ sequenceId }, extra) => {
       try {
+        const client = getClient(extra);
         return ok(await client.get(`/v2/sequence/${sequenceId}`));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -33,8 +36,9 @@ export function registerSequenceTools(server: McpServer, client: SalesMapClient)
     "salesmap_get_sequence_steps",
     "시퀀스 단계(Step) 조회. 각 단계의 type(sendEmail/createTodo), 대기 영업일(businessDay), 실행 시각(executionTime). 예: index:0 sendEmail 3영업일 후 → index:1 sendEmail 6영업일 후 → index:2 createTodo 1영업일 후 = '3일 후 첫 메일, 6일 후 후속 메일, 다음 날 전화 리마인더'.",
     { sequenceId: z.string().describe("시퀀스 ID") },
-    async ({ sequenceId }) => {
+    async ({ sequenceId }, extra) => {
       try {
+        const client = getClient(extra);
         return ok(await client.get(`/v2/sequence/${sequenceId}/step`));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -49,8 +53,9 @@ export function registerSequenceTools(server: McpServer, client: SalesMapClient)
       sequenceId: z.string().describe("시퀀스 ID"),
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
-    async ({ sequenceId, cursor }) => {
+    async ({ sequenceId, cursor }, extra) => {
       try {
+        const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
         return ok(await client.get(`/v2/sequence/${sequenceId}/enrollment`, query));
@@ -67,8 +72,9 @@ export function registerSequenceTools(server: McpServer, client: SalesMapClient)
       enrollmentId: z.string().describe("등록 ID (_id 값)"),
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
-    async ({ enrollmentId, cursor }) => {
+    async ({ enrollmentId, cursor }, extra) => {
       try {
+        const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
         return ok(await client.get(`/v2/sequence/enrollment/${enrollmentId}/timeline`, query));
