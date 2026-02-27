@@ -1,10 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SalesMapClient, ok, err } from "../client.js";
+import { ok, err } from "../client";
+import { getClient } from "../types";
 
 const objectType = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
 
-export function registerAssociationTools(server: McpServer, client: SalesMapClient) {
+export function registerAssociationTools(server: McpServer) {
   server.tool(
     "salesmap_get_association_primary",
     "오브젝트 간 Primary(FK 직접) 연관관계 조회. associationIdList(ID 목록만) 반환. '이 고객이 어떤 회사에 속해있지?' 확인.",
@@ -14,8 +15,9 @@ export function registerAssociationTools(server: McpServer, client: SalesMapClie
       toTargetType: objectType.describe("도착 오브젝트 타입"),
       cursor: z.string().optional(),
     },
-    async ({ targetType, targetId, toTargetType, cursor }) => {
+    async ({ targetType, targetId, toTargetType, cursor }, extra) => {
       try {
+        const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
         return ok(await client.get(
@@ -36,8 +38,9 @@ export function registerAssociationTools(server: McpServer, client: SalesMapClie
       toTargetType: objectType.describe("도착 오브젝트 타입"),
       cursor: z.string().optional(),
     },
-    async ({ targetType, targetId, toTargetType, cursor }) => {
+    async ({ targetType, targetId, toTargetType, cursor }, extra) => {
       try {
+        const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
         return ok(await client.get(

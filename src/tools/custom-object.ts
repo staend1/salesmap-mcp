@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SalesMapClient, ok, err } from "../client.js";
+import { ok, err } from "../client";
+import { getClient } from "../types";
 
 const fieldListItem = z.object({
   name: z.string(),
@@ -11,13 +12,14 @@ const fieldListItem = z.object({
   stringValueList: z.array(z.string()).optional(),
 }).passthrough();
 
-export function registerCustomObjectTools(server: McpServer, client: SalesMapClient) {
+export function registerCustomObjectTools(server: McpServer) {
   server.tool(
     "salesmap_list_custom_objects",
     "커스텀 오브젝트 목록. 워크스페이스별 맞춤 데이터(계약, 프로젝트 등). 각 레코드에 customObjectDefinitionId로 어떤 타입인지 구분. 필드 정의는 salesmap_get_fields('custom-object')로 조회.",
     { cursor: z.string().optional().describe("페이지네이션 커서") },
-    async ({ cursor }) => {
+    async ({ cursor }, extra) => {
       try {
+        const client = getClient(extra);
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
         return ok(await client.get("/v2/custom-object", query));
@@ -31,8 +33,9 @@ export function registerCustomObjectTools(server: McpServer, client: SalesMapCli
     "salesmap_get_custom_object",
     "커스텀 오브젝트 단일 조회.",
     { customObjectId: z.string().describe("커스텀 오브젝트 UUID") },
-    async ({ customObjectId }) => {
+    async ({ customObjectId }, extra) => {
       try {
+        const client = getClient(extra);
         return ok(await client.get(`/v2/custom-object/${customObjectId}`));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -47,8 +50,9 @@ export function registerCustomObjectTools(server: McpServer, client: SalesMapCli
       customObjectDefinitionId: z.string().describe("커스텀 오브젝트 Definition ID (타입/스키마 식별자)"),
       fieldList: z.array(fieldListItem).optional().describe("필드 값 배열"),
     },
-    async ({ customObjectDefinitionId, fieldList }) => {
+    async ({ customObjectDefinitionId, fieldList }, extra) => {
       try {
+        const client = getClient(extra);
         const body: Record<string, unknown> = { customObjectDefinitionId };
         if (fieldList) body.fieldList = fieldList;
         return ok(await client.post("/v2/custom-object", body));
@@ -66,8 +70,9 @@ export function registerCustomObjectTools(server: McpServer, client: SalesMapCli
       ownerId: z.string().optional().describe("담당자 변경"),
       fieldList: z.array(fieldListItem).optional().describe("필드 수정"),
     },
-    async ({ customObjectId, ...body }) => {
+    async ({ customObjectId, ...body }, extra) => {
       try {
+        const client = getClient(extra);
         const cleanBody = Object.fromEntries(
           Object.entries(body).filter(([, v]) => v !== undefined),
         );

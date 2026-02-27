@@ -1,4 +1,4 @@
-import type { Env, SalesMapResponse } from "./types.js";
+import type { SalesMapResponse } from "./types";
 
 const BASE_URL = "https://salesmap.kr/api";
 const MIN_INTERVAL_MS = 120; // 100req/10sec = 100ms, 안전마진 포함 120ms
@@ -18,8 +18,8 @@ async function rateLimit(): Promise<void> {
 export class SalesMapClient {
   private token: string;
 
-  constructor(env: Env) {
-    this.token = env.SALESMAP_API_TOKEN;
+  constructor(token: string) {
+    this.token = token;
   }
 
   private async request<T = unknown>(
