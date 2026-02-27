@@ -18,7 +18,7 @@ const filterSchema = z.object({
     "DATE_AGO", "DATE_LATER",
   ]),
   value: z.union([z.string(), z.number(), z.array(z.string())]).optional()
-    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. DATE_BETWEEN은 ['시작','끝'] 배열. 빈 문자열 불가"),
+    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. DATE_BETWEEN은 ['시작','끝'] 배열. relation 필드(파이프라인, 담당자 등)는 UUID만 허용. 빈 문자열 불가"),
 });
 
 const filterGroupSchema = z.object({
