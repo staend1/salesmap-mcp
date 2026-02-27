@@ -168,6 +168,75 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
+  // ── Lead Time ───────────────────────────────────────────
+  const SUFFIXES = [
+    { key: "enteredAt", suffix: "로 진입한 날짜" },
+    { key: "durationSeconds", suffix: "에서 보낸 누적 시간" },
+    { key: "exitedAt", suffix: "에서 퇴장한 날짜" },
+  ] as const;
+
+  server.tool(
+    "salesmap_get_lead_time",
+    "딜/리드의 파이프라인 스테이지별 체류 시간 분석.",
+    {
+      type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
+      id: z.string().describe("레코드 ID"),
+    },
+    READ,
+    async ({ type, id }, extra) => {
+      try {
+        const client = getClient(extra);
+        const path = `/v2/${type}/${id}`;
+        const data = await client.getOne<Record<string, unknown>>(path, type);
+
+        // 파이프라인 자동필드만 추출 (non-null)
+        const stageMap = new Map<string, Record<string, unknown>>();
+
+        for (const [fieldName, value] of Object.entries(data)) {
+          if (value === null) continue;
+          for (const { key, suffix } of SUFFIXES) {
+            if (!fieldName.endsWith(suffix)) continue;
+            const stageKey = fieldName.slice(0, -suffix.length);
+            if (!stageMap.has(stageKey)) stageMap.set(stageKey, {});
+            stageMap.get(stageKey)![key] = value;
+            break;
+          }
+        }
+
+        // stageKey "스테이지명(파이프라인명)" → 파이프라인별 그룹핑
+        const pipelines = new Map<string, Array<{ stage: string; enteredAt?: unknown; durationSeconds?: unknown; exitedAt?: unknown }>>();
+
+        for (const [stageKey, values] of stageMap) {
+          const lastParen = stageKey.lastIndexOf("(");
+          const pipeline = lastParen > 0 ? stageKey.slice(lastParen + 1, -1) : "unknown";
+          const stage = lastParen > 0 ? stageKey.slice(0, lastParen) : stageKey;
+
+          if (!pipelines.has(pipeline)) pipelines.set(pipeline, []);
+          pipelines.get(pipeline)!.push({ stage, ...values });
+        }
+
+        // 진입 시간 순 정렬
+        for (const stages of pipelines.values()) {
+          stages.sort((a, b) => {
+            const ta = a.enteredAt ? String(a.enteredAt) : "";
+            const tb = b.enteredAt ? String(b.enteredAt) : "";
+            return ta.localeCompare(tb);
+          });
+        }
+
+        return ok({
+          id: data.id,
+          name: data["이름"],
+          currentStage: data["파이프라인 단계"],
+          currentPipeline: data["파이프라인"],
+          pipelines: Object.fromEntries(pipelines),
+        });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   // ── Record URL ─────────────────────────────────────────
   const URL_PATH_MAP: Record<string, string> = {
     people: "contact/people",
