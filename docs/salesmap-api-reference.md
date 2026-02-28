@@ -915,7 +915,7 @@ Response: { objectList: [{ id, name }], nextCursor }
 | 날짜(경과) | `DATE_MORE_THAN_DAYS_AGO`, `DATE_LESS_THAN_DAYS_AGO`, `DATE_LESS_THAN_DAYS_LATER`, `DATE_MORE_THAN_DAYS_LATER`, `DATE_AGO`, `DATE_LATER` |
 
 **주의:**
-- Relation 필드 (담당자 등): UUID 값만 허용, `CONTAINS`/`NOT_CONTAINS` 불가
+- Relation 필드 (담당자, 파이프라인, 파이프라인 단계, 고객, 회사 등): UUID 값만 허용, `CONTAINS`/`NOT_CONTAINS` 불가. `EXISTS`/`NOT_EXISTS`는 값 없이 사용 가능
 - MultiSelect: `EQ`/`NEQ` 대신 `LIST_CONTAIN`/`LIST_NOT_CONTAIN`
 - `DATE_BETWEEN` value: `["2025-01-01", "2025-12-31"]` 배열
 - 빈 값 체크: `EXISTS`/`NOT_EXISTS` 사용 (`NEQ` + `""` 안됨)
