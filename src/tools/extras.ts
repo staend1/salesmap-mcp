@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err } from "../client";
+import { ok, err, errWithSchemaHint } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -211,7 +211,15 @@ export function registerExtrasTools(server: McpServer) {
         }
         return ok(await client.post("/v2/quote", body));
       } catch (e: unknown) {
-        return err((e as Error).message);
+        const parts: string[] = [];
+        const fieldList = rest.fieldList;
+        if (Array.isArray(fieldList)) {
+          for (const f of fieldList) {
+            const field = f as Record<string, unknown>;
+            parts.push(`${field.name}`);
+          }
+        }
+        return errWithSchemaHint((e as Error).message, "quote", parts.length > 0 ? parts.join(", ") : undefined);
       }
     },
   );

@@ -1,6 +1,6 @@
 # SalesMap MCP Server
 
-> 최종 작업: 2026-02-27
+> 최종 작업: 2026-02-28
 
 ## 프로젝트 개요
 세일즈맵 CRM API v2를 MCP(Model Context Protocol) 서버로 래핑. Claude가 CRM 데이터를 직접 조회/생성/수정하여 영업 컨설팅+자동화 가능. 멀티테넌트 — 고객마다 자기 API 토큰으로 접속.
@@ -15,10 +15,11 @@
 | 파일 | 역할 |
 |------|------|
 | `app/api/[transport]/route.ts` | Vercel API 엔트리 (auth + MCP transport) |
-| `src/index.ts` | MCP 서버 생성 + 14개 tool 등록 |
-| `src/client.ts` | SalesMap API 클라이언트 (rate limit, retry, compactRecords) |
+| `src/index.ts` | MCP 서버 생성 + 16개 tool 등록 |
+| `src/client.ts` | SalesMap API 클라이언트 (rate limit, retry, compactRecords, errWithSchemaHint) |
 | `src/types.ts` | 공통 타입 + `getClient(extra)` 헬퍼 |
 | `src/tools/*.ts` | 4개 tool 파일 (field, search, generic, extras) |
+| `scripts/test-agent.mjs` | 멀티턴 에이전트 시뮬레이션 (LLM 행동 테스트) |
 
 ## 멀티테넌트
 각 고객이 자기 SalesMap API 토큰을 `Authorization: Bearer <token>` 헤더로 전달. 서버는 토큰을 저장하지 않음 — 요청마다 추출하여 API 호출에 사용.
@@ -44,11 +45,10 @@ npx vercel deploy --prod
 - `docs/hubspot-mcp-reference.md` — HubSpot MCP 패턴 분석 (설계 참고)
 
 ## 현재 상태
-- ✅ 14개 MCP tool (46개에서 통합)
-- ✅ MCP Annotations (readOnlyHint, destructiveHint, idempotentHint)
-- ✅ compactRecords 응답 필터 (list/search)
-- ✅ record URL 생성 tool
+- ✅ 16개 MCP tool (46개에서 통합 + batch_get, lead_time, record_url 추가)
+- ✅ 구조화된 description (선행 필수 명시, WHY 기반)
+- ✅ 컨텍스트 기반 에러 힌트 (fieldName/relation/기타 분기)
+- ✅ compactRecords 응답 필터 (list/search/get)
+- ✅ LLM 행동 테스트 자동화 (scripts/test-agent.mjs, 6/8 통과)
 - ⬜ Vercel 배포 + 실서버 테스트
-- ⬜ MCP Inspector 전체 tool 통합 테스트
-- ⬜ 에러 핸들링 고도화
 - ⬜ todo/memo/email/activity/history URL 지원 (API 개발 후)

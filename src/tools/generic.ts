@@ -52,6 +52,25 @@ function validateIdParams(params: Record<string, unknown>): string | null {
   return null;
 }
 
+function summarizeFields(params: Record<string, unknown>): string {
+  const parts: string[] = [];
+  // top-level 주요 파라미터
+  for (const key of ["name", "status", "pipelineId", "pipelineStageId", "price"]) {
+    if (params[key] !== undefined) parts.push(`${key}=${JSON.stringify(params[key])}`);
+  }
+  // fieldList 내 필드명+값
+  const fieldList = params.fieldList;
+  if (Array.isArray(fieldList)) {
+    for (const f of fieldList) {
+      const field = f as Record<string, unknown>;
+      const val = field.stringValue ?? field.numberValue ?? field.booleanValue ?? field.dateValue
+        ?? field.stringValueList ?? field.userValueId ?? field.organizationValueId ?? field.peopleValueId;
+      parts.push(`${field.name}=${JSON.stringify(val)}`);
+    }
+  }
+  return parts.join(", ");
+}
+
 const fieldListItem = z.object({
   name: z.string(),
   stringValue: z.string().optional(),
@@ -163,7 +182,7 @@ export function registerGenericTools(server: McpServer) {
         }
         return ok(await client.post(`/v2/${type}`, body));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, type);
+        return errWithSchemaHint((e as Error).message, type, summarizeFields(rest));
       }
     },
   );
@@ -197,7 +216,7 @@ export function registerGenericTools(server: McpServer) {
         );
         return ok(await client.post(`/v2/${type}/${id}`, body));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, type);
+        return errWithSchemaHint((e as Error).message, type, summarizeFields(rest));
       }
     },
   );

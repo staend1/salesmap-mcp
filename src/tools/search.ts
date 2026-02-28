@@ -83,7 +83,10 @@ export function registerSearchTools(server: McpServer) {
         const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList }, query);
         return ok(compactRecords(data));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, targetType);
+        const filters = (filterGroupList as FilterGroup[]).flatMap(g =>
+          g.filters.map(f => `${f.fieldName} ${f.operator} ${JSON.stringify(f.value)}`),
+        );
+        return errWithSchemaHint((e as Error).message, targetType, filters.join(", "));
       }
     },
   );
