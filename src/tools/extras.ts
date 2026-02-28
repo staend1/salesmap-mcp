@@ -219,7 +219,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap_get_pipeline_ids",
-    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. salesmap_create_record에서 deal/lead 생성 시 필요.",
+    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. 검색·생성 시 pipelineId/pipelineStageId 필요.",
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
