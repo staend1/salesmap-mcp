@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, compactRecords } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -80,28 +80,6 @@ export function registerGenericTools(server: McpServer) {
         }
 
         return ok({ total: results.length, records: results });
-      } catch (e: unknown) {
-        return err((e as Error).message);
-      }
-    },
-  );
-
-  // ── List ──────────────────────────────────────────────
-  server.tool(
-    "salesmap_list_records",
-    "레코드 목록 조회 (커서 페이지네이션). null 필드는 응답에서 생략됨.",
-    {
-      type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "todo", "memo"])
-        .describe("오브젝트 타입"),
-      cursor: z.string().optional().describe("페이지네이션 커서"),
-    },
-    READ,
-    async ({ type, cursor }, extra) => {
-      try {
-        const client = getClient(extra);
-        const query: Record<string, string> = {};
-        if (cursor) query.cursor = cursor;
-        return ok(compactRecords(await client.get(`/v2/${type}`, query)));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
