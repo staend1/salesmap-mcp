@@ -1,10 +1,43 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, errWithSchemaHint, compactRecords } from "../client";
+import { ok, err, errWithSchemaHint, compactRecords } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
+// ── relation 필드 pre-validation ──────────────────────
+const ID_FIELDS: Record<string, string> = {
+  "파이프라인": "salesmap_get_pipeline_ids",
+  "파이프라인 단계": "salesmap_get_pipeline_ids",
+  "종료된 파이프라인 단계": "salesmap_get_pipeline_ids",
+  "담당자": "salesmap_list_users",
+  "팔로워": "salesmap_list_users",
+  "최근 노트 작성자": "salesmap_list_users",
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(v: string): boolean { return UUID_RE.test(v); }
+
+type FilterGroup = { filters: Array<{ fieldName: string; operator: string; value?: string | number | string[] }> };
+
+function validateIdFields(groups: FilterGroup[]): string | null {
+  for (const group of groups) {
+    for (const f of group.filters) {
+      const tool = ID_FIELDS[f.fieldName];
+      if (!tool) continue;
+      if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") continue;
+      const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
+      const bad = vals.filter(v => !isUuid(v));
+      if (bad.length > 0) {
+        return `"${f.fieldName}" 필드는 이름이 아닌 ID(UUID)로 검색해야 합니다. ${tool}로 ID를 먼저 조회하세요. (입력값: "${bad[0]}")`;
+      }
+    }
+  }
+  return null;
+}
+
+// ── schema ─────────────────────────────────────────────
 const filterSchema = z.object({
   fieldName: z.string().describe("필드 한글 이름"),
   operator: z.enum([
@@ -28,7 +61,7 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap_search_records",
-    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND) 선행 필수: salesmap_describe_object. null 필드는 응답에서 생략됨",
+    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND). 선행 필수: salesmap_describe_object. null 필드는 응답에서 생략됨.",
     {
       targetType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
       filterGroupList: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
@@ -36,6 +69,10 @@ export function registerSearchTools(server: McpServer) {
     },
     READ,
     async ({ targetType, filterGroupList, cursor }, extra) => {
+      // relation 필드에 이름 대신 ID를 넣었는지 사전 검증
+      const idErr = validateIdFields(filterGroupList as FilterGroup[]);
+      if (idErr) return err(idErr);
+
       try {
         const client = getClient(extra);
         const query: Record<string, string> = {};
