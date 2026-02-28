@@ -6,6 +6,52 @@ import { getClient } from "../types";
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ── pre-validation ────────────────────────────────────
+function validateCreate(type: string, params: Record<string, unknown>): string | null {
+  if (type === "deal") {
+    if (!params.pipelineId) return "deal 생성에는 pipelineId가 필요합니다. salesmap_get_pipeline_ids로 조회하세요.";
+    if (!params.pipelineStageId) return "deal 생성에는 pipelineStageId가 필요합니다. salesmap_get_pipeline_ids로 조회하세요.";
+    if (!params.status) return "deal 생성에는 status가 필요합니다. ('Won', 'Lost', 'In progress')";
+  }
+  if ((type === "deal" || type === "lead") && !params.peopleId && !params.organizationId) {
+    return `${type} 생성에는 peopleId 또는 organizationId가 필요합니다.`;
+  }
+  return validateIdParams(params);
+}
+
+function validateIdParams(params: Record<string, unknown>): string | null {
+  // top-level ID 파라미터 UUID 검증
+  const idFields: Array<[string, string]> = [
+    ["pipelineId", "salesmap_get_pipeline_ids"],
+    ["pipelineStageId", "salesmap_get_pipeline_ids"],
+    ["peopleId", "salesmap_search_records (people)"],
+    ["organizationId", "salesmap_search_records (organization)"],
+  ];
+  for (const [key, tool] of idFields) {
+    const v = params[key];
+    if (typeof v === "string" && !UUID_RE.test(v)) {
+      return `${key}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
+    }
+  }
+  // fieldList 내 relation 값 UUID 검증
+  const fieldList = params.fieldList;
+  if (Array.isArray(fieldList)) {
+    for (const field of fieldList) {
+      const f = field as Record<string, unknown>;
+      for (const vk of ["userValueId", "organizationValueId", "peopleValueId"]) {
+        const v = f[vk];
+        if (typeof v === "string" && !UUID_RE.test(v)) {
+          const tool = vk === "userValueId" ? "salesmap_list_users" : "salesmap_search_records";
+          return `fieldList의 "${f.name}" → ${vk}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
+        }
+      }
+    }
+  }
+  return null;
+}
+
 const fieldListItem = z.object({
   name: z.string(),
   stringValue: z.string().optional(),
@@ -89,7 +135,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap_create_record",
-    "레코드 생성.\n선행 필수: salesmap_describe_object로 필드명·타입 확인. deal/lead는 salesmap_get_pipeline_ids로 pipelineId도 필요.",
+    "레코드 생성.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
@@ -106,6 +152,9 @@ export function registerGenericTools(server: McpServer) {
     },
     WRITE,
     async ({ type, ...rest }, extra) => {
+      const createErr = validateCreate(type, rest);
+      if (createErr) return err(createErr);
+
       try {
         const client = getClient(extra);
         const body: Record<string, unknown> = {};
@@ -122,13 +171,13 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap_update_record",
-    "레코드 수정.\n선행 필수: salesmap_describe_object로 필드명·타입 확인. 담당자 변경은 salesmap_list_users로 userValueId 확인.",
+    "레코드 수정.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
       name: z.string().optional(),
-      fieldList: z.array(fieldListItem).optional().describe("커스텀 필드. 담당자 변경은 userValueId 사용 (salesmap_list_users로 ID 확인)"),
+      fieldList: z.array(fieldListItem).optional().describe("커스텀 필드"),
       peopleId: z.string().optional(),
       organizationId: z.string().optional(),
       pipelineId: z.string().optional(),
@@ -138,6 +187,9 @@ export function registerGenericTools(server: McpServer) {
     },
     WRITE,
     async ({ type, id, ...rest }, extra) => {
+      const idErr = validateIdParams(rest);
+      if (idErr) return err(idErr);
+
       try {
         const client = getClient(extra);
         const body = Object.fromEntries(
