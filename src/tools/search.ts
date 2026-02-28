@@ -10,9 +10,11 @@ const ID_FIELDS: Record<string, string> = {
   "파이프라인": "salesmap_get_pipeline_ids",
   "파이프라인 단계": "salesmap_get_pipeline_ids",
   "종료된 파이프라인 단계": "salesmap_get_pipeline_ids",
+  "최근 딜의 파이프라인 단계": "salesmap_get_pipeline_ids",
   "담당자": "salesmap_list_users",
   "팔로워": "salesmap_list_users",
   "최근 노트 작성자": "salesmap_list_users",
+  "팀": "salesmap_list_teams",
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

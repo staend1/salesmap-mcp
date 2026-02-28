@@ -254,6 +254,26 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
+  // ── Teams ──────────────────────────────────────────
+  server.tool(
+    "salesmap_list_teams",
+    "팀 목록 조회. 검색 시 팀 필드는 teamId(UUID) 필요.",
+    {
+      cursor: z.string().optional().describe("페이지네이션 커서"),
+    },
+    READ,
+    async ({ cursor }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+        if (cursor) query.cursor = cursor;
+        return ok(await client.get("/v2/team", query));
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   // ── Current User ──────────────────────────────────────
   server.tool(
     "salesmap_get_current_user",
