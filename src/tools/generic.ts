@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -94,9 +94,11 @@ export function registerGenericTools(server: McpServer) {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
+      properties: z.array(z.string()).optional()
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
     },
     READ,
-    async ({ type, id }, extra) => {
+    async ({ type, id, properties }, extra) => {
       try {
         const client = getClient(extra);
         const path = `/v2/${type}/${id}`;
@@ -106,7 +108,11 @@ export function registerGenericTools(server: McpServer) {
         } else {
           data = await client.get(path);
         }
-        return ok(compactRecord(data as Record<string, unknown>));
+        let record = compactRecord(data as Record<string, unknown>);
+        if (properties && properties.length > 0) {
+          record = pickProperties(record, properties);
+        }
+        return ok(record);
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -116,14 +122,16 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Get ────────────────────────────────────────
   server.tool(
     "salesmap_batch_get_records",
-    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
+    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음. 다건 조회 시 properties로 필요한 필드만 지정 권장.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
       ids: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
+      properties: z.array(z.string()).optional()
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환. 다건 조회 시 지정 권장."),
     },
     READ,
-    async ({ type, ids }, extra) => {
+    async ({ type, ids, properties }, extra) => {
       try {
         const client = getClient(extra);
         const useGetOne = GET_ONE_TYPES.has(type);
@@ -138,7 +146,11 @@ export function registerGenericTools(server: McpServer) {
             } else {
               data = await client.get(path);
             }
-            results.push({ id, data: compactRecord(data as Record<string, unknown>) });
+            let record = compactRecord(data as Record<string, unknown>);
+            if (properties && properties.length > 0) {
+              record = pickProperties(record, properties);
+            }
+            results.push({ id, data: record });
           } catch (e: unknown) {
             results.push({ id, error: (e as Error).message });
           }
