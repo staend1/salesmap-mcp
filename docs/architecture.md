@@ -20,7 +20,11 @@ salesmap-mcp/
 └── docs/
     ├── PRD.md
     ├── architecture.md
-    └── hubspot-mcp-reference.md
+    └── references/
+        ├── hubspot-mcp-reference.md
+        ├── hubspot-mcp-teardown.md
+        ├── ejlee-salesmap-mcp-teardown.md
+        └── salesmap-openapi.yaml
 ```
 
 ## 핵심 흐름

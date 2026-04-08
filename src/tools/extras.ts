@@ -40,7 +40,7 @@ export function registerExtrasTools(server: McpServer) {
         const path = `/v2/${type}/${id}`;
         const data = await client.getOne<Record<string, unknown>>(path, type);
 
-        // 파이프라인 자동필드만 추출 (non-null)
+        // Extract pipeline auto-fields (non-null only)
         const stageMap = new Map<string, Record<string, unknown>>();
 
         for (const [fieldName, value] of Object.entries(data)) {
@@ -54,7 +54,7 @@ export function registerExtrasTools(server: McpServer) {
           }
         }
 
-        // stageKey "스테이지명(파이프라인명)" → 파이프라인별 그룹핑
+        // Group by pipeline — stageKey format: "StageName(PipelineName)"
         const pipelines = new Map<string, Array<{ stage: string; enteredAt?: unknown; durationSeconds?: unknown; exitedAt?: unknown }>>();
 
         for (const [stageKey, values] of stageMap) {
@@ -66,7 +66,7 @@ export function registerExtrasTools(server: McpServer) {
           pipelines.get(pipeline)!.push({ stage, ...values });
         }
 
-        // 진입 시간 순 정렬
+        // Sort by entry time
         for (const stages of pipelines.values()) {
           stages.sort((a, b) => {
             const ta = a.enteredAt ? String(a.enteredAt) : "";
@@ -124,24 +124,47 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap_get_association",
-    "레코드에 연결된 다른 레코드들 조회.",
+    "레코드에 연결된 다른 레코드들 조회. primary(FK 직접)와 custom(커스텀 필드) 관계를 모두 조회하여 병합 반환.",
     {
       targetType: objectType.describe("출발 오브젝트 타입"),
       targetId: z.string().describe("출발 오브젝트 ID"),
       toTargetType: objectType.describe("도착 오브젝트 타입"),
-      associationType: z.enum(["primary", "custom"]).describe("primary=FK 직접, custom=커스텀 필드"),
-      cursor: z.string().optional(),
     },
     READ,
-    async ({ targetType, targetId, toTargetType, associationType, cursor }, extra) => {
+    async ({ targetType, targetId, toTargetType }, extra) => {
       try {
         const client = getClient(extra);
-        const query: Record<string, string> = {};
-        if (cursor) query.cursor = cursor;
-        return ok(await client.get(
-          `/v2/object/${targetType}/${targetId}/association/${toTargetType}/${associationType}`,
-          query,
-        ));
+        const basePath = `/v2/object/${targetType}/${targetId}/association/${toTargetType}`;
+        const [primary, custom] = await Promise.all([
+          client.get(basePath + "/primary").catch(() => null),
+          client.get(basePath + "/custom").catch(() => null),
+        ]);
+
+        // Extract arrays from both responses and merge
+        const extract = (data: unknown): unknown[] => {
+          if (data == null || typeof data !== "object") return [];
+          const obj = data as Record<string, unknown>;
+          for (const v of Object.values(obj)) {
+            if (Array.isArray(v)) return v;
+          }
+          return [];
+        };
+
+        const primaryList = extract(primary);
+        const customList = extract(custom);
+
+        // Deduplicate by ID
+        const seen = new Set<string>();
+        const merged: unknown[] = [];
+        for (const item of [...primaryList, ...customList]) {
+          const id = (item as Record<string, unknown>)?.id as string;
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            merged.push(item);
+          }
+        }
+
+        return ok({ total: merged.length, records: merged });
       } catch (e: unknown) {
         return err((e as Error).message);
       }

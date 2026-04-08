@@ -23,7 +23,7 @@ function validateCreate(type: string, params: Record<string, unknown>): string |
 }
 
 function validateIdParams(params: Record<string, unknown>): string | null {
-  // top-level ID 파라미터 UUID 검증
+  // Validate top-level ID params are UUIDs
   const idFields: Array<[string, string]> = [
     ["pipelineId", "salesmap_get_pipeline_ids"],
     ["pipelineStageId", "salesmap_get_pipeline_ids"],
@@ -36,7 +36,7 @@ function validateIdParams(params: Record<string, unknown>): string | null {
       return `${key}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
     }
   }
-  // fieldList 내 relation 값 UUID 검증
+  // Validate relation field values in fieldList are UUIDs
   const fieldList = params.fieldList;
   if (Array.isArray(fieldList)) {
     for (const field of fieldList) {
@@ -55,11 +55,9 @@ function validateIdParams(params: Record<string, unknown>): string | null {
 
 function summarizeFields(params: Record<string, unknown>): string {
   const parts: string[] = [];
-  // top-level 주요 파라미터
   for (const key of ["name", "status", "pipelineId", "pipelineStageId", "price"]) {
     if (params[key] !== undefined) parts.push(`${key}=${JSON.stringify(params[key])}`);
   }
-  // fieldList 내 필드명+값
   const fieldList = params.fieldList;
   if (Array.isArray(fieldList)) {
     for (const f of fieldList) {
@@ -237,19 +235,40 @@ export function registerGenericTools(server: McpServer) {
   // ── Delete ───────────────────────────────────────────
   server.tool(
     "salesmap_delete_record",
-    "레코드 영구 삭제 (deal/lead만 지원). 되돌릴 수 없음. 시퀀스에 등록된 레코드는 삭제 불가 — 시퀀스 해제 후 재시도.",
+    `🛡️ Guardrails: 되돌릴 수 없는 영구 삭제. 반드시 사용자가 명시적으로 삭제를 요청한 경우에만 사용. 첫 호출은 confirmed=false로 레코드 정보를 보여주고, 사용자 확인 후 confirmed=true로 재호출.
+🎯 Purpose: deal/lead 레코드 영구 삭제. 시퀀스에 등록된 레코드는 삭제 불가 — 시퀀스 해제 후 재시도.`,
     {
       type: z.enum(["deal", "lead"])
         .describe("오브젝트 타입 (deal, lead만 지원)"),
       id: z.string().describe("삭제할 레코드 UUID"),
+      confirmed: z.boolean().default(false)
+        .describe("false=삭제 대상 미리보기만, true=실제 삭제 실행. 반드시 사용자 확인 후 true로 호출"),
     },
     DESTRUCTIVE,
-    async ({ type, id }, extra) => {
+    async ({ type, id, confirmed }, extra) => {
       if (!UUID_RE.test(id)) {
         return err("id는 UUID 형식이어야 합니다.");
       }
 
-      // Elicitation으로 사용자 확인 요청 (클라이언트 미지원 시 skip)
+      const client = getClient(extra);
+
+      // Preview mode — show record without deleting
+      if (!confirmed) {
+        try {
+          const path = `/v2/${type}/${id}`;
+          const data = await client.getOne(path, type);
+          const record = compactRecord(data as Record<string, unknown>);
+          return ok({
+            action: "preview",
+            message: `⚠️ 이 ${type} 레코드를 영구 삭제하려고 합니다. 되돌릴 수 없습니다. 삭제하려면 confirmed=true로 다시 호출하세요.`,
+            record,
+          });
+        } catch (e: unknown) {
+          return err((e as Error).message);
+        }
+      }
+
+      // Attempt Elicitation (if client supports it)
       try {
         const elicitResult = await server.server.elicitInput({
           mode: "form",
@@ -275,11 +294,11 @@ export function registerGenericTools(server: McpServer) {
           return ok({ cancelled: true, message: "삭제 확인이 체크되지 않았습니다." });
         }
       } catch {
-        // 클라이언트가 elicitation 미지원 → 확인 없이 진행
+        // Client doesn't support elicitation — fall back to description guardrails
       }
 
+      // Execute deletion
       try {
-        const client = getClient(extra);
         await client.post(`/v2/${type}/${id}/delete`);
         return ok({ deleted: true, type, id });
       } catch (e: unknown) {
