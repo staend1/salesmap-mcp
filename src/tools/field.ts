@@ -10,11 +10,11 @@ const FIELD_HINTS: Record<string, Record<string, string>> = {
   deal: {
     "마감일": "상태가 Won/Lost로 변경 시 자동 업데이트되는 종료 날짜",
     "종료까지 걸린 시간": "생성부터 Won/Lost까지 소요 시간",
-    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap_list_users)",
+    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap-list-users)",
     "팔로워": "서브 담당자들. 검색 시 userValueId 사용",
-    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap_list_teams)",
-    "파이프라인": "검색/생성 시 pipelineId 사용 (salesmap_get_pipeline_ids)",
-    "파이프라인 단계": "검색/생성 시 pipelineStageId 사용 (salesmap_get_pipeline_ids)",
+    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap-list-teams)",
+    "파이프라인": "검색/생성 시 pipelineId 사용 (salesmap-get-pipelines)",
+    "파이프라인 단계": "검색/생성 시 pipelineStageId 사용 (salesmap-get-pipelines)",
     "종료된 파이프라인 단계": "Won/Lost 시점의 단계. 검색 시 pipelineStageId 사용",
     "최근 파이프라인 수정 날짜": "파이프라인 자체가 변경된 날짜",
     "최근 파이프라인 단계 수정 날짜": "파이프라인 단계가 변경된 날짜",
@@ -24,11 +24,11 @@ const FIELD_HINTS: Record<string, Record<string, string>> = {
   },
   lead: {
     "총 매출": "성사된 딜 금액 합계 (자동)",
-    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap_list_users)",
+    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap-list-users)",
     "팔로워": "서브 담당자들. 검색 시 userValueId 사용",
-    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap_list_teams)",
-    "파이프라인": "검색 시 pipelineId 사용 (salesmap_get_pipeline_ids)",
-    "파이프라인 단계": "검색 시 pipelineStageId 사용 (salesmap_get_pipeline_ids)",
+    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap-list-teams)",
+    "파이프라인": "검색 시 pipelineId 사용 (salesmap-get-pipelines)",
+    "파이프라인 단계": "검색 시 pipelineStageId 사용 (salesmap-get-pipelines)",
     "최근 딜의 파이프라인 단계": "연결된 딜 중 최신 딜의 파이프라인 단계 (자동). 검색 시 pipelineStageId 사용",
     "최근 파이프라인 수정 날짜": "파이프라인 자체가 변경된 날짜",
     "최근 파이프라인 단계 수정 날짜": "파이프라인 단계가 변경된 날짜",
@@ -37,8 +37,8 @@ const FIELD_HINTS: Record<string, Record<string, string>> = {
     "RecordId": "레코드 고유 ID",
   },
   people: {
-    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap_list_users)",
-    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap_list_teams)",
+    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap-list-users)",
+    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap-list-teams)",
     "딜 개수": "연결된 전체 딜 수 (자동)",
     "리드 개수": "연결된 전체 리드 수 (자동)",
     "진행중 딜 개수": "In progress 딜 수 (자동)",
@@ -48,8 +48,8 @@ const FIELD_HINTS: Record<string, Record<string, string>> = {
     "RecordId": "레코드 고유 ID",
   },
   organization: {
-    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap_list_users)",
-    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap_list_teams)",
+    "담당자": "메인 담당자. 검색 시 userValueId 사용 (salesmap-list-users)",
+    "팀": "메인 담당자의 소속 팀 (자동). 검색 시 teamId 사용 (salesmap-list-teams)",
     "연결된 고객 수": "연결된 people 수 (자동)",
     "딜 개수": "연결된 전체 딜 수 (자동)",
     "리드 개수": "연결된 전체 리드 수 (자동)",
@@ -86,18 +86,18 @@ function injectHints(type: string, data: unknown): unknown {
 
 export function registerFieldTools(server: McpServer) {
   server.tool(
-    "salesmap_describe_object",
+    "salesmap-list-properties",
     "오브젝트의 필드 이름·타입·옵션 조회. 검색·생성·수정 전에 반드시 이 도구로 스키마를 확인해야 합니다.",
     {
-      type: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
+      objectType: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
         .describe("오브젝트 타입"),
     },
     READ,
-    async ({ type }, extra) => {
+    async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        const data = await client.get(`/v2/field/${type}`);
-        return ok(injectHints(type, data));
+        const data = await client.get(`/v2/field/${objectType}`);
+        return ok(injectHints(objectType, data));
       } catch (e: unknown) {
         return err((e as Error).message);
       }

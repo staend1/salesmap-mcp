@@ -49,23 +49,23 @@ Use the same HTTP URL with the MCP extension settings for your editor.
 
 | Category | Tool | Description |
 |----------|------|-------------|
-| **Schema** | `salesmap_describe_object` | Get field names, types, and options for any object |
-| **Search** | `salesmap_search_records` | Filter-based search with OR/AND group logic |
-| **CRUD** | `salesmap_get_record` | Get a single record |
-| | `salesmap_batch_get_records` | Get up to 20 records at once |
-| | `salesmap_create_record` | Create a record |
-| | `salesmap_update_record` | Update a record |
-| | `salesmap_delete_record` | Delete a deal/lead (2-step confirmation) |
-| **Relations** | `salesmap_get_association` | Get linked records (primary + custom) |
-| **Notes** | `salesmap_create_memo` | Add a note to any record |
-| **Pipeline** | `salesmap_get_pipeline_ids` | List pipelines and stages |
-| | `salesmap_get_lead_time` | Analyze stage dwell times |
-| **Quotes** | `salesmap_get_quotes` | List quotes for a deal/lead |
-| | `salesmap_create_quote` | Create and link a quote |
-| **Users** | `salesmap_list_users` | List CRM users |
-| | `salesmap_list_teams` | List teams |
-| | `salesmap_get_current_user` | Get current token owner |
-| **Utility** | `salesmap_get_record_url` | Generate CRM web URL |
+| **Schema** | `salesmap-list-properties` | Get field names, types, and options for any object |
+| **Search** | `salesmap-search-objects` | Filter-based search with OR/AND group logic |
+| **CRUD** | `salesmap-read-object` | Get a single record |
+| | `salesmap-batch-read-objects` | Get up to 20 records at once |
+| | `salesmap-create-object` | Create a record |
+| | `salesmap-update-object` | Update a record |
+| | `salesmap-delete-object` | Delete a deal/lead (2-step confirmation) |
+| **Relations** | `salesmap-list-associations` | Get linked records (primary + custom) |
+| **Notes** | `salesmap-create-note` | Add a note to any record |
+| **Pipeline** | `salesmap-get-pipelines` | List pipelines and stages |
+| | `salesmap-get-lead-time` | Analyze stage dwell times |
+| **Quotes** | `salesmap-get-quotes` | List quotes for a deal/lead |
+| | `salesmap-create-quote` | Create and link a quote |
+| **Users** | `salesmap-list-users` | List CRM users |
+| | `salesmap-list-teams` | List teams |
+| | `salesmap-get-user-details` | Get current token owner |
+| **Utility** | `salesmap-get-link` | Generate CRM web URL |
 
 ## Architecture
 

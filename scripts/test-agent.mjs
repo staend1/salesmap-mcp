@@ -253,9 +253,9 @@ function analyzeTrace(trace) {
   const toolNames = trace.toolCalls.map((t) => t.name);
 
   // 1. describe_object 선행 체크
-  const needsSchema = ["salesmap_search_records", "salesmap_create_record", "salesmap_update_record"];
+  const needsSchema = ["salesmap-search-objects", "salesmap-create-object", "salesmap-update-object"];
   const firstSchemaNeeded = toolNames.findIndex((n) => needsSchema.includes(n));
-  const firstDescribe = toolNames.indexOf("salesmap_describe_object");
+  const firstDescribe = toolNames.indexOf("salesmap-list-properties");
 
   if (firstSchemaNeeded !== -1 && (firstDescribe === -1 || firstDescribe > firstSchemaNeeded)) {
     issues.push({
@@ -265,9 +265,9 @@ function analyzeTrace(trace) {
   }
 
   // 2. N+1 문제 체크
-  const getRecordCalls = toolNames.filter((n) => n === "salesmap_get_record");
+  const getRecordCalls = toolNames.filter((n) => n === "salesmap-read-object");
   if (getRecordCalls.length >= 3) {
-    const usedBatch = toolNames.includes("salesmap_batch_get_records");
+    const usedBatch = toolNames.includes("salesmap-batch-read-objects");
     if (!usedBatch) {
       issues.push({
         type: "N_PLUS_1",
@@ -287,7 +287,7 @@ function analyzeTrace(trace) {
   // 4. 에러 후 자기 교정
   for (const err of trace.errors) {
     const laterCalls = trace.toolCalls.filter((t) => t.turn > err.turn);
-    const recovered = laterCalls.some((t) => t.name === "salesmap_describe_object");
+    const recovered = laterCalls.some((t) => t.name === "salesmap-list-properties");
     if (!recovered && err.error.includes("[힌트]")) {
       issues.push({
         type: "NO_RECOVERY",
@@ -335,7 +335,7 @@ async function main() {
       allResults.push(trace);
 
       // tool 호출 시퀀스
-      const callSeq = trace.toolCalls.map((t) => `T${t.turn}:${t.name.replace("salesmap_", "")}`);
+      const callSeq = trace.toolCalls.map((t) => `T${t.turn}:${t.name.replace("salesmap-", "")}`);
       console.log(`  Tools: ${callSeq.join(" → ")}`);
       console.log(`  Turns: ${trace.turns.length}, Calls: ${trace.toolCalls.length}, Errors: ${trace.errors.length}`);
       console.log(`  Tokens: ${trace.totalTokens.input}in + ${trace.totalTokens.output}out`);
