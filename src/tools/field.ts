@@ -5,7 +5,7 @@ import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
-// ── 시스템 필드 description (이름만으로 의미 파악이 어려운 것만) ──
+// System field hints — added to fields where the name alone is ambiguous
 const FIELD_HINTS: Record<string, Record<string, string>> = {
   deal: {
     "마감일": "상태가 Won/Lost로 변경 시 자동 업데이트되는 종료 날짜",

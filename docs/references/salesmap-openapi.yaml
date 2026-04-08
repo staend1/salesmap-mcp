@@ -1,0 +1,805 @@
+openapi: 3.0.3
+info:
+  title: SalesMap API
+  description: SalesMap CRM API - 회사, 고객, 딜, 리드, 검색, 메모 관리
+  version: 2.0.0
+servers:
+  - url: https://salesmap.kr/api
+security:
+  - BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    FieldItem:
+      type: object
+      properties:
+        fieldId:
+          type: string
+        stringValue:
+          type: string
+        numberValue:
+          type: number
+        booleanValue:
+          type: boolean
+        dateValue:
+          type: string
+        stringValueList:
+          type: array
+          items:
+            type: string
+        userValueId:
+          type: string
+        organizationValueId:
+          type: string
+        peopleValueId:
+          type: string
+        pipelineValueId:
+          type: string
+        pipelineStageValueId:
+          type: string
+    SearchFilter:
+      type: object
+      properties:
+        fieldId:
+          type: string
+        operator:
+          type: string
+          enum: [EQ, NEQ, EXISTS, NOT_EXISTS, CONTAINS, NOT_CONTAINS, LT, LTE, GT, GTE, IN, NOT_IN, LIST_CONTAIN, LIST_NOT_CONTAIN, DATE_ON_OR_AFTER, DATE_ON_OR_BEFORE, DATE_BETWEEN]
+        value:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+            - type: array
+              items:
+                type: string
+    CursorResponse:
+      type: object
+      properties:
+        objectList:
+          type: array
+          items:
+            type: object
+        nextCursor:
+          type: string
+          nullable: true
+    SingleResponse:
+      type: object
+      properties:
+        data:
+          type: object
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        reason:
+          type: string
+  parameters:
+    cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+      description: 페이징 커서
+    limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        default: 100
+      description: 조회 건수 (최대 100)
+
+paths:
+  # ── Organization ──
+  /v2/organization:
+    get:
+      operationId: listOrganizations
+      summary: 회사 목록 조회
+      description: 커서 기반 페이징으로 회사 목록을 조회합니다.
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 회사 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+    post:
+      operationId: createOrganization
+      summary: 회사 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 회사명
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+              required:
+                - name
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/organization/{orgId}:
+    get:
+      operationId: getOrganization
+      summary: 회사 상세 조회
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 회사 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleResponse'
+    post:
+      operationId: updateOrganization
+      summary: 회사 수정
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+      responses:
+        '200':
+          description: 수정 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ── People ──
+  /v2/people:
+    get:
+      operationId: listPeople
+      summary: 고객 목록 조회
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 고객 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+    post:
+      operationId: createPeople
+      summary: 고객 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 고객명
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+              required:
+                - name
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/people/{peopleId}:
+    get:
+      operationId: getPeople
+      summary: 고객 상세 조회
+      parameters:
+        - name: peopleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 고객 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleResponse'
+    post:
+      operationId: updatePeople
+      summary: 고객 수정
+      parameters:
+        - name: peopleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+      responses:
+        '200':
+          description: 수정 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  # ── Deal ──
+  /v2/deal:
+    get:
+      operationId: listDeals
+      summary: 딜 목록 조회
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - name: pipelineId
+          in: query
+          schema:
+            type: string
+          description: 파이프라인 ID로 필터
+      responses:
+        '200':
+          description: 딜 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+    post:
+      operationId: createDeal
+      summary: 딜 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 딜 이름
+                price:
+                  type: number
+                  description: 딜 금액 (fieldList가 아닌 top-level 파라미터)
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+              required:
+                - name
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/deal/{dealId}:
+    get:
+      operationId: getDeal
+      summary: 딜 상세 조회
+      parameters:
+        - name: dealId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 딜 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleResponse'
+    post:
+      operationId: updateDeal
+      summary: 딜 수정
+      parameters:
+        - name: dealId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                price:
+                  type: number
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+      responses:
+        '200':
+          description: 수정 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/deal/pipeline:
+    get:
+      operationId: getDealPipeline
+      summary: 딜 파이프라인 정의 조회
+      description: 딜 파이프라인의 단계(stage) 목록을 조회합니다.
+      responses:
+        '200':
+          description: 파이프라인 정의
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ── Lead ──
+  /v2/lead:
+    get:
+      operationId: listLeads
+      summary: 리드 목록 조회
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+        - name: pipelineId
+          in: query
+          schema:
+            type: string
+          description: 파이프라인 ID로 필터
+      responses:
+        '200':
+          description: 리드 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+    post:
+      operationId: createLead
+      summary: 리드 생성
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: 리드 이름
+                price:
+                  type: number
+                  description: 리드 금액
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+              required:
+                - name
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/lead/{leadId}:
+    get:
+      operationId: getLead
+      summary: 리드 상세 조회
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 리드 상세
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SingleResponse'
+    post:
+      operationId: updateLead
+      summary: 리드 수정
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                price:
+                  type: number
+                fieldList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/FieldItem'
+      responses:
+        '200':
+          description: 수정 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/lead/pipeline:
+    get:
+      operationId: getLeadPipeline
+      summary: 리드 파이프라인 정의 조회
+      responses:
+        '200':
+          description: 파이프라인 정의
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ── Search ──
+  /v2/object/people/search:
+    post:
+      operationId: searchPeople
+      summary: 고객 검색
+      description: 복합 조건으로 고객을 검색합니다. (10포인트 rate limit)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filterList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchFilter'
+                cursor:
+                  type: string
+                limit:
+                  type: integer
+                  default: 100
+      responses:
+        '200':
+          description: 검색 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+
+  /v2/object/organization/search:
+    post:
+      operationId: searchOrganizations
+      summary: 회사 검색
+      description: 복합 조건으로 회사를 검색합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filterList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchFilter'
+                cursor:
+                  type: string
+                limit:
+                  type: integer
+                  default: 100
+      responses:
+        '200':
+          description: 검색 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+
+  /v2/object/deal/search:
+    post:
+      operationId: searchDeals
+      summary: 딜 검색
+      description: 복합 조건으로 딜을 검색합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filterList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchFilter'
+                cursor:
+                  type: string
+                limit:
+                  type: integer
+                  default: 100
+      responses:
+        '200':
+          description: 검색 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+
+  /v2/object/lead/search:
+    post:
+      operationId: searchLeads
+      summary: 리드 검색
+      description: 복합 조건으로 리드를 검색합니다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filterList:
+                  type: array
+                  items:
+                    $ref: '#/components/schemas/SearchFilter'
+                cursor:
+                  type: string
+                limit:
+                  type: integer
+                  default: 100
+      responses:
+        '200':
+          description: 검색 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+
+  # ── Field ──
+  /v2/field/{type}:
+    get:
+      operationId: getFieldDefinitions
+      summary: 필드 정의 조회
+      description: 오브젝트 유형별 필드 정의(이름, 타입, 필수 여부, 옵션값)를 조회합니다.
+      parameters:
+        - name: type
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [deal, lead, people, organization, product, quote, todo, custom-object]
+      responses:
+        '200':
+          description: 필드 정의 목록
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ── User ──
+  /v2/user:
+    get:
+      operationId: listUsers
+      summary: 사용자 목록 조회
+      responses:
+        '200':
+          description: 사용자 목록
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /v2/user/me:
+    get:
+      operationId: getMyInfo
+      summary: 내 정보 조회
+      responses:
+        '200':
+          description: 내 사용자 정보
+          content:
+            application/json:
+              schema:
+                type: object
+
+  # ── Memo ──
+  /v2/memo:
+    get:
+      operationId: listMemos
+      summary: 메모 목록 조회
+      parameters:
+        - $ref: '#/components/parameters/cursor'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: 메모 목록
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursorResponse'
+
+  /v2/organization/{orgId}/memo:
+    post:
+      operationId: createOrganizationMemo
+      summary: 회사에 메모 생성
+      parameters:
+        - name: orgId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                memo:
+                  type: string
+                  description: 메모 내용
+              required:
+                - memo
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/people/{peopleId}/memo:
+    post:
+      operationId: createPeopleMemo
+      summary: 고객에 메모 생성
+      parameters:
+        - name: peopleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                memo:
+                  type: string
+                  description: 메모 내용
+              required:
+                - memo
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/deal/{dealId}/memo:
+    post:
+      operationId: createDealMemo
+      summary: 딜에 메모 생성
+      parameters:
+        - name: dealId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                memo:
+                  type: string
+                  description: 메모 내용
+              required:
+                - memo
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+
+  /v2/lead/{leadId}/memo:
+    post:
+      operationId: createLeadMemo
+      summary: 리드에 메모 생성
+      parameters:
+        - name: leadId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                memo:
+                  type: string
+                  description: 메모 내용
+              required:
+                - memo
+      responses:
+        '200':
+          description: 생성 결과
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'

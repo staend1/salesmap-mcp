@@ -23,7 +23,7 @@ function validateCreate(type: string, params: Record<string, unknown>): string |
 }
 
 function validateIdParams(params: Record<string, unknown>): string | null {
-  // top-level ID 파라미터 UUID 검증
+  // Validate top-level ID params are UUIDs
   const idFields: Array<[string, string]> = [
     ["pipelineId", "salesmap_get_pipeline_ids"],
     ["pipelineStageId", "salesmap_get_pipeline_ids"],
@@ -36,7 +36,7 @@ function validateIdParams(params: Record<string, unknown>): string | null {
       return `${key}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
     }
   }
-  // fieldList 내 relation 값 UUID 검증
+  // Validate relation field values in fieldList are UUIDs
   const fieldList = params.fieldList;
   if (Array.isArray(fieldList)) {
     for (const field of fieldList) {
@@ -55,11 +55,9 @@ function validateIdParams(params: Record<string, unknown>): string | null {
 
 function summarizeFields(params: Record<string, unknown>): string {
   const parts: string[] = [];
-  // top-level 주요 파라미터
   for (const key of ["name", "status", "pipelineId", "pipelineStageId", "price"]) {
     if (params[key] !== undefined) parts.push(`${key}=${JSON.stringify(params[key])}`);
   }
-  // fieldList 내 필드명+값
   const fieldList = params.fieldList;
   if (Array.isArray(fieldList)) {
     for (const f of fieldList) {
@@ -254,7 +252,7 @@ export function registerGenericTools(server: McpServer) {
 
       const client = getClient(extra);
 
-      // confirmed=false → 레코드 정보 미리보기 (삭제 안 함)
+      // Preview mode — show record without deleting
       if (!confirmed) {
         try {
           const path = `/v2/${type}/${id}`;
@@ -270,7 +268,7 @@ export function registerGenericTools(server: McpServer) {
         }
       }
 
-      // confirmed=true → Elicitation 시도 (클라이언트 지원 시)
+      // Attempt Elicitation (if client supports it)
       try {
         const elicitResult = await server.server.elicitInput({
           mode: "form",
@@ -296,10 +294,10 @@ export function registerGenericTools(server: McpServer) {
           return ok({ cancelled: true, message: "삭제 확인이 체크되지 않았습니다." });
         }
       } catch {
-        // 클라이언트가 elicitation 미지원 → description 가드레일에 의존
+        // Client doesn't support elicitation — fall back to description guardrails
       }
 
-      // 실제 삭제 실행
+      // Execute deletion
       try {
         await client.post(`/v2/${type}/${id}/delete`);
         return ok({ deleted: true, type, id });

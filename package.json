@@ -1,7 +1,16 @@
 {
   "name": "salesmap-mcp",
   "version": "1.0.0",
+  "description": "MCP server for SalesMap CRM — connect AI assistants to your sales data",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/conductor-is/salesmap-mcp"
+  },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",

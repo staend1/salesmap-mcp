@@ -1,7 +1,7 @@
 import type { SalesMapResponse } from "./types";
 
 const BASE_URL = "https://salesmap.kr/api";
-const MIN_INTERVAL_MS = 120; // 100req/10sec = 100ms, 안전마진 포함 120ms
+const MIN_INTERVAL_MS = 120; // 100req/10s = 100ms + safety margin
 const MAX_RETRIES = 3;
 
 let lastRequestTime = 0;
@@ -81,7 +81,7 @@ export class SalesMapClient {
     return this.request<T>("POST", path, body, query);
   }
 
-  // 단일 조회 헬퍼 — 배열 래핑 자동 추출
+  /** Get single record — auto-unwraps SalesMap's array-wrapped responses */
   async getOne<T = unknown>(path: string, key: string): Promise<T> {
     const data = await this.get<Record<string, unknown[]>>(path);
     const arr = data[key];
@@ -92,7 +92,7 @@ export class SalesMapClient {
   }
 }
 
-// ── 응답 필터링 (list/search용) ──────────────────────
+// ── Response filtering (for list/search) ──────────────────────
 const PIPELINE_SUFFIXES = [
   "로 진입한 날짜",
   "에서 보낸 누적 시간",
@@ -138,7 +138,7 @@ export function pickProperties(
   return result;
 }
 
-// Tool 응답 헬퍼
+// Tool response helpers
 export function ok(data: unknown) {
   return {
     content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],

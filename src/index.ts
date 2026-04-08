@@ -11,15 +11,15 @@ export function createServer(): McpServer {
     version: "2.0.0",
   });
 
-  // 스키마 탐색 + 검색 (2 tools)
-  registerFieldTools(server);    // 1: salesmap_get_fields
-  registerSearchTools(server);   // 2: salesmap_search_records
+  // Schema + Search (2 tools)
+  registerFieldTools(server);
+  registerSearchTools(server);
 
-  // 범용 CRUD (5 tools)
-  registerGenericTools(server);  // 3-7: get, batch_get, create, update, delete
+  // CRUD (5 tools)
+  registerGenericTools(server);
 
-  // 지원 도구 (10 tools)
-  registerExtrasTools(server);   // 7-16: lead_time, record_url, association, memo, quotes, quote_create, pipeline, users, teams, me
+  // Supporting tools (10 tools)
+  registerExtrasTools(server);
 
   return server;
 }

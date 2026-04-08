@@ -53,7 +53,7 @@
 ### Tool 통합 전략
 - 초기 46개 → 14개로 통합 (objectType 파라미터 기반 범용 CRUD)
 - LLM 행동 최적화: tool 이름/설명으로 호출 순서 유도 (describe_object 우선)
-- HubSpot MCP 패턴 참고 (`docs/hubspot-mcp-reference.md`)
+- HubSpot MCP 패턴 참고 (`docs/references/hubspot-mcp-reference.md`)
 
 ### SalesMap API 주의사항
 - 단일 조회: 모든 오브젝트 배열 래핑 (`data.people[0]` 등)

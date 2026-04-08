@@ -5,7 +5,7 @@ import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
-// ── relation 필드 pre-validation ──────────────────────
+// ── Relation field pre-validation ──────────────────────
 const ID_FIELDS: Record<string, string> = {
   "파이프라인": "salesmap_get_pipeline_ids",
   "파이프라인 단계": "salesmap_get_pipeline_ids",
@@ -71,7 +71,7 @@ export function registerSearchTools(server: McpServer) {
     },
     READ,
     async ({ targetType, filterGroupList, cursor }, extra) => {
-      // relation 필드에 이름 대신 ID를 넣었는지 사전 검증
+      // Pre-validate: relation fields must use UUIDs, not names
       const idErr = validateIdFields(filterGroupList as FilterGroup[]);
       if (idErr) return err(idErr);
 
