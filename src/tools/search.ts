@@ -18,21 +18,22 @@ const ID_FIELDS: Record<string, string> = {
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 
-function isUuid(v: string): boolean { return UUID_RE.test(v); }
+function isValidId(v: string): boolean { return UUID_RE.test(v) || HEX_ID_RE.test(v); }
 
-type FilterGroup = { filters: Array<{ fieldName: string; operator: string; value?: string | number | string[] }> };
+type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | string[] }> };
 
 function validateIdFields(groups: FilterGroup[]): string | null {
   for (const group of groups) {
     for (const f of group.filters) {
-      const tool = ID_FIELDS[f.fieldName];
+      const tool = ID_FIELDS[f.propertyName];
       if (!tool) continue;
       if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") continue;
       const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
-      const bad = vals.filter(v => !isUuid(v));
+      const bad = vals.filter(v => !isValidId(v));
       if (bad.length > 0) {
-        return `"${f.fieldName}" 필드는 이름이 아닌 ID(UUID)로 검색해야 합니다. ${tool}로 ID를 먼저 조회하세요. (입력값: "${bad[0]}")`;
+        return `"${f.propertyName}" 필드는 이름이 아닌 ID(UUID)로 검색해야 합니다. ${tool}로 ID를 먼저 조회하세요. (입력값: "${bad[0]}")`;
       }
     }
   }
@@ -41,7 +42,7 @@ function validateIdFields(groups: FilterGroup[]): string | null {
 
 // ── schema ─────────────────────────────────────────────
 const filterSchema = z.object({
-  fieldName: z.string().describe("필드 한글 이름"),
+  propertyName: z.string().describe("필드 한글 이름 (salesmap-list-properties 참조)"),
   operator: z.enum([
     "EQ", "NEQ", "EXISTS", "NOT_EXISTS",
     "CONTAINS", "NOT_CONTAINS",
@@ -80,11 +81,20 @@ export function registerSearchTools(server: McpServer) {
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
 
-        const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList }, query);
+        // Convert propertyName → fieldName for SalesMap API
+        const apiFilterGroups = (filterGroupList as FilterGroup[]).map(g => ({
+          filters: g.filters.map(f => ({
+            fieldName: f.propertyName,
+            operator: f.operator,
+            ...(f.value !== undefined ? { value: f.value } : {}),
+          })),
+        }));
+
+        const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList: apiFilterGroups }, query);
         return ok(compactRecords(data));
       } catch (e: unknown) {
         const filters = (filterGroupList as FilterGroup[]).flatMap(g =>
-          g.filters.map(f => `${f.fieldName} ${f.operator} ${JSON.stringify(f.value)}`),
+          g.filters.map(f => `${f.propertyName} ${f.operator} ${JSON.stringify(f.value)}`),
         );
         return errWithSchemaHint((e as Error).message, targetType, filters.join(", "));
       }

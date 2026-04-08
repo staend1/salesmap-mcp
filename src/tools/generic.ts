@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, pickProperties } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -22,32 +22,25 @@ function validateCreate(type: string, params: Record<string, unknown>): string |
   return validateIdParams(params);
 }
 
+const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId (pipeline IDs)
+
 function validateIdParams(params: Record<string, unknown>): string | null {
-  // Validate top-level ID params are UUIDs
+  // Pipeline IDs can be UUID or MongoDB ObjectId
+  for (const key of ["pipelineId", "pipelineStageId"]) {
+    const v = params[key];
+    if (typeof v === "string" && !UUID_RE.test(v) && !HEX_ID_RE.test(v)) {
+      return `${key}는 ID 형식이어야 합니다. salesmap-get-pipelines로 조회하세요. (입력값: "${v}")`;
+    }
+  }
+  // People/Org IDs can be UUID or MongoDB ObjectId
   const idFields: Array<[string, string]> = [
-    ["pipelineId", "salesmap-get-pipelines"],
-    ["pipelineStageId", "salesmap-get-pipelines"],
     ["peopleId", "salesmap-search-objects (people)"],
     ["organizationId", "salesmap-search-objects (organization)"],
   ];
   for (const [key, tool] of idFields) {
     const v = params[key];
-    if (typeof v === "string" && !UUID_RE.test(v)) {
-      return `${key}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
-    }
-  }
-  // Validate relation field values in fieldList are UUIDs
-  const fieldList = params.fieldList;
-  if (Array.isArray(fieldList)) {
-    for (const field of fieldList) {
-      const f = field as Record<string, unknown>;
-      for (const vk of ["userValueId", "organizationValueId", "peopleValueId"]) {
-        const v = f[vk];
-        if (typeof v === "string" && !UUID_RE.test(v)) {
-          const tool = vk === "userValueId" ? "salesmap-list-users" : "salesmap-search-objects";
-          return `fieldList의 "${f.name}" → ${vk}는 UUID여야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
-        }
-      }
+    if (typeof v === "string" && !UUID_RE.test(v) && !HEX_ID_RE.test(v)) {
+      return `${key}는 ID 형식이어야 합니다. ${tool}로 ID를 확인하세요. (입력값: "${v}")`;
     }
   }
   return null;
@@ -58,29 +51,14 @@ function summarizeFields(params: Record<string, unknown>): string {
   for (const key of ["name", "status", "pipelineId", "pipelineStageId", "price"]) {
     if (params[key] !== undefined) parts.push(`${key}=${JSON.stringify(params[key])}`);
   }
-  const fieldList = params.fieldList;
-  if (Array.isArray(fieldList)) {
-    for (const f of fieldList) {
-      const field = f as Record<string, unknown>;
-      const val = field.stringValue ?? field.numberValue ?? field.booleanValue ?? field.dateValue
-        ?? field.stringValueList ?? field.userValueId ?? field.organizationValueId ?? field.peopleValueId;
-      parts.push(`${field.name}=${JSON.stringify(val)}`);
+  const properties = params.properties;
+  if (properties && typeof properties === "object" && !Array.isArray(properties)) {
+    for (const [k, v] of Object.entries(properties as Record<string, unknown>)) {
+      parts.push(`${k}=${JSON.stringify(v)}`);
     }
   }
   return parts.join(", ");
 }
-
-const fieldListItem = z.object({
-  name: z.string(),
-  stringValue: z.string().optional(),
-  numberValue: z.number().optional(),
-  booleanValue: z.boolean().optional(),
-  dateValue: z.string().optional(),
-  stringValueList: z.array(z.string()).optional(),
-  userValueId: z.string().optional(),
-  organizationValueId: z.string().optional(),
-  peopleValueId: z.string().optional(),
-}).passthrough();
 
 const GET_ONE_TYPES = new Set(["people", "organization", "deal", "lead"]);
 
@@ -165,13 +143,15 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap-create-object",
-    "레코드 생성.",
+    "레코드 생성. properties에 필드 한글 이름과 값을 key-value로 전달 — 타입 변환은 자동 처리됨.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
       name: z.string().optional().describe("이름 (custom-object 제외 필수)"),
       memo: z.string().optional().describe("초기 메모"),
-      fieldList: z.array(fieldListItem).optional().describe("커스텀 필드"),
+      properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+        .optional()
+        .describe("커스텀 필드 key-value. 예: { \"담당자\": \"uuid\", \"금액\": 50000 }"),
       peopleId: z.string().optional().describe("고객 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       organizationId: z.string().optional().describe("회사 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       pipelineId: z.string().optional().describe("파이프라인 ID (deal 필수)"),
@@ -181,7 +161,7 @@ export function registerGenericTools(server: McpServer) {
       customObjectDefinitionId: z.string().optional().describe("Definition ID (custom-object 필수)"),
     },
     WRITE,
-    async ({ objectType, ...rest }, extra) => {
+    async ({ objectType, properties, ...rest }, extra) => {
       const createErr = validateCreate(objectType, rest);
       if (createErr) return err(createErr);
 
@@ -191,9 +171,17 @@ export function registerGenericTools(server: McpServer) {
         for (const [k, v] of Object.entries(rest)) {
           if (v !== undefined) body[k] = v;
         }
+
+        // Convert simplified properties → fieldList
+        if (properties && Object.keys(properties).length > 0) {
+          const { fieldList, errors } = await resolveProperties(client, objectType, properties);
+          if (errors.length > 0) return err(errors.join("\n"));
+          if (fieldList.length > 0) body.fieldList = fieldList;
+        }
+
         return ok(await client.post(`/v2/${objectType}`, body));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, objectType, summarizeFields(rest));
+        return errWithSchemaHint((e as Error).message, objectType, summarizeFields({ ...rest, properties }));
       }
     },
   );
@@ -201,13 +189,15 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap-update-object",
-    "레코드 수정.",
+    "레코드 수정. properties에 변경할 필드 한글 이름과 값을 key-value로 전달 — 타입 변환은 자동 처리됨.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
       name: z.string().optional(),
-      fieldList: z.array(fieldListItem).optional().describe("커스텀 필드"),
+      properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+        .optional()
+        .describe("변경할 필드 key-value. 예: { \"담당자\": \"uuid\" }"),
       peopleId: z.string().optional(),
       organizationId: z.string().optional(),
       pipelineId: z.string().optional(),
@@ -216,18 +206,27 @@ export function registerGenericTools(server: McpServer) {
       price: z.number().optional().describe("금액 (deal)"),
     },
     WRITE,
-    async ({ objectType, id, ...rest }, extra) => {
+    async ({ objectType, id, properties, ...rest }, extra) => {
       const idErr = validateIdParams(rest);
       if (idErr) return err(idErr);
 
       try {
         const client = getClient(extra);
-        const body = Object.fromEntries(
-          Object.entries(rest).filter(([, v]) => v !== undefined),
-        );
+        const body: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(rest)) {
+          if (v !== undefined) body[k] = v;
+        }
+
+        // Convert simplified properties → fieldList
+        if (properties && Object.keys(properties).length > 0) {
+          const { fieldList, errors } = await resolveProperties(client, objectType, properties);
+          if (errors.length > 0) return err(errors.join("\n"));
+          if (fieldList.length > 0) body.fieldList = fieldList;
+        }
+
         return ok(await client.post(`/v2/${objectType}/${id}`, body));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, objectType, summarizeFields(rest));
+        return errWithSchemaHint((e as Error).message, objectType, summarizeFields({ ...rest, properties }));
       }
     },
   );
@@ -246,8 +245,8 @@ export function registerGenericTools(server: McpServer) {
     },
     DESTRUCTIVE,
     async ({ objectType, id, confirmed }, extra) => {
-      if (!UUID_RE.test(id)) {
-        return err("id는 UUID 형식이어야 합니다.");
+      if (!UUID_RE.test(id) && !HEX_ID_RE.test(id)) {
+        return err("id는 UUID 또는 ObjectId 형식이어야 합니다.");
       }
 
       const client = getClient(extra);
