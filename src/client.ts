@@ -124,6 +124,20 @@ export function compactRecords(data: unknown): unknown {
   return result;
 }
 
+/** compactRecord 결과에서 지정된 필드만 남김. id/name은 항상 포함. */
+export function pickProperties(
+  record: Record<string, unknown>,
+  properties: string[],
+): Record<string, unknown> {
+  const always = new Set(["id", "name", "이름"]);
+  const wanted = new Set([...properties, ...always]);
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (wanted.has(key)) result[key] = value;
+  }
+  return result;
+}
+
 // Tool 응답 헬퍼
 export function ok(data: unknown) {
   return {

@@ -15,8 +15,8 @@ export function createServer(): McpServer {
   registerFieldTools(server);    // 1: salesmap_get_fields
   registerSearchTools(server);   // 2: salesmap_search_records
 
-  // 범용 CRUD (4 tools)
-  registerGenericTools(server);  // 3-6: get, batch_get, create, update
+  // 범용 CRUD (5 tools)
+  registerGenericTools(server);  // 3-7: get, batch_get, create, update, delete
 
   // 지원 도구 (10 tools)
   registerExtrasTools(server);   // 7-16: lead_time, record_url, association, memo, quotes, quote_create, pipeline, users, teams, me

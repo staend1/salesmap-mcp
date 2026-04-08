@@ -1,10 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
+const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -94,9 +95,11 @@ export function registerGenericTools(server: McpServer) {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
+      properties: z.array(z.string()).optional()
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
     },
     READ,
-    async ({ type, id }, extra) => {
+    async ({ type, id, properties }, extra) => {
       try {
         const client = getClient(extra);
         const path = `/v2/${type}/${id}`;
@@ -106,7 +109,11 @@ export function registerGenericTools(server: McpServer) {
         } else {
           data = await client.get(path);
         }
-        return ok(compactRecord(data as Record<string, unknown>));
+        let record = compactRecord(data as Record<string, unknown>);
+        if (properties && properties.length > 0) {
+          record = pickProperties(record, properties);
+        }
+        return ok(record);
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -116,14 +123,16 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Get ────────────────────────────────────────
   server.tool(
     "salesmap_batch_get_records",
-    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
+    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음. 다건 조회 시 properties로 필요한 필드만 지정 권장.",
     {
       type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
       ids: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
+      properties: z.array(z.string()).optional()
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환. 다건 조회 시 지정 권장."),
     },
     READ,
-    async ({ type, ids }, extra) => {
+    async ({ type, ids, properties }, extra) => {
       try {
         const client = getClient(extra);
         const useGetOne = GET_ONE_TYPES.has(type);
@@ -138,7 +147,11 @@ export function registerGenericTools(server: McpServer) {
             } else {
               data = await client.get(path);
             }
-            results.push({ id, data: compactRecord(data as Record<string, unknown>) });
+            let record = compactRecord(data as Record<string, unknown>);
+            if (properties && properties.length > 0) {
+              record = pickProperties(record, properties);
+            }
+            results.push({ id, data: record });
           } catch (e: unknown) {
             results.push({ id, error: (e as Error).message });
           }
@@ -217,6 +230,60 @@ export function registerGenericTools(server: McpServer) {
         return ok(await client.post(`/v2/${type}/${id}`, body));
       } catch (e: unknown) {
         return errWithSchemaHint((e as Error).message, type, summarizeFields(rest));
+      }
+    },
+  );
+
+  // ── Delete ───────────────────────────────────────────
+  server.tool(
+    "salesmap_delete_record",
+    "레코드 영구 삭제 (deal/lead만 지원). 되돌릴 수 없음. 시퀀스에 등록된 레코드는 삭제 불가 — 시퀀스 해제 후 재시도.",
+    {
+      type: z.enum(["deal", "lead"])
+        .describe("오브젝트 타입 (deal, lead만 지원)"),
+      id: z.string().describe("삭제할 레코드 UUID"),
+    },
+    DESTRUCTIVE,
+    async ({ type, id }, extra) => {
+      if (!UUID_RE.test(id)) {
+        return err("id는 UUID 형식이어야 합니다.");
+      }
+
+      // Elicitation으로 사용자 확인 요청 (클라이언트 미지원 시 skip)
+      try {
+        const elicitResult = await server.server.elicitInput({
+          mode: "form",
+          message: `⚠️ ${type} 레코드를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`,
+          requestedSchema: {
+            type: "object",
+            properties: {
+              confirm: {
+                type: "boolean",
+                title: "삭제 확인",
+                description: `${type} ${id} 를 정말 삭제하시겠습니까?`,
+                default: false,
+              },
+            },
+            required: ["confirm"],
+          },
+        });
+
+        if (elicitResult.action === "decline" || elicitResult.action === "cancel") {
+          return ok({ cancelled: true, message: "사용자가 삭제를 취소했습니다." });
+        }
+        if (elicitResult.action === "accept" && !elicitResult.content?.confirm) {
+          return ok({ cancelled: true, message: "삭제 확인이 체크되지 않았습니다." });
+        }
+      } catch {
+        // 클라이언트가 elicitation 미지원 → 확인 없이 진행
+      }
+
+      try {
+        const client = getClient(extra);
+        await client.post(`/v2/${type}/${id}/delete`);
+        return ok({ deleted: true, type, id });
+      } catch (e: unknown) {
+        return err((e as Error).message);
       }
     },
   );
