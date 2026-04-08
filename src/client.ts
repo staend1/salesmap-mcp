@@ -155,17 +155,17 @@ export function err(message: string) {
 export function errWithSchemaHint(message: string, objectType: string, filterSummary?: string) {
   let hint: string;
   if (message.includes("정의 되지 않은 값")) {
-    hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap_describe_object(type: "${objectType}")로 허용 옵션을 확인하세요.`;
+    hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap-list-properties(objectType: "${objectType}")로 허용 옵션을 확인하세요.`;
   } else if (message.includes("Invalid fieldName")) {
-    hint = `필드명은 한글입니다 (예: 'name' → '이름'). salesmap_describe_object(type: "${objectType}") 결과를 다시 확인하세요.`;
+    hint = `필드명은 한글입니다 (예: 'name' → '이름'). salesmap-list-properties(objectType: "${objectType}") 결과를 다시 확인하세요.`;
   } else if (message.includes("relation field")) {
-    hint = `relation 필드는 UUID만 허용합니다. salesmap_get_pipeline_ids 또는 salesmap_list_users로 UUID를 확인하세요.`;
+    hint = `relation 필드는 UUID만 허용합니다. salesmap-get-pipelines 또는 salesmap-list-users로 UUID를 확인하세요.`;
   } else if (message.includes("userValueId가 없습니다")) {
-    hint = `담당자 필드는 userValueId(UUID)로 지정해야 합니다. salesmap_list_users로 ID를 확인하세요.`;
+    hint = `담당자 필드는 userValueId(UUID)로 지정해야 합니다. salesmap-list-users로 ID를 확인하세요.`;
   } else if (message.includes("fieldList이 아닌 파라메터")) {
     hint = `금액(price)은 fieldList가 아닌 top-level price 파라미터로 전달하세요.`;
   } else {
-    hint = `필드명 또는 옵션값이 잘못되었을 수 있습니다. salesmap_describe_object(type: "${objectType}")로 정확한 필드명과 허용 옵션을 확인하세요.`;
+    hint = `필드명 또는 옵션값이 잘못되었을 수 있습니다. salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명과 허용 옵션을 확인하세요.`;
   }
   if (filterSummary) {
     hint += `\n사용된 필드: ${filterSummary}`;

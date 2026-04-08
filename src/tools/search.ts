@@ -7,14 +7,14 @@ const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true 
 
 // ── Relation field pre-validation ──────────────────────
 const ID_FIELDS: Record<string, string> = {
-  "파이프라인": "salesmap_get_pipeline_ids",
-  "파이프라인 단계": "salesmap_get_pipeline_ids",
-  "종료된 파이프라인 단계": "salesmap_get_pipeline_ids",
-  "최근 딜의 파이프라인 단계": "salesmap_get_pipeline_ids",
-  "담당자": "salesmap_list_users",
-  "팔로워": "salesmap_list_users",
-  "최근 노트 작성자": "salesmap_list_users",
-  "팀": "salesmap_list_teams",
+  "파이프라인": "salesmap-get-pipelines",
+  "파이프라인 단계": "salesmap-get-pipelines",
+  "종료된 파이프라인 단계": "salesmap-get-pipelines",
+  "최근 딜의 파이프라인 단계": "salesmap-get-pipelines",
+  "담당자": "salesmap-list-users",
+  "팔로워": "salesmap-list-users",
+  "최근 노트 작성자": "salesmap-list-users",
+  "팀": "salesmap-list-teams",
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -62,7 +62,7 @@ const filterGroupSchema = z.object({
 
 export function registerSearchTools(server: McpServer) {
   server.tool(
-    "salesmap_search_records",
+    "salesmap-search-objects",
     "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND). null 필드는 응답에서 생략됨.",
     {
       targetType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),

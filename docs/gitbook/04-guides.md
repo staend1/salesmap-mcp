@@ -6,7 +6,7 @@
 
 Claude는 요청을 수행할 때 다음 순서로 동작합니다:
 
-1. `salesmap_describe_object`로 필드 구조 파악
+1. `salesmap-list-properties`로 필드 구조 파악
 2. 필요한 도구를 선택하여 실행
 3. 결과를 자연어로 요약
 

@@ -122,25 +122,25 @@ const TESTS = [
     name: "영업 현황 조회",
     prompt: "우리 영업 사원들 영업 잘 하고 있나? 현황 분석해줘",
     type: "prerequisite",
-    expected: "salesmap_describe_object",
+    expected: "salesmap-list-properties",
   },
   {
     name: "딜 검색 (필터)",
     prompt: "진행 중인 딜 목록 보여줘",
     type: "prerequisite",
-    expected: "salesmap_describe_object",
+    expected: "salesmap-list-properties",
   },
   {
     name: "고객 검색",
     prompt: "김철수라는 고객 찾아줘",
     type: "prerequisite",
-    expected: "salesmap_describe_object",
+    expected: "salesmap-list-properties",
   },
   {
     name: "고객 등록",
     prompt: "새 고객 등록해줘. 이름은 테스트회사, 업종은 IT",
     type: "prerequisite",
-    expected: "salesmap_describe_object",
+    expected: "salesmap-list-properties",
   },
 
   // DIRECT: 특정 도구가 직접 호출되어야 함
@@ -148,19 +148,19 @@ const TESTS = [
     name: "리드타임 분석",
     prompt: "딜 019c8e79-ec35-7cc1-b9fe-cc64309c3486의 리드타임 분석해줘",
     type: "direct",
-    expected: "salesmap_get_lead_time",
+    expected: "salesmap-get-lead-time",
   },
   {
     name: "레코드 URL",
     prompt: "딜 019c8e79-ec35-7cc1-b9fe-cc64309c3486의 CRM 링크 줘",
     type: "direct",
-    expected: "salesmap_get_record_url",
+    expected: "salesmap-get-link",
   },
   {
     name: "파이프라인 조회",
     prompt: "딜 파이프라인 구조 보여줘",
     type: "direct",
-    expected: "salesmap_get_pipeline_ids",
+    expected: "salesmap-get-pipelines",
   },
 ];
 

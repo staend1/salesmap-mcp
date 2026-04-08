@@ -6,7 +6,7 @@ import { getClient } from "../types";
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
-const objectType = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
+const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
 
 const quoteProductSchema = z.object({
   name: z.string().describe("상품 이름"),
@@ -27,18 +27,18 @@ export function registerExtrasTools(server: McpServer) {
   ] as const;
 
   server.tool(
-    "salesmap_get_lead_time",
+    "salesmap-get-lead-time",
     "딜/리드의 파이프라인 스테이지별 체류 시간 분석. 진입·퇴장 시각과 누적 체류 시간을 파이프라인별로 그룹핑하여 반환.",
     {
-      type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
+      objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       id: z.string().describe("레코드 ID"),
     },
     READ,
-    async ({ type, id }, extra) => {
+    async ({ objectType, id }, extra) => {
       try {
         const client = getClient(extra);
-        const path = `/v2/${type}/${id}`;
-        const data = await client.getOne<Record<string, unknown>>(path, type);
+        const path = `/v2/${objectType}/${id}`;
+        const data = await client.getOne<Record<string, unknown>>(path, objectType);
 
         // Extract pipeline auto-fields (non-null only)
         const stageMap = new Map<string, Record<string, unknown>>();
@@ -88,7 +88,7 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Record URL ─────────────────────────────────────────
+  // ── Link ─────────────────────────────────────────
   const URL_PATH_MAP: Record<string, string> = {
     people: "contact/people",
     organization: "organization",
@@ -100,20 +100,20 @@ export function registerExtrasTools(server: McpServer) {
   };
 
   server.tool(
-    "salesmap_get_record_url",
+    "salesmap-get-link",
     "레코드의 CRM 웹 URL 생성.",
     {
-      type: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "quote"])
+      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "quote"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 ID"),
     },
     READ,
-    async ({ type, id }, extra) => {
+    async ({ objectType, id }, extra) => {
       try {
         const client = getClient(extra);
         const me = await client.get<{ user: { room: { id: string } } }>("/v2/user/me");
         const roomId = me.user.room.id;
-        const path = URL_PATH_MAP[type];
+        const path = URL_PATH_MAP[objectType];
         return ok({ url: `https://salesmap.kr/${roomId}/${path}/${id}` });
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -123,12 +123,12 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Association ───────────────────────────────────────
   server.tool(
-    "salesmap_get_association",
+    "salesmap-list-associations",
     "레코드에 연결된 다른 레코드들 조회. primary(FK 직접)와 custom(커스텀 필드) 관계를 모두 조회하여 병합 반환.",
     {
-      targetType: objectType.describe("출발 오브젝트 타입"),
+      targetType: objectTypeEnum.describe("출발 오브젝트 타입"),
       targetId: z.string().describe("출발 오브젝트 ID"),
-      toTargetType: objectType.describe("도착 오브젝트 타입"),
+      toTargetType: objectTypeEnum.describe("도착 오브젝트 타입"),
     },
     READ,
     async ({ targetType, targetId, toTargetType }, extra) => {
@@ -171,21 +171,21 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Memo (Note) ────────────────────────────────────────
+  // ── Note ────────────────────────────────────────
   server.tool(
-    "salesmap_create_memo",
+    "salesmap-create-note",
     "레코드에 메모(노트) 추가.",
     {
-      type: z.enum(["people", "organization", "deal", "lead", "custom-object"])
+      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("대상 오브젝트 타입"),
       id: z.string().describe("대상 레코드 UUID"),
       memo: z.string().describe("메모 내용"),
     },
     WRITE,
-    async ({ type, id, memo }, extra) => {
+    async ({ objectType, id, memo }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.post(`/v2/${type}/${id}`, { memo }));
+        return ok(await client.post(`/v2/${objectType}/${id}`, { memo }));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -194,17 +194,17 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Quote (get) ───────────────────────────────────────
   server.tool(
-    "salesmap_get_quotes",
+    "salesmap-get-quotes",
     "딜/리드에 연결된 견적서 목록 조회.",
     {
-      type: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
+      objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       id: z.string().describe("딜/리드 UUID"),
     },
     READ,
-    async ({ type, id }, extra) => {
+    async ({ objectType, id }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.get(`/v2/${type}/${id}/quote`));
+        return ok(await client.get(`/v2/${objectType}/${id}/quote`));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -213,7 +213,7 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Quote (create) ────────────────────────────────────
   server.tool(
-    "salesmap_create_quote",
+    "salesmap-create-quote",
     "견적서 생성. dealId 또는 leadId로 딜/리드에 연결.",
     {
       name: z.string().describe("견적서 이름"),
@@ -249,7 +249,7 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
-    "salesmap_get_pipeline_ids",
+    "salesmap-get-pipelines",
     "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. 검색·생성 시 pipelineId/pipelineStageId 필요.",
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
@@ -267,7 +267,7 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Users ───────────────────────────────────────────
   server.tool(
-    "salesmap_list_users",
+    "salesmap-list-users",
     "CRM 사용자 목록 조회. 담당자(userValueId) 지정·변경 시 필요.",
     {
       cursor: z.string().optional().describe("페이지네이션 커서"),
@@ -287,7 +287,7 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Teams ──────────────────────────────────────────
   server.tool(
-    "salesmap_list_teams",
+    "salesmap-list-teams",
     "팀 목록 조회. 검색 시 팀 필드는 teamId(UUID) 필요.",
     {
       cursor: z.string().optional().describe("페이지네이션 커서"),
@@ -307,7 +307,7 @@ export function registerExtrasTools(server: McpServer) {
 
   // ── Current User ──────────────────────────────────────
   server.tool(
-    "salesmap_get_current_user",
+    "salesmap-get-user-details",
     "현재 API 토큰 소유자 정보 조회.",
     {},
     READ,
