@@ -124,7 +124,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap-list-associations",
-    "레코드에 연결된 다른 레코드들 조회. primary(FK 직접)와 custom(커스텀 필드) 관계를 모두 조회하여 병합 반환.",
+    "레코드에 연결된 다른 레코드들 조회 (primary+custom 병합). 반환은 ID 목록 — 상세 정보는 salesmap-batch-read-objects로 조회.",
     {
       targetType: objectTypeEnum.describe("출발 오브젝트 타입"),
       targetId: z.string().describe("출발 오브젝트 ID"),
