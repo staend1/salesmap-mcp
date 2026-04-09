@@ -149,15 +149,16 @@ async function runTests() {
     console.log(`    검색 결과: ${count}건`);
   });
 
-  await test("관계 필드 UUID 검증 (propertyName)", async () => {
+  await test("담당자 이름 자동 해석 (search)", async () => {
+    // 존재하지 않는 사용자명 → 에러
     const { data, isError } = await callTool("salesmap-search-objects", {
       targetType: "people",
       filterGroupList: [{
         filters: [{ propertyName: "담당자", operator: "EQ", value: "not-a-uuid" }],
       }],
     });
-    assert(isError, "UUID가 아닌 값인데 에러가 안 남");
-    assert(JSON.stringify(data).includes("UUID"), "UUID 관련 에러 메시지 없음");
+    assert(isError, "존재하지 않는 사용자인데 에러가 안 남");
+    assert(JSON.stringify(data).includes("사용자를 찾을 수 없습니다"), "사용자 에러 메시지 없음");
     console.log(`    pre-validation 작동 확인`);
   });
 

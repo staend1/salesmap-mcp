@@ -1,11 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecords } from "../client";
+import { ok, err, errWithSchemaHint, compactRecords, fetchUserMap } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
 // ── Relation field pre-validation ──────────────────────
+const USER_FIELDS = new Set(["담당자", "팔로워", "최근 노트 작성자"]);
+
 const ID_FIELDS: Record<string, string> = {
   "파이프라인": "salesmap-get-pipelines",
   "파이프라인 단계": "salesmap-get-pipelines",
@@ -24,20 +26,75 @@ function isValidId(v: string): boolean { return UUID_RE.test(v) || HEX_ID_RE.tes
 
 type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | string[] }> };
 
-function validateIdFields(groups: FilterGroup[]): string | null {
+import type { SalesMapClient } from "../client";
+
+/**
+ * Validate relation fields and auto-resolve user names to UUIDs.
+ * Returns { error } if non-user relation field has invalid ID,
+ * or { resolved } with user names converted to UUIDs.
+ */
+async function resolveFilterIds(
+  groups: FilterGroup[],
+  client: SalesMapClient,
+): Promise<{ error?: string; resolved: FilterGroup[] }> {
+  // Check if any user fields have non-UUID values (need name resolution)
+  let userMap: Map<string, string> | null = null;
+  const needsLookup = groups.some(g =>
+    g.filters.some(f => {
+      if (!USER_FIELDS.has(f.propertyName)) return false;
+      if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") return false;
+      const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
+      return vals.some(v => !isValidId(v));
+    }),
+  );
+  if (needsLookup) {
+    userMap = await fetchUserMap(client);
+  }
+
+  const resolved: FilterGroup[] = [];
   for (const group of groups) {
+    const filters: FilterGroup["filters"] = [];
     for (const f of group.filters) {
       const tool = ID_FIELDS[f.propertyName];
-      if (!tool) continue;
-      if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") continue;
+      if (!tool || f.operator === "EXISTS" || f.operator === "NOT_EXISTS") {
+        filters.push(f);
+        continue;
+      }
+
       const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
       const bad = vals.filter(v => !isValidId(v));
-      if (bad.length > 0) {
-        return `"${f.propertyName}" 필드는 이름이 아닌 ID(UUID)로 검색해야 합니다. ${tool}로 ID를 먼저 조회하세요. (입력값: "${bad[0]}")`;
+
+      if (bad.length === 0) {
+        filters.push(f);
+        continue;
       }
+
+      // User fields: auto-resolve names to UUIDs
+      if (USER_FIELDS.has(f.propertyName) && userMap) {
+        const resolvedVals: string[] = [];
+        for (const v of vals) {
+          if (isValidId(v)) {
+            resolvedVals.push(v);
+          } else {
+            const uid = userMap.get(v);
+            if (!uid) {
+              return { error: `"${f.propertyName}" — "${v}" 사용자를 찾을 수 없습니다. salesmap-list-users로 확인하세요.`, resolved: [] };
+            }
+            resolvedVals.push(uid);
+          }
+        }
+        const resolvedValue = Array.isArray(f.value) ? resolvedVals : resolvedVals[0];
+        filters.push({ ...f, value: resolvedValue });
+        continue;
+      }
+
+      // Non-user relation fields: must be UUIDs
+      return { error: `"${f.propertyName}" 필드는 이름이 아닌 ID(UUID)로 검색해야 합니다. ${tool}로 ID를 먼저 조회하세요. (입력값: "${bad[0]}")`, resolved: [] };
     }
+    resolved.push({ filters });
   }
-  return null;
+
+  return { resolved };
 }
 
 // ── schema ─────────────────────────────────────────────
@@ -72,17 +129,18 @@ export function registerSearchTools(server: McpServer) {
     },
     READ,
     async ({ targetType, filterGroupList, cursor }, extra) => {
-      // Pre-validate: relation fields must use UUIDs, not names
-      const idErr = validateIdFields(filterGroupList as FilterGroup[]);
-      if (idErr) return err(idErr);
-
       try {
         const client = getClient(extra);
+
+        // Pre-validate + auto-resolve user names to UUIDs
+        const { error: idErr, resolved } = await resolveFilterIds(filterGroupList as FilterGroup[], client);
+        if (idErr) return err(idErr);
+
         const query: Record<string, string> = {};
         if (cursor) query.cursor = cursor;
 
         // Convert propertyName → fieldName for SalesMap API
-        const apiFilterGroups = (filterGroupList as FilterGroup[]).map(g => ({
+        const apiFilterGroups = resolved.map(g => ({
           filters: g.filters.map(f => ({
             fieldName: f.propertyName,
             operator: f.operator,

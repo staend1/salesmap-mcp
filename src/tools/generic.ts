@@ -148,7 +148,7 @@ export function registerGenericTools(server: McpServer) {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
       name: z.string().optional().describe("이름 (custom-object 제외 필수)"),
-      memo: z.string().optional().describe("초기 메모"),
+      note: z.string().optional().describe("초기 노트"),
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
         .describe("커스텀 필드 key-value. 예: { \"담당자\": \"홍길동\", \"등급\": \"A\" }. 금액은 top-level price 파라미터 사용."),
@@ -161,7 +161,7 @@ export function registerGenericTools(server: McpServer) {
       customObjectDefinitionId: z.string().optional().describe("Definition ID (custom-object 필수)"),
     },
     WRITE,
-    async ({ objectType, properties, ...rest }, extra) => {
+    async ({ objectType, properties, note, ...rest }, extra) => {
       const createErr = validateCreate(objectType, rest);
       if (createErr) return err(createErr);
 
@@ -171,6 +171,7 @@ export function registerGenericTools(server: McpServer) {
         for (const [k, v] of Object.entries(rest)) {
           if (v !== undefined) body[k] = v;
         }
+        if (note !== undefined) body.memo = note;
 
         // Convert simplified properties → fieldList
         if (properties && Object.keys(properties).length > 0) {

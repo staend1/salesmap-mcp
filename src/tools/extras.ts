@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint } from "../client";
+import { ok, err, errWithSchemaHint, resolveProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -171,18 +171,18 @@ export function registerExtrasTools(server: McpServer) {
   // ── Note ────────────────────────────────────────
   server.tool(
     "salesmap-create-note",
-    "레코드에 메모(노트) 추가.",
+    "레코드에 노트 추가.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("대상 오브젝트 타입"),
       id: z.string().describe("대상 레코드 UUID"),
-      memo: z.string().describe("메모 내용"),
+      note: z.string().describe("노트 내용"),
     },
     WRITE,
-    async ({ objectType, id, memo }, extra) => {
+    async ({ objectType, id, note }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.post(`/v2/${objectType}/${id}`, { memo }));
+        return ok(await client.post(`/v2/${objectType}/${id}`, { memo: note }));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -211,35 +211,42 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (create) ────────────────────────────────────
   server.tool(
     "salesmap-create-quote",
-    "견적서 생성. dealId 또는 leadId로 딜/리드에 연결.",
+    "견적서 생성. dealId 또는 leadId 중 하나 필수.",
     {
       name: z.string().describe("견적서 이름"),
       dealId: z.string().optional().describe("딜 ID"),
       leadId: z.string().optional().describe("리드 ID"),
-      memo: z.string().optional(),
+      note: z.string().optional().describe("견적서 노트"),
       isMainQuote: z.boolean().optional().describe("메인 견적서 여부"),
       quoteProductList: z.array(quoteProductSchema).optional().describe("상품 목록"),
-      fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
+      properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+        .optional()
+        .describe("견적서 커스텀 필드 key-value"),
     },
     WRITE,
-    async ({ name, ...rest }, extra) => {
+    async ({ name, note, properties, ...rest }, extra) => {
+      if (!rest.dealId && !rest.leadId) {
+        return err("dealId 또는 leadId 중 하나는 필수입니다.");
+      }
+
       try {
         const client = getClient(extra);
         const body: Record<string, unknown> = { name };
+        if (note !== undefined) body.memo = note;
         for (const [k, v] of Object.entries(rest)) {
           if (v !== undefined) body[k] = v;
         }
+
+        // Convert properties → fieldList
+        if (properties && Object.keys(properties).length > 0) {
+          const { fieldList, errors } = await resolveProperties(client, "quote", properties);
+          if (errors.length > 0) return err(errors.join("\n"));
+          if (fieldList.length > 0) body.fieldList = fieldList;
+        }
+
         return ok(await client.post("/v2/quote", body));
       } catch (e: unknown) {
-        const parts: string[] = [];
-        const fieldList = rest.fieldList;
-        if (Array.isArray(fieldList)) {
-          for (const f of fieldList) {
-            const field = f as Record<string, unknown>;
-            parts.push(`${field.name}`);
-          }
-        }
-        return errWithSchemaHint((e as Error).message, "quote", parts.length > 0 ? parts.join(", ") : undefined);
+        return errWithSchemaHint((e as Error).message, "quote", undefined);
       }
     },
   );
