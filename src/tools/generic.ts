@@ -143,7 +143,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap-create-object",
-    "레코드 생성. properties에 필드 한글 이름과 값을 key-value로 전달 — 타입 변환은 자동 처리됨.",
+    "레코드 생성. properties에 필드 한글 이름과 값을 key-value로 전달 — 타입 변환 자동. deal은 pipelineId+pipelineStageId+status 필수(salesmap-get-pipelines 참조). 금액은 top-level price 파라미터 사용.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
@@ -190,7 +190,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap-update-object",
-    "레코드 수정. properties에 변경할 필드 한글 이름과 값을 key-value로 전달 — 타입 변환은 자동 처리됨.",
+    "레코드 수정. properties에 변경할 필드만 key-value로 전달 — 미포함 필드는 변경 없음. 금액은 top-level price 파라미터 사용.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
