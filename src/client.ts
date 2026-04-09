@@ -252,8 +252,16 @@ export async function resolveProperties(
   const fieldList: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
 
+  // Fields that must be passed as top-level parameters, not in properties
+  const TOP_LEVEL_ONLY: Record<string, string> = { "금액": "price" };
+
   for (const [name, value] of Object.entries(properties)) {
     if (value === undefined || value === null) continue;
+
+    if (TOP_LEVEL_ONLY[name]) {
+      errors.push(`"${name}"은(는) properties가 아닌 top-level ${TOP_LEVEL_ONLY[name]} 파라미터로 전달하세요.`);
+      continue;
+    }
 
     const fieldType = fieldMap.get(name);
     if (!fieldType) {

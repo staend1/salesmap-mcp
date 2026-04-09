@@ -68,7 +68,7 @@ export function registerGenericTools(server: McpServer) {
     "salesmap-read-object",
     "레코드 상세 조회. null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
     {
-      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "email"])
+      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
       id: z.string().describe("레코드 UUID"),
       properties: z.array(z.string()).optional()
@@ -151,7 +151,7 @@ export function registerGenericTools(server: McpServer) {
       memo: z.string().optional().describe("초기 메모"),
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
-        .describe("커스텀 필드 key-value. 예: { \"담당자\": \"uuid\", \"금액\": 50000 }"),
+        .describe("커스텀 필드 key-value. 예: { \"담당자\": \"홍길동\", \"등급\": \"A\" }. 금액은 top-level price 파라미터 사용."),
       peopleId: z.string().optional().describe("고객 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       organizationId: z.string().optional().describe("회사 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       pipelineId: z.string().optional().describe("파이프라인 ID (deal 필수)"),
@@ -197,7 +197,7 @@ export function registerGenericTools(server: McpServer) {
       name: z.string().optional(),
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
-        .describe("변경할 필드 key-value. 예: { \"담당자\": \"uuid\" }"),
+        .describe("변경할 필드 key-value. 예: { \"담당자\": \"홍길동\" }. 금액은 top-level price 파라미터 사용."),
       peopleId: z.string().optional(),
       organizationId: z.string().optional(),
       pipelineId: z.string().optional(),
