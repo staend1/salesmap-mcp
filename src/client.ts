@@ -198,7 +198,7 @@ interface UserListResponse {
  * Fetches all CRM users and builds a name→UUID map.
  * Called lazily only when a user-type field has a non-UUID value.
  */
-async function fetchUserMap(client: SalesMapClient): Promise<Map<string, string>> {
+export async function fetchUserMap(client: SalesMapClient): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   let cursor: string | undefined;
   do {
