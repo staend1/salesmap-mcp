@@ -140,27 +140,24 @@ export function registerExtrasTools(server: McpServer) {
           client.get(basePath + "/custom").catch(() => null),
         ]);
 
-        // Extract arrays from both responses and merge
-        const extract = (data: unknown): unknown[] => {
-          if (data == null || typeof data !== "object") return [];
-          const obj = data as Record<string, unknown>;
-          for (const v of Object.values(obj)) {
-            if (Array.isArray(v)) return v;
-          }
-          return [];
-        };
+        // Primary returns associationIdList (string[]), custom returns associationItemList ({id,label}[])
+        const primaryIds: string[] = (primary as Record<string, unknown>)?.associationIdList as string[] ?? [];
+        const customItems: Array<{ id: string; label?: string }> =
+          (custom as Record<string, unknown>)?.associationItemList as Array<{ id: string; label?: string }> ?? [];
 
-        const primaryList = extract(primary);
-        const customList = extract(custom);
-
-        // Deduplicate by ID
+        // Merge: normalize primary IDs to objects, deduplicate
         const seen = new Set<string>();
-        const merged: unknown[] = [];
-        for (const item of [...primaryList, ...customList]) {
-          const id = (item as Record<string, unknown>)?.id as string;
+        const merged: Array<{ id: string; label?: string; source: string }> = [];
+        for (const id of primaryIds) {
           if (id && !seen.has(id)) {
             seen.add(id);
-            merged.push(item);
+            merged.push({ id, source: "primary" });
+          }
+        }
+        for (const item of customItems) {
+          if (item.id && !seen.has(item.id)) {
+            seen.add(item.id);
+            merged.push({ id: item.id, label: item.label, source: "custom" });
           }
         }
 
@@ -250,7 +247,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap-get-pipelines",
-    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. 검색·생성 시 pipelineId/pipelineStageId 필요.",
+    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. deal 생성 전 반드시 호출하여 pipelineId/pipelineStageId를 확인해야 함.",
     {
       entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
@@ -268,7 +265,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Users ───────────────────────────────────────────
   server.tool(
     "salesmap-list-users",
-    "CRM 사용자 목록 조회. 담당자(userValueId) 지정·변경 시 필요.",
+    "CRM 사용자 목록 조회. 검색 시 담당자(userValueId) 확인용. 생성/수정 시에는 사용자 이름을 properties에 직접 전달하면 자동 변환됨.",
     {
       cursor: z.string().optional().describe("페이지네이션 커서"),
     },
