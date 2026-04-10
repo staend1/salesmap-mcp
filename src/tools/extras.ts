@@ -1,12 +1,34 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, resolveProperties } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, resolveProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
 const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
+const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
+
+// ── Changelog noise filter ────────────────────────────────────
+const HISTORY_NOISE_FIELDS = new Set([
+  "RecordId", "생성 날짜", "수정 날짜", "매출(억)", "링크드인", "프로필 사진",
+  "완료 TODO", "미완료 TODO", "전체 TODO", "다음 TODO 날짜",
+  "현재 진행중인 시퀀스 여부", "누적 시퀀스 등록수",
+  "등록된 시퀀스 목록", "제출된 웹폼 목록",
+  "종료까지 걸린 시간", "성사까지 걸린 시간", "실패까지 걸린 시간",
+  "종료된 파이프라인 단계",
+]);
+const HISTORY_NOISE_PREFIXES = ["최근 "];
+const HISTORY_NOISE_SUFFIXES = ["개수", " 수"];
+const PIPELINE_NOISE_SUFFIXES = ["로 진입한 날짜", "에서 보낸 누적 시간", "에서 퇴장한 날짜"];
+
+function isNoiseField(fieldName: string): boolean {
+  if (HISTORY_NOISE_FIELDS.has(fieldName)) return true;
+  if (HISTORY_NOISE_PREFIXES.some(p => fieldName.startsWith(p))) return true;
+  if (HISTORY_NOISE_SUFFIXES.some(s => fieldName.endsWith(s))) return true;
+  if (PIPELINE_NOISE_SUFFIXES.some(s => fieldName.endsWith(s))) return true;
+  return false;
+}
 
 const quoteProductSchema = z.object({
   name: z.string().describe("상품 이름"),
@@ -319,6 +341,128 @@ export function registerExtrasTools(server: McpServer) {
       try {
         const client = getClient(extra);
         return ok(await client.get("/v2/user/me"));
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  // ── Read Email ──────────────────────────────────────────
+  server.tool(
+    "salesmap-read-email",
+    "이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터만, 본문 없음).",
+    { emailId: z.string().describe("이메일 UUID") },
+    READ,
+    async ({ emailId }, extra) => {
+      try {
+        const client = getClient(extra);
+        const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
+        return ok(data.email);
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  // ── Read Memo ───────────────────────────────────────────
+  server.tool(
+    "salesmap-read-memo",
+    "메모(노트) 상세 조회.",
+    { memoId: z.string().describe("메모 UUID") },
+    READ,
+    async ({ memoId }, extra) => {
+      try {
+        const client = getClient(extra);
+        const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
+        return ok(compactRecord(data.memo));
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  // ── Changelog ───────────────────────────────────────────
+  server.tool(
+    "salesmap-list-changelog",
+    "레코드의 필드 변경 이력 조회. 자동계산·시스템 필드는 자동 제거됨.",
+    {
+      objectType: timelineObjectType.describe("오브젝트 타입"),
+      id: z.string().describe("레코드 UUID"),
+      cursor: z.string().optional().describe("페이지네이션 커서"),
+    },
+    READ,
+    async ({ objectType, id, cursor }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = { [`${objectType}Id`]: id };
+        if (cursor) query.cursor = cursor;
+        const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/history`, query);
+        const key = `${objectType}HistoryList`;
+        const items = (data[key] as Array<Record<string, unknown>>) ?? [];
+        const filtered = items.filter(item => {
+          if (item.fieldValue === null) return false;
+          const fn = item.fieldName as string;
+          return fn ? !isNoiseField(fn) : true;
+        });
+        return ok({ [key]: filtered, nextCursor: data.nextCursor ?? null });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  // ── Engagements ─────────────────────────────────────────
+  server.tool(
+    "salesmap-list-engagements",
+    "레코드의 활동 타임라인 조회 (이메일·노트·TODO·웹폼·미팅 등). 이메일 제목과 메모 본문을 자동 포함.",
+    {
+      objectType: timelineObjectType.describe("오브젝트 타입"),
+      id: z.string().describe("레코드 UUID"),
+      cursor: z.string().optional().describe("페이지네이션 커서"),
+    },
+    READ,
+    async ({ objectType, id, cursor }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = { [`${objectType}Id`]: id };
+        if (cursor) query.cursor = cursor;
+        const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/activity`, query);
+        const key = `${objectType}ActivityList`;
+        const items = (data[key] as Array<Record<string, unknown>>) ?? [];
+
+        const compacted = items.map(item => compactRecord(item));
+
+        // Auto-inline email subjects and memo texts (with caching)
+        const emailCache = new Map<string, string | null>();
+        const memoCache = new Map<string, string | null>();
+
+        for (const item of compacted) {
+          const emailId = item.emailId as string | undefined;
+          if (emailId) {
+            if (!emailCache.has(emailId)) {
+              try {
+                const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
+                emailCache.set(emailId, (data.email?.subject as string) ?? null);
+              } catch { emailCache.set(emailId, null); }
+            }
+            const subject = emailCache.get(emailId);
+            if (subject) item.emailSubject = subject;
+          }
+
+          const memoId = item.memoId as string | undefined;
+          if (memoId) {
+            if (!memoCache.has(memoId)) {
+              try {
+                const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
+                memoCache.set(memoId, (data.memo?.text as string) ?? null);
+              } catch { memoCache.set(memoId, null); }
+            }
+            const text = memoCache.get(memoId);
+            if (text) item.memoText = text;
+          }
+        }
+
+        return ok({ [key]: compacted, nextCursor: data.nextCursor ?? null });
       } catch (e: unknown) {
         return err((e as Error).message);
       }
