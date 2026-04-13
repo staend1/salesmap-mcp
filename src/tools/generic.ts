@@ -59,11 +59,43 @@ function summarizeFields(params: Record<string, unknown>): string {
 
 const GET_ONE_TYPES = new Set(["people", "organization", "deal", "lead"]);
 
+// Association targets by object type — used for auto-count in read-object
+const ASSOCIATION_TARGETS: Record<string, string[]> = {
+  people: ["deal", "organization", "lead"],
+  organization: ["deal", "people", "lead"],
+  deal: ["people", "organization"],
+  lead: ["people", "organization"],
+};
+
+async function fetchAssociationCounts(
+  client: { get: (path: string, query?: Record<string, string>) => Promise<unknown> },
+  objectType: string,
+  objectId: string,
+): Promise<Record<string, number>> {
+  const targets = ASSOCIATION_TARGETS[objectType];
+  if (!targets) return {};
+
+  const results = await Promise.all(
+    targets.map(async (toType) => {
+      try {
+        const data = await client.get(
+          `/v2/object/${objectType}/${objectId}/association/${toType}/primary`,
+        ) as { associationIdList?: string[] };
+        return [toType, (data.associationIdList ?? []).length] as const;
+      } catch {
+        return [toType, 0] as const;
+      }
+    }),
+  );
+
+  return Object.fromEntries(results);
+}
+
 export function registerGenericTools(server: McpServer) {
   // ── Read ───────────────────────────────────────────────
   server.tool(
     "salesmap-read-object",
-    "🎯 레코드 상세 조회.\n📦 전체 필드 반환. properties로 필요한 필드만 지정 가능.",
+    "🎯 레코드 상세 조회.\n📦 전체 필드 + _associations(연관 레코드 카운트) 반환. properties로 필요한 필드만 지정 가능.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
@@ -76,15 +108,21 @@ export function registerGenericTools(server: McpServer) {
       try {
         const client = getClient(extra);
         const path = `/v2/${objectType}/${objectId}`;
-        let data: unknown;
-        if (GET_ONE_TYPES.has(objectType)) {
-          data = await client.getOne(path, objectType);
-        } else {
-          data = await client.get(path);
-        }
-        let record = compactRecord(data as Record<string, unknown>);
+
+        // Fetch record and association counts in parallel
+        const [rawData, associations] = await Promise.all([
+          GET_ONE_TYPES.has(objectType)
+            ? client.getOne(path, objectType)
+            : client.get(path),
+          fetchAssociationCounts(client, objectType, objectId),
+        ]);
+
+        let record = compactRecord(rawData as Record<string, unknown>);
         if (properties && properties.length > 0) {
           record = pickProperties(record, properties);
+        }
+        if (Object.keys(associations).length > 0) {
+          record._associations = associations;
         }
         return ok(record);
       } catch (e: unknown) {
