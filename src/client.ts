@@ -68,6 +68,9 @@ export class SalesMapClient {
 
       if (!res.ok || json.success === false) {
         const msg = json.reason || json.message || `HTTP ${res.status}`;
+        if (res.status === 404) {
+          throw new Error(`레코드를 찾을 수 없습니다 (${path}). ID를 확인하세요.`);
+        }
         throw new Error(msg);
       }
 
@@ -213,6 +216,24 @@ export async function fetchUserMap(client: SalesMapClient): Promise<Map<string, 
   return map;
 }
 
+interface TeamListResponse { teamList?: Array<{ id: string; name: string }>; nextCursor?: string; }
+
+/** Fetches all teams and builds a name→UUID map. */
+export async function fetchTeamMap(client: SalesMapClient): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  let cursor: string | undefined;
+  do {
+    const query: Record<string, string> = {};
+    if (cursor) query.cursor = cursor;
+    const data = await client.get<TeamListResponse>("/v2/team", query);
+    for (const t of data.teamList ?? []) {
+      map.set(t.name, t.id);
+    }
+    cursor = data.nextCursor;
+  } while (cursor);
+  return map;
+}
+
 /**
  * Converts a simplified properties object into SalesMap's fieldList format.
  * Fetches the schema to determine the correct value key for each property.
@@ -225,7 +246,7 @@ export async function resolveProperties(
   client: SalesMapClient,
   objectType: string,
   properties: Record<string, unknown>,
-): Promise<{ fieldList: Array<Record<string, unknown>>; errors: string[] }> {
+): Promise<{ fieldList: Array<Record<string, unknown>>; errors: string[]; extractedTopLevel: Record<string, unknown> }> {
   const schemaData = await client.get<{ fieldList: SchemaField[] }>(`/v2/field/${objectType}`);
   const fieldMap = new Map<string, string>();
   for (const f of schemaData.fieldList) {
@@ -251,15 +272,29 @@ export async function resolveProperties(
 
   const fieldList: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
+  const extractedTopLevel: Record<string, unknown> = {};
 
-  // Fields that must be passed as top-level parameters, not in properties
-  const TOP_LEVEL_ONLY: Record<string, string> = { "금액": "price" };
+  // Fields that SalesMap API requires as top-level body params — auto-extracted from properties
+  const TOP_LEVEL_ONLY: Record<string, string> = {
+    "금액": "price",
+    "이름": "name",
+    "파이프라인": "pipelineId",
+    "파이프라인 단계": "pipelineStageId",
+    "상태": "status",
+  };
 
   for (const [name, value] of Object.entries(properties)) {
     if (value === undefined || value === null) continue;
 
     if (TOP_LEVEL_ONLY[name]) {
-      errors.push(`"${name}"은(는) properties가 아닌 top-level ${TOP_LEVEL_ONLY[name]} 파라미터로 전달하세요.`);
+      const topKey = TOP_LEVEL_ONLY[name];
+      // Pipeline/stage IDs need format validation
+      if ((topKey === "pipelineId" || topKey === "pipelineStageId")
+          && typeof value === "string" && !isValidId(value)) {
+        errors.push(`"${name}" — ID 형식이어야 합니다. salesmap-get-pipelines로 조회하세요. (입력값: "${value}")`);
+        continue;
+      }
+      extractedTopLevel[topKey] = value;
       continue;
     }
 
@@ -313,7 +348,7 @@ export async function resolveProperties(
     fieldList.push({ name, [valueKey]: value });
   }
 
-  return { fieldList, errors };
+  return { fieldList, errors, extractedTopLevel };
 }
 
 // Tool response helpers

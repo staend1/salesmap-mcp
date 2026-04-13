@@ -50,16 +50,16 @@ export function registerExtrasTools(server: McpServer) {
 
   server.tool(
     "salesmap-get-lead-time",
-    "딜/리드의 파이프라인 스테이지별 체류 시간 분석. 진입·퇴장 시각과 누적 체류 시간을 파이프라인별로 그룹핑하여 반환.",
+    "🎯 딜/리드의 파이프라인 스테이지별 체류 시간 분석.\n📦 파이프라인별 진입·퇴장 시각과 누적 체류 시간.",
     {
       objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
-      id: z.string().describe("레코드 ID"),
+      objectId: z.string().describe("레코드 ID"),
     },
     READ,
-    async ({ objectType, id }, extra) => {
+    async ({ objectType, objectId }, extra) => {
       try {
         const client = getClient(extra);
-        const path = `/v2/${objectType}/${id}`;
+        const path = `/v2/${objectType}/${objectId}`;
         const data = await client.getOne<Record<string, unknown>>(path, objectType);
 
         // Extract pipeline auto-fields (non-null only)
@@ -123,20 +123,20 @@ export function registerExtrasTools(server: McpServer) {
 
   server.tool(
     "salesmap-get-link",
-    "레코드의 CRM 웹 URL 생성.",
+    "🎯 레코드의 CRM 웹 URL 생성.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product", "quote"])
         .describe("오브젝트 타입"),
-      id: z.string().describe("레코드 ID"),
+      objectId: z.string().describe("레코드 ID"),
     },
     READ,
-    async ({ objectType, id }, extra) => {
+    async ({ objectType, objectId }, extra) => {
       try {
         const client = getClient(extra);
         const me = await client.get<{ user: { room: { id: string } } }>("/v2/user/me");
         const roomId = me.user.room.id;
         const path = URL_PATH_MAP[objectType];
-        return ok({ url: `https://salesmap.kr/${roomId}/${path}/${id}` });
+        return ok({ url: `https://salesmap.kr/${roomId}/${path}/${objectId}` });
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -146,17 +146,17 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap-list-associations",
-    "레코드에 연결된 다른 레코드들 조회 (primary+custom 병합). 반환은 ID 목록 — 상세 정보는 salesmap-batch-read-objects로 조회.",
+    "🎯 레코드 간 연결 관계 조회 (primary+custom 병합).\n📦 ID 목록. 상세 조회는 salesmap-batch-read-objects.",
     {
-      targetType: objectTypeEnum.describe("출발 오브젝트 타입"),
-      targetId: z.string().describe("출발 오브젝트 ID"),
-      toTargetType: objectTypeEnum.describe("도착 오브젝트 타입"),
+      objectType: objectTypeEnum.describe("출발 오브젝트 타입"),
+      objectId: z.string().describe("출발 오브젝트 ID"),
+      toObjectType: objectTypeEnum.describe("도착 오브젝트 타입"),
     },
     READ,
-    async ({ targetType, targetId, toTargetType }, extra) => {
+    async ({ objectType, objectId, toObjectType }, extra) => {
       try {
         const client = getClient(extra);
-        const basePath = `/v2/object/${targetType}/${targetId}/association/${toTargetType}`;
+        const basePath = `/v2/object/${objectType}/${objectId}/association/${toObjectType}`;
         const [primary, custom] = await Promise.all([
           client.get(basePath + "/primary").catch(() => null),
           client.get(basePath + "/custom").catch(() => null),
@@ -193,18 +193,18 @@ export function registerExtrasTools(server: McpServer) {
   // ── Note ────────────────────────────────────────
   server.tool(
     "salesmap-create-note",
-    "레코드에 노트 추가.",
+    "🎯 레코드에 노트 추가.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("대상 오브젝트 타입"),
-      id: z.string().describe("대상 레코드 UUID"),
+      objectId: z.string().describe("대상 레코드 UUID"),
       note: z.string().describe("노트 내용"),
     },
     WRITE,
-    async ({ objectType, id, note }, extra) => {
+    async ({ objectType, objectId, note }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.post(`/v2/${objectType}/${id}`, { memo: note }));
+        return ok(await client.post(`/v2/${objectType}/${objectId}`, { memo: note }));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -214,16 +214,16 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (get) ───────────────────────────────────────
   server.tool(
     "salesmap-get-quotes",
-    "딜/리드에 연결된 견적서 목록 조회.",
+    "🎯 딜/리드에 연결된 견적서 목록 조회.",
     {
       objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
-      id: z.string().describe("딜/리드 UUID"),
+      objectId: z.string().describe("딜/리드 UUID"),
     },
     READ,
-    async ({ objectType, id }, extra) => {
+    async ({ objectType, objectId }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.get(`/v2/${objectType}/${id}/quote`));
+        return ok(await client.get(`/v2/${objectType}/${objectId}/quote`));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -233,7 +233,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (create) ────────────────────────────────────
   server.tool(
     "salesmap-create-quote",
-    "견적서 생성. dealId 또는 leadId 중 하나 필수.",
+    "🎯 견적서 생성. dealId 또는 leadId 중 하나 필수.\n📋 salesmap-get-quotes로 기존 견적서 확인.",
     {
       name: z.string().describe("견적서 이름"),
       dealId: z.string().optional().describe("딜 ID"),
@@ -276,15 +276,15 @@ export function registerExtrasTools(server: McpServer) {
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap-get-pipelines",
-    "딜/리드의 파이프라인 목록과 각 단계(stage) ID 조회. deal 생성 전 반드시 호출하여 pipelineId/pipelineStageId를 확인해야 함.",
+    "🎯 파이프라인 목록과 각 단계(stage) ID 조회.",
     {
-      entityType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
+      objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
     },
     READ,
-    async ({ entityType }, extra) => {
+    async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.get(`/v2/${entityType}/pipeline`));
+        return ok(await client.get(`/v2/${objectType}/pipeline`));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -294,16 +294,16 @@ export function registerExtrasTools(server: McpServer) {
   // ── Users ───────────────────────────────────────────
   server.tool(
     "salesmap-list-users",
-    "CRM 사용자 목록 조회. 검색 시 담당자(userValueId) 확인용. 생성/수정 시에는 사용자 이름을 properties에 직접 전달하면 자동 변환됨.",
+    "🎯 CRM 사용자 목록 조회. 전체 사용자 확인이나 ID 직접 참조가 필요할 때 사용.",
     {
-      cursor: z.string().optional().describe("페이지네이션 커서"),
+      after: z.string().optional().describe("페이지네이션 커서"),
     },
     READ,
-    async ({ cursor }, extra) => {
+    async ({ after }, extra) => {
       try {
         const client = getClient(extra);
         const query: Record<string, string> = {};
-        if (cursor) query.cursor = cursor;
+        if (after) query.cursor = after;
         return ok(await client.get("/v2/user", query));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -314,16 +314,16 @@ export function registerExtrasTools(server: McpServer) {
   // ── Teams ──────────────────────────────────────────
   server.tool(
     "salesmap-list-teams",
-    "팀 목록 조회. 검색 시 팀 필드는 teamId(UUID) 필요.",
+    "🎯 팀 목록 + 소속 멤버 조회. 전체 팀 구성 확인이 필요할 때 사용.",
     {
-      cursor: z.string().optional().describe("페이지네이션 커서"),
+      after: z.string().optional().describe("페이지네이션 커서"),
     },
     READ,
-    async ({ cursor }, extra) => {
+    async ({ after }, extra) => {
       try {
         const client = getClient(extra);
         const query: Record<string, string> = {};
-        if (cursor) query.cursor = cursor;
+        if (after) query.cursor = after;
         return ok(await client.get("/v2/team", query));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -334,7 +334,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Current User ──────────────────────────────────────
   server.tool(
     "salesmap-get-user-details",
-    "현재 API 토큰 소유자 정보 조회.",
+    "🎯 현재 API 토큰 소유자 정보 조회.",
     {},
     READ,
     async (_params, extra) => {
@@ -350,7 +350,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Read Email ──────────────────────────────────────────
   server.tool(
     "salesmap-read-email",
-    "이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터만, 본문 없음).",
+    "🎯 이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터).\n📦 본문 없음 — API 제한.",
     { emailId: z.string().describe("이메일 UUID") },
     READ,
     async ({ emailId }, extra) => {
@@ -367,7 +367,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Read Memo ───────────────────────────────────────────
   server.tool(
     "salesmap-read-memo",
-    "메모(노트) 상세 조회.",
+    "🎯 메모(노트) 상세 조회.",
     { memoId: z.string().describe("메모 UUID") },
     READ,
     async ({ memoId }, extra) => {
@@ -384,18 +384,18 @@ export function registerExtrasTools(server: McpServer) {
   // ── Changelog ───────────────────────────────────────────
   server.tool(
     "salesmap-list-changelog",
-    "레코드의 필드 변경 이력 조회. 자동계산·시스템 필드는 자동 제거됨.",
+    "🎯 레코드의 필드 변경 이력 조회.\n📦 자동계산·시스템 필드는 자동 제거됨.",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
-      id: z.string().describe("레코드 UUID"),
-      cursor: z.string().optional().describe("페이지네이션 커서"),
+      objectId: z.string().describe("레코드 UUID"),
+      after: z.string().optional().describe("페이지네이션 커서"),
     },
     READ,
-    async ({ objectType, id, cursor }, extra) => {
+    async ({ objectType, objectId, after }, extra) => {
       try {
         const client = getClient(extra);
-        const query: Record<string, string> = { [`${objectType}Id`]: id };
-        if (cursor) query.cursor = cursor;
+        const query: Record<string, string> = { [`${objectType}Id`]: objectId };
+        if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/history`, query);
         const key = `${objectType}HistoryList`;
         const items = (data[key] as Array<Record<string, unknown>>) ?? [];
@@ -414,18 +414,18 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "레코드의 활동 타임라인 조회 (이메일·노트·TODO·웹폼·미팅 등). 이메일 제목과 메모 본문을 자동 포함.",
+    "🎯 레코드의 활동 타임라인 조회 (이메일·노트·TODO·웹폼·미팅 등).\n📦 이메일 제목과 메모 본문을 자동 포함.",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
-      id: z.string().describe("레코드 UUID"),
-      cursor: z.string().optional().describe("페이지네이션 커서"),
+      objectId: z.string().describe("레코드 UUID"),
+      after: z.string().optional().describe("페이지네이션 커서"),
     },
     READ,
-    async ({ objectType, id, cursor }, extra) => {
+    async ({ objectType, objectId, after }, extra) => {
       try {
         const client = getClient(extra);
-        const query: Record<string, string> = { [`${objectType}Id`]: id };
-        if (cursor) query.cursor = cursor;
+        const query: Record<string, string> = { [`${objectType}Id`]: objectId };
+        if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/activity`, query);
         const key = `${objectType}ActivityList`;
         const items = (data[key] as Array<Record<string, unknown>>) ?? [];

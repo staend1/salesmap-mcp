@@ -8,13 +8,14 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: fal
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false } as const;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 
 // ── pre-validation ────────────────────────────────────
 function validateCreate(type: string, params: Record<string, unknown>): string | null {
   if (type === "deal") {
-    if (!params.pipelineId) return "deal 생성에는 pipelineId가 필요합니다. salesmap-get-pipelines로 조회하세요.";
-    if (!params.pipelineStageId) return "deal 생성에는 pipelineStageId가 필요합니다. salesmap-get-pipelines로 조회하세요.";
-    if (!params.status) return "deal 생성에는 status가 필요합니다. ('Won', 'Lost', 'In progress')";
+    if (!params.pipelineId) return "deal 생성에는 파이프라인 ID가 필요합니다. properties에 \"파이프라인\" 추가 또는 salesmap-get-pipelines로 조회하세요.";
+    if (!params.pipelineStageId) return "deal 생성에는 파이프라인 단계 ID가 필요합니다. properties에 \"파이프라인 단계\" 추가 또는 salesmap-get-pipelines로 조회하세요.";
+    if (!params.status) return "deal 생성에는 상태가 필요합니다. properties에 \"상태\" 추가 ('Won', 'Lost', 'In progress')";
   }
   if ((type === "deal" || type === "lead") && !params.peopleId && !params.organizationId) {
     return `${type} 생성에는 peopleId 또는 organizationId가 필요합니다.`;
@@ -22,17 +23,13 @@ function validateCreate(type: string, params: Record<string, unknown>): string |
   return validateIdParams(params);
 }
 
-const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId (pipeline IDs)
-
 function validateIdParams(params: Record<string, unknown>): string | null {
-  // Pipeline IDs can be UUID or MongoDB ObjectId
   for (const key of ["pipelineId", "pipelineStageId"]) {
     const v = params[key];
     if (typeof v === "string" && !UUID_RE.test(v) && !HEX_ID_RE.test(v)) {
       return `${key}는 ID 형식이어야 합니다. salesmap-get-pipelines로 조회하세요. (입력값: "${v}")`;
     }
   }
-  // People/Org IDs can be UUID or MongoDB ObjectId
   const idFields: Array<[string, string]> = [
     ["peopleId", "salesmap-search-objects (people)"],
     ["organizationId", "salesmap-search-objects (organization)"],
@@ -66,19 +63,19 @@ export function registerGenericTools(server: McpServer) {
   // ── Read ───────────────────────────────────────────────
   server.tool(
     "salesmap-read-object",
-    "레코드 상세 조회. null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음.",
+    "🎯 레코드 상세 조회.\n📦 전체 필드 반환. properties로 필요한 필드만 지정 가능.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
-      id: z.string().describe("레코드 UUID"),
+      objectId: z.string().describe("레코드 ID"),
       properties: z.array(z.string()).optional()
         .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
     },
     READ,
-    async ({ objectType, id, properties }, extra) => {
+    async ({ objectType, objectId, properties }, extra) => {
       try {
         const client = getClient(extra);
-        const path = `/v2/${objectType}/${id}`;
+        const path = `/v2/${objectType}/${objectId}`;
         let data: unknown;
         if (GET_ONE_TYPES.has(objectType)) {
           data = await client.getOne(path, objectType);
@@ -99,22 +96,22 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "여러 레코드 일괄 조회 (최대 20개). null 필드는 응답에서 생략됨 — 응답에 없는 필드 = 값 없음. 다건 조회 시 properties로 필요한 필드만 지정 권장.",
+    "🎯 여러 레코드 일괄 조회 (최대 20개).\n🧭 다건 조회 시 properties로 필요한 필드만 지정 권장.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
-      ids: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
+      objectIds: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
       properties: z.array(z.string()).optional()
-        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환. 다건 조회 시 지정 권장."),
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
     },
     READ,
-    async ({ objectType, ids, properties }, extra) => {
+    async ({ objectType, objectIds, properties }, extra) => {
       try {
         const client = getClient(extra);
         const useGetOne = GET_ONE_TYPES.has(objectType);
         const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
 
-        for (const id of ids) {
+        for (const id of objectIds) {
           try {
             const path = `/v2/${objectType}/${id}`;
             let data: unknown;
@@ -143,28 +140,20 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap-create-object",
-    "레코드 생성. properties에 필드 한글 이름과 값을 key-value로 전달 — 타입 변환 자동. deal은 pipelineId+pipelineStageId+status 필수(salesmap-get-pipelines 참조). 금액은 top-level price 파라미터 사용.",
+    "🎯 레코드 생성. 필드 값은 모두 properties에 한글 이름으로 전달.\n📋 salesmap-list-properties로 필드 확인. deal은 salesmap-get-pipelines로 파이프라인·단계 ID 확인.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
-      name: z.string().optional().describe("이름 (custom-object 제외 필수)"),
-      note: z.string().optional().describe("초기 노트"),
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
-        .describe("커스텀 필드 key-value. 예: { \"담당자\": \"홍길동\", \"등급\": \"A\" }. 금액은 top-level price 파라미터 사용."),
+        .describe("필드 key-value. 예: { \"이름\": \"홍길동\", \"금액\": 50000, \"파이프라인\": \"pipeline-id\" }"),
+      note: z.string().optional().describe("초기 노트"),
       peopleId: z.string().optional().describe("고객 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
-      organizationId: z.string().optional().describe("회사 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
-      pipelineId: z.string().optional().describe("파이프라인 ID (deal 필수)"),
-      pipelineStageId: z.string().optional().describe("단계 ID (deal 필수)"),
-      status: z.enum(["Won", "Lost", "In progress"]).optional().describe("딜 상태 (deal 필수)"),
-      price: z.number().optional().describe("금액 (deal)"),
+      organizationId: z.string().optional().describe("회사 ID"),
       customObjectDefinitionId: z.string().optional().describe("Definition ID (custom-object 필수)"),
     },
     WRITE,
     async ({ objectType, properties, note, ...rest }, extra) => {
-      const createErr = validateCreate(objectType, rest);
-      if (createErr) return err(createErr);
-
       try {
         const client = getClient(extra);
         const body: Record<string, unknown> = {};
@@ -173,12 +162,17 @@ export function registerGenericTools(server: McpServer) {
         }
         if (note !== undefined) body.memo = note;
 
-        // Convert simplified properties → fieldList
+        // Convert simplified properties → fieldList + extract top-level params
         if (properties && Object.keys(properties).length > 0) {
-          const { fieldList, errors } = await resolveProperties(client, objectType, properties);
+          const { fieldList, errors, extractedTopLevel } = await resolveProperties(client, objectType, properties);
           if (errors.length > 0) return err(errors.join("\n"));
+          Object.assign(body, extractedTopLevel);
           if (fieldList.length > 0) body.fieldList = fieldList;
         }
+
+        // Validate after extractedTopLevel merge
+        const createErr = validateCreate(objectType, body);
+        if (createErr) return err(createErr);
 
         return ok(await client.post(`/v2/${objectType}`, body));
       } catch (e: unknown) {
@@ -190,24 +184,19 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap-update-object",
-    "레코드 수정. properties에 변경할 필드만 key-value로 전달 — 미포함 필드는 변경 없음. 금액은 top-level price 파라미터 사용.",
+    "🎯 레코드 수정. properties에 변경할 필드만 전달.\n📋 salesmap-list-properties로 필드 확인.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
-      id: z.string().describe("레코드 UUID"),
-      name: z.string().optional(),
+      objectId: z.string().describe("레코드 ID"),
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
-        .describe("변경할 필드 key-value. 예: { \"담당자\": \"홍길동\" }. 금액은 top-level price 파라미터 사용."),
+        .describe("변경할 필드 key-value. 예: { \"담당자\": \"홍길동\", \"상태\": \"Won\" }"),
       peopleId: z.string().optional(),
       organizationId: z.string().optional(),
-      pipelineId: z.string().optional(),
-      pipelineStageId: z.string().optional(),
-      status: z.enum(["Won", "Lost", "In progress"]).optional(),
-      price: z.number().optional().describe("금액 (deal)"),
     },
     WRITE,
-    async ({ objectType, id, properties, ...rest }, extra) => {
+    async ({ objectType, objectId, properties, ...rest }, extra) => {
       const idErr = validateIdParams(rest);
       if (idErr) return err(idErr);
 
@@ -218,14 +207,15 @@ export function registerGenericTools(server: McpServer) {
           if (v !== undefined) body[k] = v;
         }
 
-        // Convert simplified properties → fieldList
+        // Convert simplified properties → fieldList + extract top-level params
         if (properties && Object.keys(properties).length > 0) {
-          const { fieldList, errors } = await resolveProperties(client, objectType, properties);
+          const { fieldList, errors, extractedTopLevel } = await resolveProperties(client, objectType, properties);
           if (errors.length > 0) return err(errors.join("\n"));
+          Object.assign(body, extractedTopLevel);
           if (fieldList.length > 0) body.fieldList = fieldList;
         }
 
-        return ok(await client.post(`/v2/${objectType}/${id}`, body));
+        return ok(await client.post(`/v2/${objectType}/${objectId}`, body));
       } catch (e: unknown) {
         return errWithSchemaHint((e as Error).message, objectType, summarizeFields({ ...rest, properties }));
       }
@@ -235,19 +225,18 @@ export function registerGenericTools(server: McpServer) {
   // ── Delete ───────────────────────────────────────────
   server.tool(
     "salesmap-delete-object",
-    `🛡️ Guardrails: 되돌릴 수 없는 영구 삭제. 반드시 사용자가 명시적으로 삭제를 요청한 경우에만 사용. 첫 호출은 confirmed=false로 레코드 정보를 보여주고, 사용자 확인 후 confirmed=true로 재호출.
-🎯 Purpose: deal/lead 레코드 영구 삭제. 시퀀스에 등록된 레코드는 삭제 불가 — 시퀀스 해제 후 재시도.`,
+    `🛡️ Guardrails: 되돌릴 수 없는 영구 삭제. 반드시 사용자가 명시적으로 삭제를 요청한 경우에만 사용. 첫 호출은 confirmed=false로 레코드 정보를 보여주고, 사용자 확인 후 confirmed=true로 재호출.\n🎯 deal/lead 레코드 영구 삭제.`,
     {
       objectType: z.enum(["deal", "lead"])
         .describe("오브젝트 타입 (deal, lead만 지원)"),
-      id: z.string().describe("삭제할 레코드 UUID"),
+      objectId: z.string().describe("삭제할 레코드 ID"),
       confirmed: z.boolean().default(false)
-        .describe("false=삭제 대상 미리보기만, true=실제 삭제 실행. 반드시 사용자 확인 후 true로 호출"),
+        .describe("false=삭제 대상 미리보기만, true=실제 삭제 실행"),
     },
     DESTRUCTIVE,
-    async ({ objectType, id, confirmed }, extra) => {
-      if (!UUID_RE.test(id) && !HEX_ID_RE.test(id)) {
-        return err("id는 UUID 또는 ObjectId 형식이어야 합니다.");
+    async ({ objectType, objectId, confirmed }, extra) => {
+      if (!UUID_RE.test(objectId) && !HEX_ID_RE.test(objectId)) {
+        return err("objectId는 UUID 또는 ObjectId 형식이어야 합니다.");
       }
 
       const client = getClient(extra);
@@ -255,7 +244,7 @@ export function registerGenericTools(server: McpServer) {
       // Preview mode — show record without deleting
       if (!confirmed) {
         try {
-          const path = `/v2/${objectType}/${id}`;
+          const path = `/v2/${objectType}/${objectId}`;
           const data = await client.getOne(path, objectType);
           const record = compactRecord(data as Record<string, unknown>);
           return ok({
@@ -279,7 +268,7 @@ export function registerGenericTools(server: McpServer) {
               confirm: {
                 type: "boolean",
                 title: "삭제 확인",
-                description: `${objectType} ${id} 를 정말 삭제하시겠습니까?`,
+                description: `${objectType} ${objectId} 를 정말 삭제하시겠습니까?`,
                 default: false,
               },
             },
@@ -299,10 +288,14 @@ export function registerGenericTools(server: McpServer) {
 
       // Execute deletion
       try {
-        await client.post(`/v2/${objectType}/${id}/delete`);
-        return ok({ deleted: true, type: objectType, id });
+        await client.post(`/v2/${objectType}/${objectId}/delete`);
+        return ok({ deleted: true, type: objectType, id: objectId });
       } catch (e: unknown) {
-        return err((e as Error).message);
+        const msg = (e as Error).message;
+        if (msg.includes("시퀀스")) {
+          return err(`${msg}\n\n[힌트] 시퀀스에 등록된 레코드는 삭제 불가 — 시퀀스 해제 후 재시도하세요.`);
+        }
+        return err(msg);
       }
     },
   );

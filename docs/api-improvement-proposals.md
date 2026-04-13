@@ -160,3 +160,14 @@ GET /v2/organization/{id}
 
 **현재**: 전용 API 없음. 리드 삭제 + 딜 생성으로 우회해야 하는데 삭제도 안 됨.
 **제안**: `POST /v2/lead/{id}/convert` → 연결 정보 유지하며 딜 자동 생성
+
+### 19. top-level 파라미터 분리 구조
+
+**현재**: `price`, `pipelineId`, `pipelineStageId`, `status` 등이 `fieldList`가 아닌 top-level body 파라미터로만 전달 가능. properties에 넣으면 에러.
+
+**제안**: HubSpot처럼 전부 `properties` 안에 넣을 수 있도록 통합.
+
+**이유**:
+- LLM이 "필드 값 = properties에 넣는다"는 단일 규칙으로 동작할 수 없음
+- 금액/파이프라인/상태 등 어떤 필드가 top-level인지 외워야 함
+- 현재 MCP에서 금액은 자동 추출로 우회, 나머지는 별도 파라미터로 노출

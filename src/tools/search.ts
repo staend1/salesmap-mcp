@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecords, fetchUserMap } from "../client";
+import { ok, err, errWithSchemaHint, compactRecords, fetchUserMap, fetchTeamMap } from "../client";
 import { getClient } from "../types";
 import type { SalesMapClient } from "../client";
 
@@ -16,12 +16,13 @@ type FilterGroup = { filters: Array<{ propertyName: string; operator: string; va
 
 interface SchemaField { name: string; type: string; }
 
-// User types: accept name strings, auto-resolve to UUIDs
+// Auto-resolve types: accept name strings, auto-resolve to UUIDs
 const USER_TYPES = new Set(["user", "multiUser"]);
+const TEAM_TYPES = new Set(["team", "multiTeam"]);
 
-// Non-user relation types: require UUIDs
+// Non-auto relation types: require UUIDs
 const RELATION_TYPES = new Set([
-  "pipeline", "pipelineStage", "team", "multiTeam",
+  "pipeline", "pipelineStage",
   "people", "multiPeople", "organization", "multiOrganization",
   "deal", "multiDeal", "multiLead", "multiCustomObject",
   "webForm", "multiWebForm", "multiProduct",
@@ -31,8 +32,6 @@ const RELATION_TYPES = new Set([
 const RELATION_TOOL_HINT: Record<string, string> = {
   pipeline: "salesmap-get-pipelines",
   pipelineStage: "salesmap-get-pipelines",
-  team: "salesmap-list-teams",
-  multiTeam: "salesmap-list-teams",
 };
 
 /**
@@ -53,30 +52,32 @@ async function resolveFilterIds(
     fieldTypeMap.set(f.name, f.type);
   }
 
-  // Identify user-type fields used in filters
+  // Identify user-type and team-type fields used in filters
   const userTypeNames = new Set<string>();
+  const teamTypeNames = new Set<string>();
   for (const group of groups) {
     for (const f of group.filters) {
       const ft = fieldTypeMap.get(f.propertyName);
-      if (ft && USER_TYPES.has(ft)) {
-        userTypeNames.add(f.propertyName);
-      }
+      if (ft && USER_TYPES.has(ft)) userTypeNames.add(f.propertyName);
+      if (ft && TEAM_TYPES.has(ft)) teamTypeNames.add(f.propertyName);
     }
   }
 
-  // Lazy-load user map only if needed
-  let userMap: Map<string, string> | null = null;
-  const needsLookup = groups.some(g =>
+  // Helper: check if any filter has non-UUID values for given field names
+  const hasNameValues = (fieldNames: Set<string>) => groups.some(g =>
     g.filters.some(f => {
-      if (!userTypeNames.has(f.propertyName)) return false;
+      if (!fieldNames.has(f.propertyName)) return false;
       if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") return false;
       const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
       return vals.some(v => !isValidId(v));
     }),
   );
-  if (needsLookup) {
-    userMap = await fetchUserMap(client);
-  }
+
+  // Lazy-load maps only if needed
+  let userMap: Map<string, string> | null = null;
+  let teamMap: Map<string, string> | null = null;
+  if (hasNameValues(userTypeNames)) userMap = await fetchUserMap(client);
+  if (hasNameValues(teamTypeNames)) teamMap = await fetchTeamMap(client);
 
   const resolved: FilterGroup[] = [];
   for (const group of groups) {
@@ -114,6 +115,32 @@ async function resolveFilterIds(
               return { error: `"${f.propertyName}" — "${v}" 사용자를 찾을 수 없습니다. salesmap-list-users로 확인하세요.`, resolved: [] };
             }
             resolvedVals.push(uid);
+          }
+        }
+        const resolvedValue = Array.isArray(f.value) ? resolvedVals : resolvedVals[0];
+        filters.push({ ...f, value: resolvedValue });
+        continue;
+      }
+
+      // Team type → auto-resolve names to UUIDs
+      if (teamTypeNames.has(f.propertyName)) {
+        const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
+        const bad = vals.filter(v => !isValidId(v));
+        if (bad.length === 0) {
+          filters.push(f);
+          continue;
+        }
+        if (!teamMap) { filters.push(f); continue; }
+        const resolvedVals: string[] = [];
+        for (const v of vals) {
+          if (isValidId(v)) {
+            resolvedVals.push(v);
+          } else {
+            const tid = teamMap.get(v);
+            if (!tid) {
+              return { error: `"${f.propertyName}" — "${v}" 팀을 찾을 수 없습니다. salesmap-list-teams로 확인하세요.`, resolved: [] };
+            }
+            resolvedVals.push(tid);
           }
         }
         const resolvedValue = Array.isArray(f.value) ? resolvedVals : resolvedVals[0];
@@ -163,23 +190,23 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap-search-objects",
-    "필터 조건으로 레코드 검색 (그룹 간 OR, 그룹 내 AND, 최대 3그룹×3필터). null 필드는 응답에서 생략됨.",
+    "🎯 필터 조건으로 레코드 검색 (filterGroups 간 OR, 그룹 내 AND, 최대 3×3).\n📋 salesmap-list-properties로 필드 이름·타입 확인.\n📦 objectList (id, name만 반환). 상세 조회는 salesmap-batch-read-objects.",
     {
-      targetType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
-      filterGroupList: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
-      cursor: z.string().optional().describe("페이지네이션 커서"),
+      objectType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
+      filterGroups: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
+      after: z.string().optional().describe("페이지네이션 커서"),
     },
     READ,
-    async ({ targetType, filterGroupList, cursor }, extra) => {
+    async ({ objectType, filterGroups, after }, extra) => {
       try {
         const client = getClient(extra);
 
-        // Pre-validate + auto-resolve user names to UUIDs
-        const { error: idErr, resolved } = await resolveFilterIds(filterGroupList as FilterGroup[], client, targetType);
+        // Pre-validate + auto-resolve user/team names to UUIDs
+        const { error: idErr, resolved } = await resolveFilterIds(filterGroups as FilterGroup[], client, objectType);
         if (idErr) return err(idErr);
 
         const query: Record<string, string> = {};
-        if (cursor) query.cursor = cursor;
+        if (after) query.cursor = after;
 
         // Convert propertyName → fieldName for SalesMap API
         const apiFilterGroups = resolved.map(g => ({
@@ -190,13 +217,22 @@ export function registerSearchTools(server: McpServer) {
           })),
         }));
 
-        const data = await client.post(`/v2/object/${targetType}/search`, { filterGroupList: apiFilterGroups }, query);
+        const data = await client.post(`/v2/object/${objectType}/search`, { filterGroupList: apiFilterGroups }, query);
+
+        // 0-result hint
+        const obj = data as Record<string, unknown>;
+        const objectList = obj.objectList as unknown[] | undefined;
+        if (Array.isArray(objectList) && objectList.length === 0) {
+          obj.hint = "결과 없음 — 필터 조건이나 필드 이름(salesmap-list-properties)을 확인하세요.";
+          return ok(obj);
+        }
+
         return ok(compactRecords(data));
       } catch (e: unknown) {
-        const filters = (filterGroupList as FilterGroup[]).flatMap(g =>
+        const filters = (filterGroups as FilterGroup[]).flatMap(g =>
           g.filters.map(f => `${f.propertyName} ${f.operator} ${JSON.stringify(f.value)}`),
         );
-        return errWithSchemaHint((e as Error).message, targetType, filters.join(", "));
+        return errWithSchemaHint((e as Error).message, objectType, filters.join(", "));
       }
     },
   );
