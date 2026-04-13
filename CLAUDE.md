@@ -1,6 +1,6 @@
 # SalesMap MCP Server
 
-> 최종 작업: 2026-04-09 (Tool 리뷰 + 버그픽스 배포)
+> 최종 작업: 2026-04-13 (HubSpot 어텐션 정렬 + 에러 보강 배포)
 
 ## 프로젝트 개요
 세일즈맵 CRM API v2를 MCP(Model Context Protocol) 서버로 래핑. Claude가 CRM 데이터를 직접 조회/생성/수정하여 영업 컨설팅+자동화 가능. 멀티테넌트 — 고객마다 자기 API 토큰으로 접속.
@@ -47,23 +47,17 @@ npx vercel deploy --prod
 - `docs/PRD.md` — 상세 요구사항, tool 목록, 설계 결정
 - `docs/architecture.md` — 프로젝트 구조, API 클라이언트 설계
 - `docs/TODO.md` — 통합 TODO (도구 추가, API 이슈, 로드맵)
-- `docs/api-improvement-proposals.md` — 세일즈맵 API 개선 제안 (18건)
+- `docs/api-improvement-proposals.md` — 세일즈맵 API 개선 제안 (19건)
 - `docs/references/` — 외부 레퍼런스 (HubSpot MCP, ejlee/salesmap-mcp, OpenAPI 스펙)
 
 ## 현재 상태
-- ✅ 21개 MCP tool — HubSpot 네이밍 (하이픈 구분, read/list/search 동사)
+- ✅ 21개 MCP tool — HubSpot 파라미터 정렬 (objectId, filterGroups, after)
+- ✅ HubSpot 🎯/📋/📦/🧭 description 패턴 적용
+- ✅ TOP_LEVEL_ONLY 자동 추출 (금액/이름/파이프라인/상태 → properties에서 top-level로)
 - ✅ properties 변환 레이어 (fieldList 타입 키 자동 매핑, key-value → typed fieldList)
-- ✅ user 이름 자동 해석 (user/multiUser 필드에 이름 입력 → UUID 변환)
-- ✅ propertyName 기반 검색 (fieldName → propertyName 리네이밍)
-- ✅ MongoDB ObjectId 지원 (pipeline, people, org ID 검증)
-- ✅ list-associations 버그 수정 (primary string ID 정상 추출)
-- ✅ "금액" pre-validation (properties에 넣으면 즉시 에러, API 호출 없음)
-- ✅ email enum 제거 (API 미지원)
-- ✅ Vercel Production 배포 + 15/15 실서버 테스트 통과
-- ✅ 구조화된 description, 컨텍스트 에러 힌트, compactRecords, 2-step delete
-- ✅ list-engagements (활동 타임라인 + email/memo 자동 인라인)
-- ✅ list-changelog (필드 변경 이력 + 노이즈 필드 자동 제거)
-- ✅ read-email / read-memo (단건 조회)
+- ✅ user/team 이름 자동 해석 (검색 필터에서 이름 → UUID 변환)
+- ✅ 에러 보강 (404 래핑, search 0건 힌트, delete 시퀀스 힌트)
+- ✅ Vercel Production 배포 + 21/21 실서버 테스트 통과
 - ⬜ create-quote에 properties 지원 추가
 
 ## 알려진 이슈 로그
