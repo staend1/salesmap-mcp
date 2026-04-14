@@ -134,7 +134,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 여러 레코드 일괄 조회 (최대 20개).\n🧭 다건 조회 시 properties로 필요한 필드만 지정 권장.",
+    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 각 레코드에 _associations(연관 카운트) 포함. properties로 필요한 필드만 지정 가능.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
@@ -149,24 +149,27 @@ export function registerGenericTools(server: McpServer) {
         const useGetOne = GET_ONE_TYPES.has(objectType);
         const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
 
-        for (const id of objectIds) {
+        // Fetch all records + associations in parallel
+        const tasks = objectIds.map(async (id) => {
           try {
             const path = `/v2/${objectType}/${id}`;
-            let data: unknown;
-            if (useGetOne) {
-              data = await client.getOne(path, objectType);
-            } else {
-              data = await client.get(path);
-            }
-            let record = compactRecord(data as Record<string, unknown>);
+            const [rawData, associations] = await Promise.all([
+              useGetOne ? client.getOne(path, objectType) : client.get(path),
+              fetchAssociationCounts(client, objectType, id),
+            ]);
+            let record = compactRecord(rawData as Record<string, unknown>);
             if (properties && properties.length > 0) {
               record = pickProperties(record, properties);
             }
-            results.push({ id, data: record });
+            if (Object.keys(associations).length > 0) {
+              record._associations = associations;
+            }
+            return { id, data: record } as { id: string; data?: Record<string, unknown>; error?: string };
           } catch (e: unknown) {
-            results.push({ id, error: (e as Error).message });
+            return { id, error: (e as Error).message } as { id: string; data?: Record<string, unknown>; error?: string };
           }
-        }
+        });
+        results.push(...await Promise.all(tasks));
 
         return ok({ total: results.length, records: results });
       } catch (e: unknown) {
