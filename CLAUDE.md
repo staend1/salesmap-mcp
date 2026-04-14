@@ -42,12 +42,17 @@ npx vercel deploy --prod
 ## 작업 규칙
 - API 버그, 레거시 동작, MCP 제한사항 발견 시 → `알려진 이슈 로그` 섹션에 즉시 추가 (날짜 + 증상 + 우회 방법)
 - 해결된 이슈는 삭제하지 말고 해결 날짜와 방법 병기
+- **API 이슈 누적 문서**: `docs/api-analysis/api-legacy-report.md` — 새로운 API 문제/레거시/허브스팟 차이점 발견 시 이 문서에 추가. 이슈 번호 이어서 부여, 허브스팟 비교 + MCP 우회 방법 포함
 
 ## 상세 문서
 - `docs/PRD.md` — 상세 요구사항, tool 목록, 설계 결정
 - `docs/architecture.md` — 프로젝트 구조, API 클라이언트 설계
 - `docs/TODO.md` — 통합 TODO (도구 추가, API 이슈, 로드맵)
-- `docs/api-improvement-proposals.md` — 세일즈맵 API 개선 제안 (19건)
+- `docs/api-analysis/` — **API 분석 문서 모음**
+  - `api-legacy-report.md` — API 이슈 누적 문서 (22건, 새 이슈 발견 시 여기에 추가)
+  - `mcp-workaround-logic.md` — MCP 변환/우회 로직 전체 해설 (17개 로직)
+  - `llm-mental-model-gap.md` — LLM이 세일즈맵 MCP를 헤매는 이유 (서사형)
+  - `api-improvement-proposals.md` — API 개선 제안 (19건)
 - `docs/references/` — 외부 레퍼런스 (HubSpot MCP, ejlee/salesmap-mcp, OpenAPI 스펙)
 
 ## 현재 상태
