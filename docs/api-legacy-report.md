@@ -266,7 +266,30 @@ AI 에이전트가 자연스럽게 사용하려는데 존재하지 않는 API들
 
 ---
 
-## 10. 삭제 API 비표준
+## 10. 이메일 본문 미제공
+
+### 문제
+
+`GET /v2/email/{id}` 응답에 subject, from, to, date 등 메타데이터만 포함됩니다. body/htmlBody/content 필드가 없습니다.
+
+### 실제 영향
+
+이메일 조회 도구가 존재해도 실질적 가치가 없습니다. "이 고객에게 뭐라고 메일 보냈어?" → 제목만 보여줄 수 있고, 본문은 알 수 없습니다. 이메일 내용 기반 분석·요약·후속 조치 추천이 불가능합니다.
+
+### HubSpot 비교
+
+```
+HubSpot: GET /crm/v3/objects/emails/{id}?properties=hs_email_html,hs_email_text
+  → 본문 HTML/텍스트 반환. 이메일이 일반 오브젝트이므로 properties로 원하는 필드 지정 가능.
+```
+
+### MCP에서의 우회
+
+우회 불가. `read-email` 도구 description에 `📦 본문 없음 — API 제한` 명시하여 LLM이 헛수고하지 않도록 안내합니다.
+
+---
+
+## 11. 삭제 API 비표준
 
 ### 문제
 
@@ -291,10 +314,12 @@ AI 에이전트가 자연스럽게 사용하려는데 존재하지 않는 API들
 | 7 | Search 응답에 상세 없음 | batch-read 후속 호출 | N+1 패턴 |
 | 8 | Association에 engagement 없음 | activity API 별도 래핑 | ~80줄 |
 | 9 | Rate limit 미문서화 | 120ms 강제 인터벌 + 429 retry | ~20줄 |
-| 10 | 응답 래핑 비일관 | getOne() 분기 처리 | ~15줄 |
-| 11 | 404 에러 메시지 | 커스텀 에러 래핑 | ~10줄 |
-| 12 | Search 에러 힌트 없음 | errWithSchemaHint() | ~20줄 |
-| 13 | 사용자/팀 이름→ID 변환 | fetchUserMap/fetchTeamMap | ~60줄 |
+| 10 | 이메일 본문 미제공 | description에 제한 명시 | 우회 불가 |
+| 11 | 삭제 API 비표준 | 시퀀스 에러 힌트 수동 추가 | ~5줄 |
+| 12 | 응답 래핑 비일관 | getOne() 분기 처리 | ~15줄 |
+| 13 | 404 에러 메시지 | 커스텀 에러 래핑 | ~10줄 |
+| 14 | Search 에러 힌트 없음 | errWithSchemaHint() | ~20줄 |
+| 15 | 사용자/팀 이름→ID 변환 | fetchUserMap/fetchTeamMap | ~60줄 |
 
 **총 우회 코드: ~400줄** (전체 MCP 서버 코드의 약 30%)
 
