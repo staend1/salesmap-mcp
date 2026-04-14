@@ -536,6 +536,84 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 ---
 
+## 19. 에러 응답이 비구조화 문자열
+
+### 문제
+
+세일즈맵 API 에러는 `reason` 문자열 하나로만 반환됩니다. 에러 카테고리, 에러 코드, 문제가 된 필드명 등의 구조화된 정보가 없습니다.
+
+```json
+// 세일즈맵: 문자열 하나
+{
+  "success": false,
+  "reason": "people 유입경로에 정의 되지 않은 값을 입력했습니다"
+}
+```
+
+```json
+// 허브스팟: 구조화된 에러
+{
+  "status": "error",
+  "message": "Property values were not valid",
+  "category": "VALIDATION_ERROR",
+  "subCategory": "crm.propertyValidation.PROPERTY_DOESNT_EXIST",
+  "correlationId": "8a3f6c3a-...",
+  "errors": [
+    {
+      "message": "Property \"testproperty\" does not exist",
+      "code": "PROPERTY_DOESNT_EXIST",
+      "context": { "propertyName": ["testproperty"] }
+    }
+  ],
+  "links": { "scopes": "https://developers.hubspot.com/scopes" }
+}
+```
+
+### 실제 영향
+
+- **프로그래밍적 에러 처리 불가**: `reason` 문자열을 정규식이나 `includes()`로 패턴 매칭해야 함. 에러 메시지 문구가 바뀌면 처리 로직이 깨짐.
+- **어떤 필드가 문제인지 모름**: "정의 되지 않은 값"이 어느 필드에서 발생했는지 에러만 봐서는 알 수 없음. 여러 필드를 동시에 보내면 원인 특정 불가.
+- **LLM 자가 복구 어려움**: 구조화된 에러라면 LLM이 `errors[0].context.propertyName`을 읽고 해당 필드만 수정 재시도 가능. 문자열은 추론에 의존해야 함.
+
+### HubSpot 비교
+
+허브스팟 에러의 핵심 구조:
+
+| 필드 | 용도 | 예시 |
+|------|------|------|
+| `category` | 에러 대분류 | `VALIDATION_ERROR`, `OBJECT_NOT_FOUND`, `MISSING_SCOPES`, `RATE_LIMITS` |
+| `subCategory` | 에러 소분류 | `crm.propertyValidation.PROPERTY_DOESNT_EXIST` |
+| `errors[].code` | 프로그래밍용 에러 코드 | `PROPERTY_DOESNT_EXIST`, `INVALID_INTEGER`, `INVALID_OPTION` |
+| `errors[].context` | 문제가 된 필드/값 | `{ "propertyName": ["discount"] }` |
+| `correlationId` | 디버깅용 요청 ID | UUID |
+
+시나리오별:
+- **존재하지 않는 필드**: `code: "PROPERTY_DOESNT_EXIST"` + `context.propertyName` → 정확히 어떤 필드가 문제인지 특정
+- **잘못된 옵션값**: `code: "INVALID_OPTION"` → 어떤 필드의 어떤 값이 잘못됐는지 명시
+- **404**: `category: "OBJECT_NOT_FOUND"` + `message`에 objectId 포함
+- **429**: `errorType: "RATE_LIMIT"` + `policyName: "TEN_SECONDLY_ROLLING"` → 어떤 제한에 걸렸는지 명시
+- **권한 부족**: `category: "MISSING_SCOPES"` + `context.requiredScopes` → 필요한 권한 목록
+
+허브스팟 MCP는 이 구조화된 에러를 **추가 가공 없이 그대로 전달**합니다. API 에러 자체가 충분히 상세하기 때문에 MCP 레이어에서 보강할 필요가 없습니다.
+
+### MCP에서의 우회
+
+`errWithSchemaHint()` 함수에서 에러 문자열을 `includes()` 패턴 매칭으로 분류한 뒤, 도구 힌트를 수동으로 붙입니다.
+
+```
+감지 패턴 → 힌트:
+"정의 되지 않은 값"     → salesmap-list-properties로 옵션 확인
+"Invalid fieldName"    → 필드명은 한글 (예: 'name' → '이름')
+"relation field"       → UUID만 허용, salesmap-get-pipelines 또는 salesmap-list-users 안내
+"userValueId가 없습니다" → salesmap-list-users로 ID 확인
+"fieldList이 아닌 파라메터" → top-level price 파라미터로 전달
+기타                   → salesmap-list-properties로 확인
+```
+
+이 방식은 API 에러 메시지 문구에 의존하므로, API 측에서 문구를 변경하면 힌트 매칭이 깨집니다.
+
+---
+
 ## 요약: MCP에서 우회한 API 레거시 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
@@ -562,6 +640,7 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 | 20 | 리드→딜 전환 API 없음 | 도구 조합으로 수동 ��리 | 이력 이전 불가 |
 | 21 | 필드 스키마에 description 없음 | FIELD_HINTS 하드코딩 주입 (~44필드) | ~60줄 |
 | 22 | 참조 필드가 ID만 허용 | 사용자/팀 이름→UUID 자동 변환 | ~60줄 (파이프라인은 미구현) |
+| 23 | 에러 응답이 비구조화 문자열 | errWithSchemaHint() 패턴 매칭 | ~20줄 (문구 변경 시 깨짐) |
 
 **총 우회 코드: ~400줄** (전체 MCP 서버 코드의 약 30%)
 
@@ -585,6 +664,7 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 8. Association에 engagement(memo, email, todo) 포함
 9. 필드 스키마에 description 필드 추가
 10. 참조 필드에서 이름 문자열 허용 (서버단 이름→ID 해석)
+11. 에러 응답 구조화 (category, code, context 포함)
 
 ### 중기 (기능 추가)
 
