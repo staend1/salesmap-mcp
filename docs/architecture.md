@@ -1,30 +1,35 @@
 # Architecture
 
 ## 프로젝트 구조
+
 ```
 salesmap-mcp/
 ├── package.json
 ├── tsconfig.json
 ├── next.config.ts
+├── vercel.json
 ├── app/
 │   └── api/[transport]/route.ts   # Vercel API 엔트리 (auth + MCP transport)
 ├── src/
-│   ├── index.ts                   # MCP 서버 생성 + 14개 tool 등록
-│   ├── client.ts                  # SalesMapClient + compactRecords 필터
+│   ├── index.ts                   # MCP 서버 생성 + 19개 tool 등록
+│   ├── client.ts                  # SalesMapClient + DEFAULT_PROPERTIES + pickProperties + compactRecords
 │   ├── types.ts                   # 공통 타입 + getClient(extra) 헬퍼
 │   └── tools/
-│       ├── field.ts               # 1 tool: describe_object
-│       ├── search.ts              # 1 tool: search_records
-│       ├── generic.ts             # 4 tools: list, get, create, update
-│       └── extras.ts              # 8 tools: association, memo, pipeline, quote, quotes, users, me, record_url
+│       ├── field.ts               # 1 tool: salesmap-list-properties
+│       ├── search.ts              # 1 tool: salesmap-search-objects
+│       ├── generic.ts             # 4 tools: batch-read, create, update, delete
+│       └── extras.ts              # 13 tools: associations, note, engagements, changelog,
+│                                  #           quotes, pipelines, lead-time, users, teams,
+│                                  #           user-details, get-link
 └── docs/
-    ├── PRD.md
     ├── architecture.md
-    └── references/
-        ├── hubspot-mcp-reference.md
-        ├── hubspot-mcp-teardown.md
-        ├── ejlee-salesmap-mcp-teardown.md
-        └── salesmap-openapi.yaml
+    ├── salesmap-api-reference.md
+    ├── field-editability.md
+    ├── system-fields.md
+    └── api-analysis/
+        ├── api-mcp-readiness.md
+        ├── mcp-workaround-logic.md
+        └── llm-mental-model-gap.md
 ```
 
 ## 핵심 흐름
@@ -37,6 +42,7 @@ Claude → MCP Client → Streamable HTTP → Vercel (Next.js App Router)
 ```
 
 ## 멀티테넌트 인증
+
 - 클라이언트가 `Authorization: Bearer <token>` 헤더로 전달
 - route.ts에서 토큰 추출 → `getClient(extra)`로 요청별 SalesMapClient 생성
 - 서버는 토큰 저장 안 함, 환경변수 불필요
@@ -51,10 +57,15 @@ class SalesMapClient {
 
   get(path, query?)      // GET 요청
   post(path, body?)      // POST 요청
-  getOne(path, key)      // 단일 조회 + 배열 [0] 추출
+  getOne(path, key)      // 단일 조회 + 배열 [0] 추출 (응답 래핑 비일관성 우회)
 }
 
-compactRecords(data)     // list/search용 응답 필터 (null + 파이프라인 자동필드 제거)
+// 응답 후처리 유틸
+DEFAULT_PROPERTIES       // 타입별 코어 필드 목록 (properties 미지정 시 기본값)
+getDefaultProperties()   // 커스텀 오브젝트는 스키마 조회로 동적 감지
+pickProperties()         // 지정 필드만 남김 (id/name 항상 포함)
+compactRecords()         // null 필드 + 파이프라인 자동생성 필드 제거
+
 ok(data)                 // → { content: [{ type: "text", text: JSON.stringify(data) }] }
 err(msg)                 // → { content: [...], isError: true }
 ```
@@ -67,19 +78,21 @@ err(msg)                 // → { content: [...], isError: true }
 ```typescript
 function createServer(): McpServer {
   const server = new McpServer({ name: "salesmap-mcp", version: "2.0.0" });
-  registerFieldTools(server);     // 1: describe_object
-  registerSearchTools(server);    // 2: search_records
-  registerGenericTools(server);   // 3-6: list, get, create, update
-  registerExtrasTools(server);    // 7-14: 지원 도구
+  registerFieldTools(server);     // 1: salesmap-list-properties
+  registerSearchTools(server);    // 2: salesmap-search-objects
+  registerGenericTools(server);   // 3-6: batch-read, create, update, delete
+  registerExtrasTools(server);    // 7-19: 지원 도구 13개
   return server;
 }
 ```
 
 ## MCP Annotations
+
 모든 tool에 `readOnlyHint`, `destructiveHint`, `idempotentHint` 적용.
 `server.tool(name, description, schema, annotations, handler)` 오버로드 사용.
 
 ## 배포
+
 - 플랫폼: Vercel (Next.js App Router)
 - Transport: Streamable HTTP (`/api/mcp`)
 - 환경변수 불필요 — 토큰은 클라이언트가 헤더로 전달
