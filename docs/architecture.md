@@ -5,52 +5,47 @@
 salesmap-mcp/
 ├── package.json
 ├── tsconfig.json
-├── wrangler.jsonc           # Cloudflare Workers 설정
-├── .dev.vars                # 로컬 API 토큰 (gitignore)
-├── .gitignore
+├── next.config.ts
+├── app/
+│   └── api/[transport]/route.ts   # Vercel API 엔트리 (auth + MCP transport)
 ├── src/
-│   ├── index.ts             # 엔트리. createMcpHandler + tool 등록
-│   ├── client.ts            # SalesMapClient (auth, rate limit, retry)
-│   ├── types.ts             # Env, EntityType 등 공통 타입
+│   ├── index.ts                   # MCP 서버 생성 + 14개 tool 등록
+│   ├── client.ts                  # SalesMapClient + compactRecords 필터
+│   ├── types.ts                   # 공통 타입 + getClient(extra) 헬퍼
 │   └── tools/
-│       ├── people.ts        # 5 tools (list, get, create, update, find-by-email)
-│       ├── organization.ts  # 4 tools
-│       ├── deal.ts          # 5 tools (+quotes)
-│       ├── lead.ts          # 5 tools (+quotes)
-│       ├── custom-object.ts # 4 tools
-│       ├── search.ts        # 1 tool (filterGroupList)
-│       ├── sequence.ts      # 5 tools (list, get, steps, enrollments, timeline)
-│       ├── field.ts         # 1 tool
-│       ├── pipeline.ts      # 1 tool (deal/lead 공통)
-│       ├── product.ts       # 2 tools
-│       ├── webform.ts       # 2 tools
-│       ├── todo.ts          # 1 tool (읽기 전용)
-│       ├── memo.ts          # 1 tool (생성은 entity update의 memo 파라미터)
-│       ├── user.ts          # 3 tools (list, me, teams)
-│       ├── email.ts         # 1 tool (단일 조회, body 없음)
-│       ├── history.ts       # 1 tool (entityType 파라미터)
-│       ├── activity.ts      # 1 tool (entityType 파라미터)
-│       ├── association.ts   # 2 tools (primary, custom)
-│       └── quote.ts         # 1 tool (생성)
+│       ├── field.ts               # 1 tool: describe_object
+│       ├── search.ts              # 1 tool: search_records
+│       ├── generic.ts             # 4 tools: list, get, create, update
+│       └── extras.ts              # 8 tools: association, memo, pipeline, quote, quotes, users, me, record_url
 └── docs/
-    ├── PRD.md               # 상세 요구사항 + tool 목록
-    └── architecture.md      # 이 파일
+    ├── PRD.md
+    ├── architecture.md
+    └── references/
+        ├── hubspot-mcp-reference.md
+        ├── hubspot-mcp-teardown.md
+        ├── ejlee-salesmap-mcp-teardown.md
+        └── salesmap-openapi.yaml
 ```
 
 ## 핵심 흐름
 
 ```
-Claude → MCP Client → Streamable HTTP → Cloudflare Worker
-  → createMcpHandler() → McpServer.tool() 매칭
+Claude → MCP Client → Streamable HTTP → Vercel (Next.js App Router)
+  → route.ts (Bearer 토큰 추출) → createServer() → tool 매칭
   → SalesMapClient.get/post() → https://salesmap.kr/api/v2/...
   → JSON 응답 → Claude에 반환
 ```
+
+## 멀티테넌트 인증
+- 클라이언트가 `Authorization: Bearer <token>` 헤더로 전달
+- route.ts에서 토큰 추출 → `getClient(extra)`로 요청별 SalesMapClient 생성
+- 서버는 토큰 저장 안 함, 환경변수 불필요
 
 ## SalesMapClient 설계
 
 ```typescript
 class SalesMapClient {
-  // Bearer token auth (env.SALESMAP_API_TOKEN)
+  // Bearer token auth (요청별 전달)
   // Rate limit: 120ms 최소 간격
   // 429 → exponential backoff (1s, 2s, 4s), 최대 3회
 
@@ -59,29 +54,32 @@ class SalesMapClient {
   getOne(path, key)      // 단일 조회 + 배열 [0] 추출
 }
 
-ok(data)   // → { content: [{ type: "text", text: JSON.stringify(data) }] }
-err(msg)   // → { content: [{ type: "text", text: JSON.stringify({error}) }], isError: true }
+compactRecords(data)     // list/search용 응답 필터 (null + 파이프라인 자동필드 제거)
+ok(data)                 // → { content: [{ type: "text", text: JSON.stringify(data) }] }
+err(msg)                 // → { content: [...], isError: true }
 ```
 
 ## Tool 등록 패턴
 
-각 tool 파일은 `register*Tools(server, client)` 함수를 export.
-`src/index.ts`에서 모두 import하여 등록.
+각 tool 파일은 `register*Tools(server)` 함수를 export.
+`src/index.ts`에서 4개 register 함수 호출.
 
 ```typescript
-// 매 요청마다 새 서버 인스턴스 (MCP SDK 1.26.0+ 보안 요구사항)
-function createServer(env: Env): McpServer {
-  const server = new McpServer({ name: "salesmap-mcp", version: "1.0.0" });
-  const client = new SalesMapClient(env);
-  registerPeopleTools(server, client);
-  // ... 19개 register 함수
+function createServer(): McpServer {
+  const server = new McpServer({ name: "salesmap-mcp", version: "2.0.0" });
+  registerFieldTools(server);     // 1: describe_object
+  registerSearchTools(server);    // 2: search_records
+  registerGenericTools(server);   // 3-6: list, get, create, update
+  registerExtrasTools(server);    // 7-14: 지원 도구
   return server;
 }
 ```
 
-## 배포
+## MCP Annotations
+모든 tool에 `readOnlyHint`, `destructiveHint`, `idempotentHint` 적용.
+`server.tool(name, description, schema, annotations, handler)` 오버로드 사용.
 
-- 플랫폼: Cloudflare Workers
-- Transport: Streamable HTTP (`/mcp` 엔드포인트)
-- Secret: `SALESMAP_API_TOKEN` → `wrangler secret put`
-- Health check: `GET /` → `{ status: "ok" }`
+## 배포
+- 플랫폼: Vercel (Next.js App Router)
+- Transport: Streamable HTTP (`/api/mcp`)
+- 환경변수 불필요 — 토큰은 클라이언트가 헤더로 전달

@@ -127,14 +127,30 @@ Rate Limit 초과 시: HTTP 429 { "success": false, "message": "Too Many Request
 
 > 2026-02-27 전수 테스트 완료. 커스텀 필드는 기본적으로 모두 수정 가능. 아래는 **수정 불가능한 시스템 필드만** 정리.
 
-#### top-level 파라미터 (fieldList가 아닌 body 최상위)
+#### 수정 API 파라미터 정리 (2026-02-27 실제 검증)
 
-| 오브젝트 | 파라미터 | 용도 |
-|----------|----------|------|
-| People | `name`, `email`, `phone`, `ownerId`, `organizationId` | 이름/이메일/전화/담당자/회사 |
-| Organization | `name`, `phone`, `industry`, `parentOrganizationId` | 이름/전화/종목/모회사 |
+**top-level 파라미터** (실제 작동하는 것만):
+
+| 오브젝트 | 작동하는 top-level | 용도 |
+|----------|-------------------|------|
+| People | `name`, `organizationId` | 이름/회사 |
+| Organization | `name` | 이름 (이것만 작동) |
 | Deal | `name`, `price`, `status`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/파이프라인/고객/회사 |
 | Lead | `name`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/파이프라인/고객/회사 |
+
+**담당자 변경 방법**:
+- **전 오브젝트: `fieldList` + `userValueId`만 가능** (`ownerId` top-level은 전부 silent no-op — 2026-04-14 재검증)
+- `stringValue`(사용자 이름)로는 불가. 에러: `"담당자에 userValueId가 없습니다"`
+
+**이메일/전화 변경**: `fieldList` + `stringValue`로만 가능 (top-level `email`, `phone` silent no-op)
+
+**Deal status 값** (대소문자 구분): `"Won"`, `"Lost"`, `"In progress"` (소문자 불가)
+
+**⚠️ Silent No-op 주의**: 아래 top-level 파라미터는 200 성공을 반환하지만 **실제 값이 변경되지 않음**:
+- **전 오브젝트**: `ownerId` (People/Deal/Lead/Organization 전부 — 2026-04-14 재검증)
+- People: `email`, `phone`
+- Organization: `phone`, `industry`, `parentOrganizationId`
+- 또한 **완전히 존재하지 않는 파라미터** (`foobar`, `amount` 등)도 200 반환 — 미인식 파라미터에 대한 에러 처리 없음
 
 #### People (고객) — 읽기전용 시스템 필드
 
@@ -417,7 +433,8 @@ Response 200: { success: true, data: { people: [ {...} ] } }
 #### 수정
 ```
 POST /v2/people/<peopleId>
-Body: { name?, email?, phone?, ownerId?, organizationId?, memo?, fieldList? }
+Body: { name?, organizationId?, memo?, fieldList? }
+⚠️ email, phone, ownerId는 gitbook 문서에 있지만 실제로 silent no-op (200 반환, 미반영)
 Response 201: { success: true, data: { people: { id, name, updatedAt } } }
 ```
 
@@ -900,7 +917,7 @@ Response: { objectList: [{ id, name }], nextCursor }
 | 날짜(경과) | `DATE_MORE_THAN_DAYS_AGO`, `DATE_LESS_THAN_DAYS_AGO`, `DATE_LESS_THAN_DAYS_LATER`, `DATE_MORE_THAN_DAYS_LATER`, `DATE_AGO`, `DATE_LATER` |
 
 **주의:**
-- Relation 필드 (담당자 등): UUID 값만 허용, `CONTAINS`/`NOT_CONTAINS` 불가
+- Relation 필드 (담당자, 파이프라인, 파이프라인 단계, 고객, 회사 등): UUID 값만 허용, `CONTAINS`/`NOT_CONTAINS` 불가. `EXISTS`/`NOT_EXISTS`는 값 없이 사용 가능
 - MultiSelect: `EQ`/`NEQ` 대신 `LIST_CONTAIN`/`LIST_NOT_CONTAIN`
 - `DATE_BETWEEN` value: `["2025-01-01", "2025-12-31"]` 배열
 - 빈 값 체크: `EXISTS`/`NOT_EXISTS` 사용 (`NEQ` + `""` 안됨)

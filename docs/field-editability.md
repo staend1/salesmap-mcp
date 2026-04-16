@@ -29,14 +29,22 @@
 | 커스텀 오브젝트(복수) | `customObjectValueIdList` | UUID 배열 |
 | 팀(복수) | `teamValueIdList` | UUID 배열 (**Deal/Lead에서만 가능**) |
 
-### top-level 파라미터 (fieldList가 아닌 body 최상위)
+### top-level 파라미터 (실제 작동하는 것만, 2026-02-27 검증)
 
-| 오브젝트 | 파라미터 | 용도 |
-|----------|----------|------|
-| People | `name`, `email`, `phone`, `ownerId`, `organizationId` | 이름/이메일/전화/담당자/회사 변경 |
-| Organization | `name`, `phone`, `industry`, `parentOrganizationId` | 이름/전화/종목/모회사 변경 |
-| Deal | `name`, `price`, `status`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/파이프라인/고객/회사 변경 |
-| Lead | `name`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/파이프라인/고객/회사 변경 |
+| 오브젝트 | 작동하는 top-level | 용도 |
+|----------|-------------------|------|
+| People | `name`, `ownerId`, `organizationId` | 이름/담당자/회사 |
+| Organization | `name` | 이름 (이것만 작동) |
+| Deal | `name`, `price`, `status`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/담당자/파이프라인/고객/회사 |
+| Lead | `name`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/담당자/파이프라인/고객/회사 |
+
+**담당자 변경**: `ownerId`(top-level) 또는 `fieldList` + `userValueId`. Organization만 **fieldList만 가능**.
+**이메일/전화**: `fieldList` + `stringValue`로만 변경 (top-level `email`, `phone` silent no-op).
+**Deal status**: `"Won"`, `"Lost"`, `"In progress"` (대소문자 구분).
+
+**⚠️ Silent No-op**: 201 반환하지만 값 미반영되는 top-level 파라미터:
+- People: `email`, `phone`
+- Organization: `ownerId`, `phone`, `industry`, `parentOrganizationId`
 
 ---
 

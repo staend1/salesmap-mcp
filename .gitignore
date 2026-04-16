@@ -1,6 +1,10 @@
 node_modules/
-.dev.vars
-.env.local
-.vercel/
 .next/
 dist/
+
+.env
+.env.*
+.dev.vars
+
+.vercel/
+*.tsbuildinfo

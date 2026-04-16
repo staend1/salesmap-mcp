@@ -2,18 +2,16 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { createServer } from "../../../src/index";
 
 export async function POST(request: Request) {
-  // Bearer 토큰 추출
   const authHeader = request.headers.get("authorization");
   const token = authHeader?.replace("Bearer ", "");
 
   if (!token) {
     return new Response(
-      JSON.stringify({ error: "Authorization: Bearer <SalesMap API Token> 헤더가 필요합니다." }),
+      JSON.stringify({ error: "Authorization: Bearer <SalesMap API Token> header is required." }),
       { status: 401, headers: { "Content-Type": "application/json" } },
     );
   }
 
-  // Stateless: 요청마다 새 서버+트랜스포트 생성
   const server = createServer();
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
 
@@ -29,6 +27,5 @@ export async function GET() {
 }
 
 export async function DELETE() {
-  // Stateless — session 관리 없음
   return new Response(null, { status: 204 });
 }

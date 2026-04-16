@@ -1,111 +1,73 @@
 # SalesMap MCP Server — PRD
 
 ## 목적
-세일즈맵 CRM API v2의 모든 검증된 엔드포인트를 MCP 도구로 노출하여, Claude가 영업 데이터 조회/생성/수정 + 비즈니스 컨설팅을 수행할 수 있게 한다.
+세일즈맵 CRM API v2를 MCP 도구로 래핑하여, Claude가 영업 데이터 조회/생성/수정 + 비즈니스 컨설팅을 수행할 수 있게 한다.
 
 ## 배경
 - 세일즈맵은 한국 B2B 영업 CRM
-- API 레퍼런스: `/Users/siyeol/conductor/workspaces/conductor-setting/austin/salesmap-api-reference.md` (1,852줄, 실전 검증 완료)
-- MCP 서버는 tool description에 비즈니스 맥락을 포함하여 Claude가 단순 API 호출 뿐 아니라 영업 컨설팅까지 가능하도록 설계
+- API 레퍼런스: `/Users/siyeol/conductor/workspaces/conductor-setting/austin/salesmap-api-reference.md`
+- 멀티테넌트 — 고객마다 자기 API 토큰(Bearer)으로 접속, 서버는 토큰 저장 안 함
 
-## 등록된 Tool 목록 (46개)
+## 등록된 Tool 목록 (14개)
 
-### 핵심 CRUD (23개)
-| Tool | 엔드포인트 | 파일 |
-|------|-----------|------|
-| `salesmap_list_people` | GET /v2/people | people.ts |
-| `salesmap_get_person` | GET /v2/people/{id} | people.ts |
-| `salesmap_create_person` | POST /v2/people | people.ts |
-| `salesmap_update_person` | POST /v2/people/{id} | people.ts |
-| `salesmap_find_people_by_email` | GET /v2/people-temp/{email} | people.ts |
-| `salesmap_list_organizations` | GET /v2/organization | organization.ts |
-| `salesmap_get_organization` | GET /v2/organization/{id} | organization.ts |
-| `salesmap_create_organization` | POST /v2/organization | organization.ts |
-| `salesmap_update_organization` | POST /v2/organization/{id} | organization.ts |
-| `salesmap_list_deals` | GET /v2/deal | deal.ts |
-| `salesmap_get_deal` | GET /v2/deal/{id} | deal.ts |
-| `salesmap_create_deal` | POST /v2/deal | deal.ts |
-| `salesmap_update_deal` | POST /v2/deal/{id} | deal.ts |
-| `salesmap_get_deal_quotes` | GET /v2/deal/{id}/quote | deal.ts |
-| `salesmap_list_leads` | GET /v2/lead | lead.ts |
-| `salesmap_get_lead` | GET /v2/lead/{id} | lead.ts |
-| `salesmap_create_lead` | POST /v2/lead | lead.ts |
-| `salesmap_update_lead` | POST /v2/lead/{id} | lead.ts |
-| `salesmap_get_lead_quotes` | GET /v2/lead/{id}/quote | lead.ts |
-| `salesmap_list_custom_objects` | GET /v2/custom-object | custom-object.ts |
-| `salesmap_get_custom_object` | GET /v2/custom-object/{id} | custom-object.ts |
-| `salesmap_create_custom_object` | POST /v2/custom-object | custom-object.ts |
-| `salesmap_update_custom_object` | POST /v2/custom-object/{id} | custom-object.ts |
+### 스키마 탐색 + 검색 (2개)
+| Tool | 설명 | 파일 |
+|------|------|------|
+| `salesmap_describe_object` | CRM 스키마 파악. 작업 전 반드시 먼저 실행하여 필드 구조 확인. | field.ts |
+| `salesmap_search_records` | 조건 기반 검색. salesmap_describe_object로 필드명 확인 후 사용. | search.ts |
 
-### 검색/조회 (3개)
-| Tool | 엔드포인트 | 파일 |
-|------|-----------|------|
-| `salesmap_search_records` | POST /v2/object/{type}/search | search.ts |
-| `salesmap_get_fields` | GET /v2/field/{type} | field.ts |
-| `salesmap_list_pipelines` | GET /v2/{type}/pipeline | pipeline.ts |
+### 범용 CRUD (4개)
+| Tool | 설명 | 파일 |
+|------|------|------|
+| `salesmap_list_records` | 오브젝트 목록 조회 (커서 페이지네이션). | generic.ts |
+| `salesmap_get_record` | 단일 레코드 상세 조회. | generic.ts |
+| `salesmap_create_record` | 레코드 생성. salesmap_describe_object로 필드명 확인 후 사용. | generic.ts |
+| `salesmap_update_record` | 레코드 수정. salesmap_describe_object로 필드명 확인 후 사용. | generic.ts |
 
-### 시퀀스 (5개)
-| Tool | 엔드포인트 | 파일 |
-|------|-----------|------|
-| `salesmap_list_sequences` | GET /v2/sequence | sequence.ts |
-| `salesmap_get_sequence` | GET /v2/sequence/{id} | sequence.ts |
-| `salesmap_get_sequence_steps` | GET /v2/sequence/{id}/step | sequence.ts |
-| `salesmap_get_sequence_enrollments` | GET /v2/sequence/{id}/enrollment | sequence.ts |
-| `salesmap_get_enrollment_timeline` | GET /v2/sequence/enrollment/{id}/timeline | sequence.ts |
+### 지원 도구 (8개)
+| Tool | 설명 | 파일 |
+|------|------|------|
+| `salesmap_get_association` | 레코드 간 연관관계 조회. | extras.ts |
+| `salesmap_create_memo` | 레코드에 노트(메모) 추가. | extras.ts |
+| `salesmap_get_pipeline_ids` | 딜/리드 생성 시 필요한 pipelineId·pipelineStageId 조회 전용. | extras.ts |
+| `salesmap_create_quote` | 견적서 생성. 딜 또는 리드에 연결. | extras.ts |
+| `salesmap_get_quotes` | 딜/리드에 연결된 견적서 조회. | extras.ts |
+| `salesmap_list_users` | CRM 사용자 목록. 담당자 변경 시 userValueId 확인용. | extras.ts |
+| `salesmap_get_current_user` | 현재 API 토큰 소유자 정보. | extras.ts |
+| `salesmap_get_record_url` | 레코드의 CRM 웹 URL 생성. | extras.ts |
 
-### 지원 엔티티 (9개)
-| Tool | 엔드포인트 | 파일 |
-|------|-----------|------|
-| `salesmap_list_products` | GET /v2/product | product.ts |
-| `salesmap_create_product` | POST /v2/product | product.ts |
-| `salesmap_list_webforms` | GET /v2/webForm | webform.ts |
-| `salesmap_get_webform_submits` | GET /v2/webForm/{id}/submit | webform.ts |
-| `salesmap_list_todos` | GET /v2/todo | todo.ts |
-| `salesmap_list_memos` | GET /v2/memo | memo.ts |
-| `salesmap_list_users` | GET /v2/user | user.ts |
-| `salesmap_get_current_user` | GET /v2/user/me | user.ts |
-| `salesmap_list_teams` | GET /v2/team | user.ts |
+## MCP Annotations
+모든 tool에 프로토콜 레벨 메타데이터 적용:
+- **READ** (10개): `readOnlyHint=true, destructiveHint=false, idempotentHint=true`
+- **WRITE** (4개: create_record, update_record, create_memo, create_quote): `readOnlyHint=false, destructiveHint=false, idempotentHint=false`
 
-### 이메일/히스토리/액티비티/연관관계/견적서 (6개)
-| Tool | 엔드포인트 | 파일 |
-|------|-----------|------|
-| `salesmap_get_email` | GET /v2/email/{id} | email.ts |
-| `salesmap_get_history` | GET /v2/{entityType}/history | history.ts |
-| `salesmap_get_activity` | GET /v2/{entityType}/activity | activity.ts |
-| `salesmap_get_association_primary` | GET /v2/object/.../primary | association.ts |
-| `salesmap_get_association_custom` | GET /v2/object/.../custom | association.ts |
-| `salesmap_create_quote` | POST /v2/quote | quote.ts |
+## 응답 최적화 — compactRecords
+`list_records`, `search_records` 응답에서 자동 필터링:
+1. `null` 값 필드 제거
+2. 파이프라인 자동생성 필드 제거 (접미사: "로 진입한 날짜", "에서 보낸 누적 시간", "에서 퇴장한 날짜")
+
+`get_record`는 필터링 없이 전체 필드 반환 (리드타임 분석 등에 필요).
 
 ## 주요 설계 결정
 
-### API 클라이언트 (`src/client.ts`)
-- Rate limit: 120ms 최소 간격 (100req/10sec 안전 마진)
-- 429 자동 재시도: exponential backoff, 최대 3회
-- 단일 조회 배열 래핑 자동 처리: `getOne()` 메서드
-- 응답: JSON 원본 반환 (Claude가 직접 해석)
-
-### Tool Description 전략
-- 각 tool에 비즈니스 맥락 포함 (영업 흐름에서의 역할)
-- 예: enrollment timeline → "emailReply는 가장 강한 시그널, 즉시 follow-up 필요"
-- fieldList 사용 tool → "salesmap_get_fields로 먼저 필드 확인 권장" 명시
+### Tool 통합 전략
+- 초기 46개 → 14개로 통합 (objectType 파라미터 기반 범용 CRUD)
+- LLM 행동 최적화: tool 이름/설명으로 호출 순서 유도 (describe_object 우선)
+- HubSpot MCP 패턴 참고 (`docs/references/hubspot-mcp-reference.md`)
 
 ### SalesMap API 주의사항
 - 단일 조회: 모든 오브젝트 배열 래핑 (`data.people[0]` 등)
-- 시퀀스: `_id` 사용 (not `id`)
-- 메모 생성: 별도 API 없음, 오브젝트 수정의 `memo` 파라미터
+- 메모 생성: 오브젝트 수정의 `memo` 파라미터로 전달
 - 딜 금액: `price` top-level 파라미터 (fieldList 아님)
-- 히스토리/액티비티 URL: slash notation만 작동
-- 이메일: 메타데이터만 (body 필드 없음)
-- TODO: 읽기 전용 (생성 API 없음)
 - nextCursor: 키가 없으면 마지막 페이지
 
-## 미완료 작업
-1. Cloudflare Workers 배포
-2. MCP Inspector 통합 테스트
-3. 에러 핸들링 고도화
-4. Claude Desktop / Claude Code에서 실제 연결 테스트
+## 추후 예정
+- [ ] Vercel 배포 + 실서버 테스트
+- [ ] MCP Inspector 전체 tool 통합 테스트
+- [ ] 에러 핸들링 고도화
+- [ ] todo/memo/email/activity/history URL 지원 (API 개발 후)
 
 ## 작업 이력
 | 날짜 | 내용 |
 |------|------|
-| 2026-02-27 | 초기 구현 완료 (46 tools, 타입체크 통과, 로컬 API 테스트 성공) |
+| 2026-02-27 | 초기 구현 (46 tools) → 14개 통합, compactRecords, MCP Annotations, record URL tool 추가 |

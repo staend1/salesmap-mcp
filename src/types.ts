@@ -37,10 +37,7 @@ export type SearchTargetType = "people" | "organization" | "deal" | "lead";
 export type FieldTargetType = "deal" | "lead" | "people" | "organization" | "product" | "quote" | "todo" | "custom-object";
 export type PipelineEntityType = "deal" | "lead";
 
-/**
- * MCP tool 콜백의 extra 파라미터에서 SalesMap API 토큰을 추출하여 클라이언트 생성.
- * 토큰이 없으면 에러.
- */
+/** Extract SalesMap API token from MCP callback extra and create a client. */
 export function getClient(extra: { authInfo?: { token?: string } }): SalesMapClient {
   const token = extra.authInfo?.token;
   if (!token) {
