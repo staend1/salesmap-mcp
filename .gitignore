@@ -8,3 +8,10 @@ dist/
 
 .vercel/
 *.tsbuildinfo
+
+# Internal / Conductor
+.conductor/
+CLAUDE.md
+docs/_internal/
+scripts/
+docs/*.txt
