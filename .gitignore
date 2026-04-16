@@ -13,3 +13,4 @@ dist/
 .conductor/
 CLAUDE.md
 docs/_internal/
+scripts/
