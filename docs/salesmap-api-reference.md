@@ -133,23 +133,24 @@ Rate Limit 초과 시: HTTP 429 { "success": false, "message": "Too Many Request
 
 | 오브젝트 | 작동하는 top-level | 용도 |
 |----------|-------------------|------|
-| People | `name`, `ownerId`, `organizationId` | 이름/담당자/회사 |
+| People | `name`, `organizationId` | 이름/회사 |
 | Organization | `name` | 이름 (이것만 작동) |
-| Deal | `name`, `price`, `status`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/담당자/파이프라인/고객/회사 |
-| Lead | `name`, `ownerId`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/담당자/파이프라인/고객/회사 |
+| Deal | `name`, `price`, `status`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/금액/상태/파이프라인/고객/회사 |
+| Lead | `name`, `pipelineId`+`pipelineStageId`, `peopleId`, `organizationId` | 이름/파이프라인/고객/회사 |
 
 **담당자 변경 방법**:
-- People/Deal/Lead: `ownerId`(top-level) 또는 `fieldList` + `userValueId` 둘 다 가능
-- Organization: **`fieldList` + `userValueId`만 가능** (`ownerId` silent no-op)
+- **전 오브젝트: `fieldList` + `userValueId`만 가능** (`ownerId` top-level은 전부 silent no-op — 2026-04-14 재검증)
 - `stringValue`(사용자 이름)로는 불가. 에러: `"담당자에 userValueId가 없습니다"`
 
 **이메일/전화 변경**: `fieldList` + `stringValue`로만 가능 (top-level `email`, `phone` silent no-op)
 
 **Deal status 값** (대소문자 구분): `"Won"`, `"Lost"`, `"In progress"` (소문자 불가)
 
-**⚠️ Silent No-op 주의**: 아래 top-level 파라미터는 201 성공을 반환하지만 **실제 값이 변경되지 않음**:
+**⚠️ Silent No-op 주의**: 아래 top-level 파라미터는 200 성공을 반환하지만 **실제 값이 변경되지 않음**:
+- **전 오브젝트**: `ownerId` (People/Deal/Lead/Organization 전부 — 2026-04-14 재검증)
 - People: `email`, `phone`
-- Organization: `ownerId`, `phone`, `industry`, `parentOrganizationId`
+- Organization: `phone`, `industry`, `parentOrganizationId`
+- 또한 **완전히 존재하지 않는 파라미터** (`foobar`, `amount` 등)도 200 반환 — 미인식 파라미터에 대한 에러 처리 없음
 
 #### People (고객) — 읽기전용 시스템 필드
 
@@ -432,7 +433,8 @@ Response 200: { success: true, data: { people: [ {...} ] } }
 #### 수정
 ```
 POST /v2/people/<peopleId>
-Body: { name?, email?, phone?, ownerId?, organizationId?, memo?, fieldList? }
+Body: { name?, organizationId?, memo?, fieldList? }
+⚠️ email, phone, ownerId는 gitbook 문서에 있지만 실제로 silent no-op (200 반환, 미반영)
 Response 201: { success: true, data: { people: { id, name, updatedAt } } }
 ```
 

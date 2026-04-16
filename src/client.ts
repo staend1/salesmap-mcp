@@ -351,6 +351,40 @@ export async function resolveProperties(
   return { fieldList, errors, extractedTopLevel };
 }
 
+// ── Default properties (core fields per object type) ─────────────
+const COMMON_DEFAULTS = ["이름", "담당자", "팀", "생성 날짜", "수정 날짜"];
+
+const DEFAULT_PROPERTIES: Record<string, string[]> = {
+  deal: [...COMMON_DEFAULTS, "금액", "파이프라인", "파이프라인 단계", "상태", "수주 예정일", "마감일"],
+  lead: [...COMMON_DEFAULTS, "금액", "파이프라인", "파이프라인 단계"],
+  people: [...COMMON_DEFAULTS, "이메일", "전화"],
+  organization: [...COMMON_DEFAULTS],
+};
+
+/**
+ * Returns the default property names for a given object type.
+ * For custom-object: fetches schema and finds the "name" field dynamically
+ * (string + required + not RecordId).
+ */
+export async function getDefaultProperties(
+  client: SalesMapClient,
+  objectType: string,
+): Promise<string[]> {
+  if (objectType !== "custom-object") {
+    return DEFAULT_PROPERTIES[objectType] ?? COMMON_DEFAULTS;
+  }
+
+  // Custom object: dynamic name field detection
+  const schema = await client.get<{ fieldList: Array<{ name: string; type: string; required: boolean }> }>(
+    "/v2/field/custom-object",
+  );
+  const nameFields = schema.fieldList
+    .filter(f => f.type === "string" && f.required && f.name !== "RecordId")
+    .map(f => f.name);
+
+  return [...nameFields, "담당자", "팀", "생성 날짜", "수정 날짜", "파이프라인", "파이프라인 단계"];
+}
+
 // Tool response helpers
 export function ok(data: unknown) {
   return {

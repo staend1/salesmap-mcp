@@ -1,6 +1,6 @@
 # SalesMap MCP Server
 
-> 최종 작업: 2026-04-13 (HubSpot 어텐션 정렬 + 에러 보강 배포)
+> 최종 작업: 2026-04-16 (read-email 비활성화, memo→note 리네이밍)
 
 ## 프로젝트 개요
 세일즈맵 CRM API v2를 MCP(Model Context Protocol) 서버로 래핑. Claude가 CRM 데이터를 직접 조회/생성/수정하여 영업 컨설팅+자동화 가능. 멀티테넌트 — 고객마다 자기 API 토큰으로 접속.
@@ -15,7 +15,7 @@
 | 파일 | 역할 |
 |------|------|
 | `app/api/[transport]/route.ts` | Vercel API 엔트리 (auth + MCP transport) |
-| `src/index.ts` | MCP 서버 생성 + 17개 tool 등록 |
+| `src/index.ts` | MCP 서버 생성 + 20개 tool 등록 |
 | `src/client.ts` | SalesMap API 클라이언트 (rate limit, retry, compactRecords, errWithSchemaHint) |
 | `src/types.ts` | 공통 타입 + `getClient(extra)` 헬퍼 |
 | `src/tools/*.ts` | 4개 tool 파일 (field, search, generic, extras) |
@@ -42,28 +42,27 @@ npx vercel deploy --prod
 ## 작업 규칙
 - API 버그, 레거시 동작, MCP 제한사항 발견 시 → `알려진 이슈 로그` 섹션에 즉시 추가 (날짜 + 증상 + 우회 방법)
 - 해결된 이슈는 삭제하지 말고 해결 날짜와 방법 병기
-- **API 이슈 누적 문서**: `docs/api-analysis/api-legacy-report.md` — 새로운 API 문제/레거시/허브스팟 차이점 발견 시 이 문서에 추가. 이슈 번호 이어서 부여, 허브스팟 비교 + MCP 우회 방법 포함
+- **API 이슈 누적 문서**: `docs/api-analysis/api-mcp-readiness.md` — 새로운 API 문제/레거시/허브스팟 차이점 발견 시 이 문서에 추가. 이슈 번호 이어서 부여, 허브스팟 비교 + MCP 우회 방법 포함
 
 ## 상세 문서
 - `docs/PRD.md` — 상세 요구사항, tool 목록, 설계 결정
 - `docs/architecture.md` — 프로젝트 구조, API 클라이언트 설계
 - `docs/TODO.md` — 통합 TODO (도구 추가, API 이슈, 로드맵)
 - `docs/api-analysis/` — **API 분석 문서 모음**
-  - `api-legacy-report.md` — API 이슈 누적 문서 (22건, 새 이슈 발견 시 여기에 추가)
+  - `api-mcp-readiness.md` — API 이슈 누적 문서 (25건 + 로드맵, 새 이슈 발견 시 여기에 추가)
   - `mcp-workaround-logic.md` — MCP 변환/우회 로직 전체 해설 (17개 로직)
   - `llm-mental-model-gap.md` — LLM이 세일즈맵 MCP를 헤매는 이유 (서사형)
-  - `api-improvement-proposals.md` — API 개선 제안 (19건)
 - `docs/references/` — 외부 레퍼런스 (HubSpot MCP, ejlee/salesmap-mcp, OpenAPI 스펙)
 
 ## 현재 상태
-- ✅ 21개 MCP tool — HubSpot 파라미터 정렬 (objectId, filterGroups, after)
-- ✅ HubSpot 🎯/📋/📦/🧭 description 패턴 적용
-- ✅ TOP_LEVEL_ONLY 자동 추출 (금액/이름/파이프라인/상태 → properties에서 top-level로)
-- ✅ properties 변환 레이어 (fieldList 타입 키 자동 매핑, key-value → typed fieldList)
-- ✅ user/team 이름 자동 해석 (검색 필터에서 이름 → UUID 변환)
-- ✅ 에러 보강 (404 래핑, search 0건 힌트, delete 시퀀스 힌트)
-- ✅ Vercel Production 배포 + 21/21 실서버 테스트 통과
+- 19개 MCP tool (read-email 비활성화 — API 본문 미제공, 본문 지원 시 활성화 예정)
+- API 이슈 26건 + 로드맵 기록 (`api-mcp-readiness.md` 단일 문서로 통합 완료)
+
+## TODO
 - ⬜ create-quote에 properties 지원 추가
+- ⬜ read-email 활성화 (API가 본문 제공 시)
+- ⬜ read-note → read-engagement 통합 (todo/이메일(본문)/미팅/SMS 상세 조회 API 추가 시)
+- ⬜ Vercel 배포 (read-email 비활성화 + memo→note 리네이밍 반영)
 
 ## 알려진 이슈 로그
 > API/MCP 버그, 레거시, 제한사항 발견 시 여기에 무조건 추가. 해결되면 해결 날짜와 방법 병기.

@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecords, fetchUserMap, fetchTeamMap } from "../client";
+import { ok, err, errWithSchemaHint, fetchUserMap, fetchTeamMap } from "../client";
 import { getClient } from "../types";
 import type { SalesMapClient } from "../client";
 
@@ -190,7 +190,7 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap-search-objects",
-    "🎯 필터 조건으로 레코드 검색 (filterGroups 간 OR, 그룹 내 AND, 최대 3×3).\n📋 salesmap-list-properties로 필드 이름·타입 확인.\n📦 objectList (id, name만 반환). 상세 조회는 salesmap-batch-read-objects.",
+    "🎯 필터 조건으로 레코드 검색 (filterGroups 간 OR, 그룹 내 AND, 최대 3×3).\n📋 salesmap-list-properties로 필드 이름·타입 확인.\n📦 id, name만 반환. 상세 필드는 salesmap-batch-read-objects로 후속 조회.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
       filterGroups: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),
@@ -227,7 +227,7 @@ export function registerSearchTools(server: McpServer) {
           return ok(obj);
         }
 
-        return ok(compactRecords(data));
+        return ok(data);
       } catch (e: unknown) {
         const filters = (filterGroups as FilterGroup[]).flatMap(g =>
           g.filters.map(f => `${f.propertyName} ${f.operator} ${JSON.stringify(f.value)}`),

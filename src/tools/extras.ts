@@ -6,7 +6,7 @@ import { getClient } from "../types";
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
 
-const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "memo", "custom-object"]);
+const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "note", "custom-object"]);
 const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
 
 // ── Changelog noise filter ────────────────────────────────────
@@ -156,7 +156,8 @@ export function registerExtrasTools(server: McpServer) {
     async ({ objectType, objectId, toObjectType }, extra) => {
       try {
         const client = getClient(extra);
-        const basePath = `/v2/object/${objectType}/${objectId}/association/${toObjectType}`;
+        const apiType = (t: string) => t === "note" ? "memo" : t;
+        const basePath = `/v2/object/${apiType(objectType)}/${objectId}/association/${apiType(toObjectType)}`;
         const [primary, custom] = await Promise.all([
           client.get(basePath + "/primary").catch(() => null),
           client.get(basePath + "/custom").catch(() => null),
@@ -347,34 +348,37 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Read Email ──────────────────────────────────────────
-  server.tool(
-    "salesmap-read-email",
-    "🎯 이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터).\n📦 본문 없음 — API 제한.",
-    { emailId: z.string().describe("이메일 UUID") },
-    READ,
-    async ({ emailId }, extra) => {
-      try {
-        const client = getClient(extra);
-        const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
-        return ok(data.email);
-      } catch (e: unknown) {
-        return err((e as Error).message);
-      }
-    },
-  );
+  // ── Read Email (비활성화) ──────────────────────────────────
+  // API가 이메일 본문을 반환하지 않아 실질 가치 없음 (api-mcp-readiness #10).
+  // list-engagements가 subject를 이미 인라인.
+  // API가 본문 제공 시 활성화 예정 — 타임라인에 본문 인라인은 비효율적이므로 별도 도구로 필요.
+  // server.tool(
+  //   "salesmap-read-email",
+  //   "🎯 이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터).\n📦 본문 없음 — API 제한.",
+  //   { emailId: z.string().describe("이메일 UUID") },
+  //   READ,
+  //   async ({ emailId }, extra) => {
+  //     try {
+  //       const client = getClient(extra);
+  //       const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
+  //       return ok(data.email);
+  //     } catch (e: unknown) {
+  //       return err((e as Error).message);
+  //     }
+  //   },
+  // );
 
-  // ── Read Memo ───────────────────────────────────────────
+  // ── Read Note ───────────────────────────────────────────
   server.tool(
-    "salesmap-read-memo",
-    "🎯 메모(노트) 상세 조회.",
-    { memoId: z.string().describe("메모 UUID") },
+    "salesmap-read-note",
+    "🎯 노트 상세 조회.",
+    { noteId: z.string().describe("노트 UUID") },
     READ,
-    async ({ memoId }, extra) => {
+    async ({ noteId }, extra) => {
       try {
         const client = getClient(extra);
-        const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
-        return ok(compactRecord(data.memo));
+        const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${noteId}`);
+        return ok(data.memo);
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -458,7 +462,7 @@ export function registerExtrasTools(server: McpServer) {
               } catch { memoCache.set(memoId, null); }
             }
             const text = memoCache.get(memoId);
-            if (text) item.memoText = text;
+            if (text) item.noteText = text;
           }
         }
 

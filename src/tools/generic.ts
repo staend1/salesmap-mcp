@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -92,55 +92,16 @@ async function fetchAssociationCounts(
 }
 
 export function registerGenericTools(server: McpServer) {
-  // ── Read ───────────────────────────────────────────────
-  server.tool(
-    "salesmap-read-object",
-    "🎯 레코드 상세 조회.\n📦 전체 필드 + _associations(연관 레코드 카운트) 반환. properties로 필요한 필드만 지정 가능.",
-    {
-      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
-        .describe("오브젝트 타입"),
-      objectId: z.string().describe("레코드 ID"),
-      properties: z.array(z.string()).optional()
-        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
-    },
-    READ,
-    async ({ objectType, objectId, properties }, extra) => {
-      try {
-        const client = getClient(extra);
-        const path = `/v2/${objectType}/${objectId}`;
-
-        // Fetch record and association counts in parallel
-        const [rawData, associations] = await Promise.all([
-          GET_ONE_TYPES.has(objectType)
-            ? client.getOne(path, objectType)
-            : client.get(path),
-          fetchAssociationCounts(client, objectType, objectId),
-        ]);
-
-        let record = compactRecord(rawData as Record<string, unknown>);
-        if (properties && properties.length > 0) {
-          record = pickProperties(record, properties);
-        }
-        if (Object.keys(associations).length > 0) {
-          record._associations = associations;
-        }
-        return ok(record);
-      } catch (e: unknown) {
-        return err((e as Error).message);
-      }
-    },
-  );
-
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 각 레코드에 _associations(연관 카운트) 포함. properties로 필요한 필드만 지정 가능.",
+    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 생략 시 코어 필드만 반환. properties로 추가 필드 지정 가능. _associations(연관 카운트) 자동 포함.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
       objectIds: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
       properties: z.array(z.string()).optional()
-        .describe("반환할 필드 이름 목록 (한글). 생략 시 전체 필드 반환."),
+        .describe("반환할 필드 이름 목록 (한글). 생략 시 코어 필드만 반환."),
     },
     READ,
     async ({ objectType, objectIds, properties }, extra) => {
@@ -148,6 +109,11 @@ export function registerGenericTools(server: McpServer) {
         const client = getClient(extra);
         const useGetOne = GET_ONE_TYPES.has(objectType);
         const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
+
+        // Determine which properties to return
+        const effectiveProps = (properties && properties.length > 0)
+          ? properties
+          : await getDefaultProperties(client, objectType);
 
         // Fetch all records + associations in parallel
         const tasks = objectIds.map(async (id) => {
@@ -157,10 +123,7 @@ export function registerGenericTools(server: McpServer) {
               useGetOne ? client.getOne(path, objectType) : client.get(path),
               fetchAssociationCounts(client, objectType, id),
             ]);
-            let record = compactRecord(rawData as Record<string, unknown>);
-            if (properties && properties.length > 0) {
-              record = pickProperties(record, properties);
-            }
+            const record = pickProperties(rawData as Record<string, unknown>, effectiveProps);
             if (Object.keys(associations).length > 0) {
               record._associations = associations;
             }
