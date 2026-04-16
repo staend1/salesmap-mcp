@@ -1,6 +1,6 @@
 # LLM이 세일즈맵 MCP를 헤매는 이유
 
-> 2026-04-14 작성
+> 2026-04-14 작성 / 2026-04-16 업데이트
 > 대상 독자: 세일즈맵 API/MCP 설계에 관여하는 사람
 > 핵심 질문: **"허브스팟 MCP를 잘 아는 LLM에게 세일즈맵 MCP를 줬을 때, 왜 시행착오가 생기는가?"**
 
@@ -50,11 +50,11 @@ list-associations(contacts, id, companies) → batch-read(companies, [...ids])
 
 하지만 LLM은 여기까지 도달하지 않을 수도 있다. 왜?
 
-**`read-object` 응답에 `_associations` 카운트가 없었다면**, LLM은 연관 레코드가 있는지조차 모른다. 허브스팟의 `read-object`도 association을 자동으로 보여주진 않지만, 허브스팟 학습 패턴에서 LLM은 "고객 조회 → 관련 딜 조회"를 자연스럽게 이어간다.
+**`batch-read-objects` 응답에 `_associations` 카운트가 없었다면**, LLM은 연관 레코드가 있는지조차 모른다. 허브스팟의 `read-object`도 association을 자동으로 보여주진 않지만, 허브스팟 학습 패턴에서 LLM은 "고객 조회 → 관련 딜 조회"를 자연스럽게 이어간다.
 
 **우리의 보완:**
 ```json
-// read-object / batch-read-objects 응답에 자동 포함
+// batch-read-objects 응답에 자동 포함
 {
   "이름": "홍길동",
   "_associations": { "deal": 3, "organization": 1, "lead": 0 }
@@ -64,7 +64,7 @@ list-associations(contacts, id, companies) → batch-read(companies, [...ids])
 
 ---
 
-### 3. "이 고객한테 보낸 이메일이랑 메모도 보여줘" ← 여기서 헤맨다
+### 3. "이 고객한테 보낸 이메일이랑 메모도 보여줘" ← 부분 해결됨
 
 **허브스팟에서 학습한 패턴:**
 ```
@@ -73,44 +73,36 @@ list-associations(contacts, id, emails) → batch-read(emails, [...ids])
 ```
 허브스팟에서 메모, 이메일, 미팅, TODO는 전부 **오브젝트**다. 연관관계(association) 그래프에 포함되어 있다. `list-associations`로 note ID를 가져오고, `batch-read`로 내용을 읽는다. 똑같은 패턴의 반복.
 
-**세일즈맵에서 일어나는 일:**
+**세일즈맵에서 일어나는 일 (2026-04-16 이후):**
 ```
-list-associations(people, id, memo) → ❌ memo는 유효한 타입이 아님
-list-associations(people, id, email) → ❌ email도 아님
+list-associations(people, id, note) → ✅ 작동. note ID 목록 반환
+list-associations(people, id, email) → ❌ email은 여전히 미지원
 ```
 
-LLM은 당황한다. "왜 안 되지?" 그리고 두 가지 중 하나를 한다:
+`memo→note` 리네이밍으로 `note` 타입이 association 대상으로 추가됐다. LLM이 `note`로 시도하면 association ID 목록을 얻을 수 있다. 이후 `salesmap-read-note`로 각 노트를 개별 조회하거나, `salesmap-list-engagements`로 한 번에 목록+내용을 얻는 두 가지 경로가 생겼다.
 
-**시나리오 A: 포기하고 다른 도구를 찾는다**
-- 도구 목록을 다시 보고 `list-engagements`를 발견 → 성공
-- 하지만 현대 MCP 클라이언트는 도구를 전부 로드하지 않고 **tool search**로 필요할 때 찾는다
-- "engagement"라는 키워드를 떠올리지 못하면 도구를 못 찾는다
+하지만 email은 여전히 association 대상이 아니다. 이메일 히스토리는 `salesmap-list-engagements`를 통해서만 접근 가능.
 
-**시나리오 B: 연관관계에서 계속 시도한다**
-- `read-object`로 고객 상세를 보면 `_associations`에 memo가 없다
-- 그래도 허브스팟 패턴이 강하니까, activity나 timeline 관련 필드를 찾으려 한다
-- 결국 실패하거나, 돌고 돌아서 `list-engagements`에 도달한다
+**여전히 헤매는 케이스:**
+
+**시나리오 A: `note` 대신 `memo`로 시도한다**
+- LLM의 학습 데이터에서 세일즈맵 API는 `memo`를 사용함
+- `list-associations(people, id, memo)` → ❌ MCP에서 `memo`는 유효하지 않음 (`note`만 됨)
+- "engagement"로 전환하지 못하면 방황
+
+**시나리오 B: email을 association으로 찾으려 한다**
+- `list-associations(people, id, email)` → ❌ 여전히 미지원
+- 결국 `list-engagements`가 필요하지만 "engagement"라는 키워드를 떠올리지 못하면 못 찾음
 
 **실제 관찰된 행동 (Claude Desktop, 2026-04-13):**
 ```
-1. read-object(people, id) → 고객 정보 획득
+1. batch-read-objects(people, [id]) → 고객 정보 + _associations 획득
 2. list-associations(people, id, deal) → 딜 목록 획득  ← 여기까지 OK
-3. list-associations(people, id, memo) → 실패 예상...
-   → 실제로는 association이 아니라 read-object 후 memo 필드를 찾으려 함
+3. list-associations(people, id, memo) → 실패 (MCP는 note만 허용)
 4. 방황 끝에 list-engagements 사용 → 성공
 ```
 
-하지만 더 심한 케이스도 관찰됨:
-```
-1. list-associations(deal, id, people) → 관련 고객 ID 획득
-2. batch-read(people, [...ids]) → 고객 상세
-3. 메모를 보려고... list-associations(deal, id, memo) 시도? 아님
-   → 대신 association으로 memo를 찾지 못하니까
-   → 고객의 "memo" 관계 필드를 찾으려 함
-   → 실패 → 우회로 찾다가 결국 개별 memo API 호출 (N+1)
-```
-
-**근본 원인: 세일즈맵 API에서 memo/email/todo는 오브젝트가 아니라 "활동(activity)"이다.** Association 그래프에 포함되지 않는다. 허브스팟과 완전히 다른 설계.
+**근본 원인: 세일즈맵 API에서 email/todo는 오브젝트가 아니라 "활동(activity)"이다.** Note는 이제 association 대상이지만, email은 여전히 그래프 밖이다. 허브스팟과 부분적으로 다른 설계.
 
 ---
 
@@ -227,7 +219,7 @@ update-object(deals, id, properties: { "hubspot_owner_id": "12345" })
 |---|---|---|
 | 모든 필드를 `properties`에 key-value로 | 금액·파이프라인·상태는 top-level만 가능 | TOP_LEVEL_ONLY 자동 추출 |
 | `properties: { "담당자": "홍길동" }` | `fieldList: [{ name, userValueId }]` 15개+ 타입 키 | resolveProperties 스키마 자동 변환 |
-| `list-associations(contact, id, notes)` | memo는 association 대상 아님 | list-engagements 별도 도구 |
+| `list-associations(contact, id, notes)` | `note` 타입은 작동. `email`은 association 대상 아님 | `note` 지원 추가. email은 list-engagements로 |
 | `list-associations` 한 번에 모든 관계 | primary/custom 별도 엔드포인트 | 자동 병합 |
 | `batch-read`로 여러 건 한 번에 | batch API 없음 | for-loop + rate limit 처리 |
 | 에러 메시지에 다음 행동 힌트 | "Invalid parameters" | errWithSchemaHint 래핑 |
