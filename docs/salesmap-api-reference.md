@@ -661,11 +661,11 @@ Body: { name?, peopleId?, organizationId?, status?, price?, memo?, pipelineId?, 
 
 #### 삭제
 ```
-POST /v2/deal/delete
-Body: 미확인 (개발팀 문의 필요)
+POST /v2/deal/<dealId>/delete
+Body: 없음
+Response 200: { success: true }
 ```
-`POST /v2/deal/delete`로 라우트 존재 (400 응답). body 파라미터 형식 미공개.
-**주의:** `POST /v2/deal/<dealId>/delete` (path에 ID)는 **404** — 작동하지 않음.
+`POST /v2/deal/<dealId>/delete` 패턴이 작동 확인됨 (2026-04 검증). body 불필요. 단, 시퀀스에 등록된 딜은 삭제 불가 — 시퀀스 해제 후 재시도 필요.
 
 #### 히스토리
 ```
@@ -829,9 +829,11 @@ GET /v2/lead/<leadId>/quote           → 견적서 조회 (딜 견적서와 동
 
 #### 삭제
 ```
-POST /v2/lead/delete
-Body: 미확인 (개발팀 문의 필요)
+POST /v2/lead/<leadId>/delete
+Body: 없음
+Response 200: { success: true }
 ```
+`POST /v2/lead/<leadId>/delete` 패턴 작동 확인됨 (2026-04 검증).
 
 #### 히스토리
 ```
@@ -1762,24 +1764,17 @@ Response: { timelineList: [...] }
 
 ## 삭제 API 패턴
 
-모든 삭제는 동일한 패턴:
-
-```
-POST /v2/{resource}/delete
-```
-
-| 리소스 | 엔드포인트 | 라우트 존재 | 비고 |
-|--------|-----------|-----------|------|
-| 고객 | `POST /v2/people/delete` | O (400) | body 파라미터 미공개 |
-| 회사 | `POST /v2/organization/delete` | O (400) | body 파라미터 미공개 |
-| 딜 | `POST /v2/deal/delete` | O (400) | body 파라미터 미공개 |
-| 리드 | `POST /v2/lead/delete` | O (400) | body 파라미터 미공개 |
-| 커스텀 오브젝트 | `POST /v2/custom-object/delete` | O (400) | body 파라미터 미공개 |
+| 리소스 | 엔드포인트 | 상태 | 비고 |
+|--------|-----------|------|------|
+| 딜 | `POST /v2/deal/<dealId>/delete` | ✅ 작동 | body 없음. 시퀀스 등록 시 삭제 불가 |
+| 리드 | `POST /v2/lead/<leadId>/delete` | ✅ 작동 | body 없음 |
+| 고객 | `POST /v2/people/delete` | ❓ 미검증 | body 파라미터 형식 미공개 |
+| 회사 | `POST /v2/organization/delete` | ❓ 미검증 | body 파라미터 형식 미공개 |
+| 커스텀 오브젝트 | `POST /v2/custom-object/delete` | ❓ 미검증 | body 파라미터 형식 미공개 |
 
 **중요:**
-- `POST /v2/{resource}/{id}/delete` (path에 ID) → **404**. 작동하지 않음.
+- 딜/리드: `POST /v2/{type}/{objectId}/delete` 패턴 (path에 ID 포함) — **작동 확인** (2026-04)
 - `DELETE /v2/{resource}/{id}` → **405** `"Invalid Request Method"`. REST 표준 방식 미지원.
-- 라우트 자체는 존재하지만 body 파라미터 형식이 공개되지 않아 사용 불가. → **개발팀 문의 필요**
 
 ---
 
@@ -1916,7 +1911,7 @@ app.post('/webhook/salesmap', (req, res) => {
 
 | # | 항목 | 문서 내용 | 실제 결과 | 영향 |
 |---|------|----------|----------|------|
-| A1 | **딜 삭제 API** | `POST /v2/deal/<dealId>/delete` | **404** (라우트 없음). `POST /v2/deal/delete`는 400 반환하지만 body 형식 미공개 | 모든 오브젝트 삭제 불가. 잘못 생성한 레코드 정리 못함 |
+| A1 | **딜/리드 삭제 API** | `POST /v2/deal/<dealId>/delete` | ✅ **해결됨** (2026-04). body 없이 `POST /v2/{type}/{id}/delete` 패턴으로 작동. 단 고객/회사/커스텀 오브젝트는 미검증 | — |
 | A2 | **이메일 본문(body)** | 응답에 `body` 필드 존재 | **없음**. subject/from/to/status/date만 반환 | 에이전트가 이메일 내용 분석 불가. "이 고객에게 뭐라고 메일 보냈지?" 답변 못함 |
 | A3 | **이메일 날짜 필드명** | `sentAt` | 실제는 **`date`** | 필드명 불일치 |
 | A4 | **시퀀스 enrollment 필드** | `id`, `status`, `currentStepOrder`, `enrolledAt` | 실제는 **`_id`, `createdAt`만**. status/currentStepOrder 없음 | "이 고객 시퀀스 진행 중이야? 몇 단계까지 갔어?" 답변 불가 |
