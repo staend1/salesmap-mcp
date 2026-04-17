@@ -57,7 +57,7 @@ claude mcp add salesmap-mcp \
 | | `salesmap-create-object` | 레코드 생성 | **objectType** · properties? · note? · peopleId? · organizationId? · customObjectDefinitionId? |
 | | `salesmap-update-object` | 레코드 수정 | **objectType** · **objectId** · properties? · peopleId? · organizationId? |
 | | `salesmap-delete-object` | 딜/리드 삭제 (confirmed=false 미리보기 → true 실행) | **objectType** · **objectId** · confirmed? |
-| **관계** | `salesmap-list-associations` | 연관 레코드 조회 (primary + custom 병합) | **objectType** · **objectId** · **toObjectType** |
+| **관계** | `salesmap-list-associations` | 연관 레코드 조회 | **objectType** · **objectId** · **toObjectType** |
 | **노트** | `salesmap-create-note` | 레코드에 노트 추가 | **objectType** · **objectId** · **note** |
 | | `salesmap-read-note` | 노트 단건 상세 조회 | **noteId** |
 | **활동** | `salesmap-list-engagements` | 활동 타임라인 조회. 이메일 제목·노트 본문 자동 인라인 | **objectType** · **objectId** · after? |
@@ -76,7 +76,7 @@ claude mcp add salesmap-mcp \
 ```
 클라이언트 (Claude, Cursor 등)
   → MCP over Streamable HTTP
-    → Vercel (Next.js App Router, ICN 리전)
+    → Vercel (Next.js App Router)
       → 세일즈맵 REST API v2
 ```
 
