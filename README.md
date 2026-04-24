@@ -2,6 +2,9 @@
 
 AI 어시스턴트를 [세일즈맵](https://salesmap.kr) CRM에 연결하는 [Model Context Protocol](https://modelcontextprotocol.io) 서버입니다. 자연어로 CRM 데이터를 조회·생성·수정하고 영업 자동화를 실행할 수 있습니다.
 
+## 문의처
+siyeolyang@salesmap.kr
+
 ## 특징
 
 - **19개 도구** — 스키마 조회, 검색, CRUD, 관계, 파이프라인 분석, 활동 타임라인 등
