@@ -423,6 +423,45 @@ HubSpot: GET /crm/v3/schemas
 
 ---
 
+## 14-b. 커스텀 오브젝트 필드 API가 Definition 구분 없이 전체 반환
+
+### 문제
+
+`GET /v2/field/custom-object`가 워크스페이스 내 **모든 커스텀 오브젝트 definition의 필드를 구분 없이 한꺼번에 반환**합니다. 특정 definition의 필드만 조회하는 방법이 없습니다.
+
+### 실제 영향
+
+MCP의 `batch-read-objects`는 `properties`를 명시하지 않으면 `getDefaultProperties()`로 타입별 코어 필드를 감지합니다. 커스텀 오브젝트는 definition마다 대표 필드(이름 역할, `required: true + type: string`)가 다르므로 동적으로 감지해야 합니다.
+
+```typescript
+// client.ts의 현재 구현
+const schema = await client.get("/v2/field/custom-object");
+const nameFields = schema.fieldList
+  .filter(f => f.type === "string" && f.required && f.name !== "RecordId")
+  .map(f => f.name);
+```
+
+커스텀 오브젝트가 2개 이상이고 각 definition에 `required: true` string 필드가 있으면 모두 nameFields에 포함됩니다.
+
+```
+커스텀 오브젝트 A (계약): required string → "계약이름"
+커스텀 오브젝트 B (프로젝트): required string → "프로젝트명"
+
+→ getDefaultProperties() 반환: ["계약이름", "프로젝트명", "담당자", "팀", ...]
+→ 커스텀 오브젝트 B 레코드를 batch-read하면 "계약이름" 필드도 기본 반환 목록에 포함
+→ 해당 레코드에 없는 필드라 null로 채워지거나 응답이 오염됨
+```
+
+### MCP에서의 우회
+
+현재 미해결. Definition이 1개인 워크스페이스에서는 문제없지만, 2개 이상이면 기본 반환 필드가 오염됩니다. `properties`를 명시적으로 지정하면 우회 가능하지만 LLM이 이를 알아야 하는 부담이 생깁니다.
+
+### 근본 해결
+
+`GET /v2/field/custom-object?definitionId={id}` 또는 `GET /v2/field/custom-object/{definitionId}` 형태로 definition 단위 필드 조회 API가 필요합니다.
+
+---
+
 ## 15. Engagement 종합 — 2급 데이터 구조 + API 대부분 부재
 
 > #22(Engagement 통합 CRUD 부재)를 이 섹션으로 통합.
@@ -867,6 +906,7 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 | 16 | 반환 필드 선택 불가 | DEFAULT_PROPERTIES(타입별 코어 필드 자동 적용) + pickProperties() 후처리 | ~45줄 |
 | 17 | 노트 생성 API 제한 | 레코드 update의 memo 파라미터 우회 | 날짜/유형/담당자 지정 불가 |
 | 18 | 커스텀 오브젝트 Definition 목록 없음 | — | 우회 불가 |
+| 18-b | 커스텀 오브젝트 field API가 definition 구분 없이 전체 반환 → 다중 definition 시 기본 필드 오염 | properties 명시로 우회 가능 (LLM 부담) | 미해결 |
 | 19 | Engagement 2급 구조 + API 대부분 부재 (#15 종합) | list-engagements 인라인 + create-note + read-note | sms/meeting/alimtalk 불가, 통합 CRUD 없음 |
 | 20 | 리드→딜 전환 API 없음 | 도구 조합으로 수동 처리 | 이력 이전 불가 |
 | 21 | 필드 스키마에 description 없음 | FIELD_HINTS 하드코딩 주입 (~44필드) | ~60줄 |
