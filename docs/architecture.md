@@ -22,14 +22,12 @@ salesmap-mcp/
 │                                  #           quotes, pipelines, lead-time, users, teams,
 │                                  #           user-details, get-link
 └── docs/
+    ├── _internal/                     # gitignored — PRD, 내부 참조 문서
     ├── architecture.md
-    ├── salesmap-api-reference.md
-    ├── field-editability.md
-    ├── system-fields.md
-    └── api-analysis/
-        ├── api-mcp-readiness.md
-        ├── mcp-workaround-logic.md
-        └── llm-mental-model-gap.md
+    ├── llm-hubspot-gap-analysis.md
+    ├── mcp-implementation-notes.md
+    ├── salesmap-api-issues.md
+    └── salesmap-api-reference.md
 ```
 
 ## 핵심 흐름
