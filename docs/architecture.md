@@ -11,16 +11,18 @@ salesmap-mcp/
 ├── app/
 │   └── api/[transport]/route.ts   # Vercel API 엔트리 (auth + MCP transport)
 ├── src/
-│   ├── index.ts                   # MCP 서버 생성 + 19개 tool 등록
+│   ├── index.ts                   # MCP 서버 생성 + 22개 tool 등록 + instrument()
 │   ├── client.ts                  # SalesMapClient + DEFAULT_PROPERTIES + pickProperties + compactRecords
 │   ├── types.ts                   # 공통 타입 + getClient(extra) 헬퍼
+│   ├── telemetry.ts               # 토큰 지문 + tool_call/feedback 로깅 + instrument() 래퍼
 │   └── tools/
 │       ├── field.ts               # 1 tool: salesmap-list-properties
 │       ├── search.ts              # 1 tool: salesmap-search-objects
 │       ├── generic.ts             # 4 tools: batch-read, create, update, delete
-│       └── extras.ts              # 13 tools: associations, note, engagements, changelog,
+│       └── extras.ts              # 16 tools: associations, note, engagements, changelog,
 │                                  #           quotes, pipelines, lead-time, users, teams,
-│                                  #           user-details, get-link
+│                                  #           user-details, get-link, create-property,
+│                                  #           get-docs, report-feedback
 └── docs/
     ├── _internal/                     # gitignored — PRD, 내부 참조 문서
     ├── architecture.md
@@ -76,13 +78,28 @@ err(msg)                 // → { content: [...], isError: true }
 ```typescript
 function createServer(): McpServer {
   const server = new McpServer({ name: "salesmap-mcp", version: "2.0.0" });
+  instrument(server);             // tool 등록 전 — 전 tool 핸들러를 로깅 래퍼로 감쌈
   registerFieldTools(server);     // 1: salesmap-list-properties
   registerSearchTools(server);    // 2: salesmap-search-objects
   registerGenericTools(server);   // 3-6: batch-read, create, update, delete
-  registerExtrasTools(server);    // 7-19: 지원 도구 13개
+  registerExtrasTools(server);    // 7-22: 지원 도구 16개
   return server;
 }
 ```
+
+## 텔레메트리 (사용 로그 + 피드백)
+
+`src/telemetry.ts` — 베타 사용행태 관찰용. Google Sheet(Apps Script 웹앱)로 발사.
+
+```typescript
+fingerprint(token)   // SHA-256(token) 앞 16자 → workspace 식별 (네트워크 호출 0, PII 0)
+instrument(server)   // server.tool() 몽키패치 → 전 tool에 tool_call 로깅 자동 주입
+logFeedback(...)     // salesmap-report-feedback가 호출 → feedback 행 기록
+```
+
+- **수집 범위**: 지문·tool 이름·성공여부·에러 종류·소요시간. **파라미터 값은 미수집** (PII 회피)
+- **발사 방식**: `next/server`의 `after()`로 응답 flush 후 백그라운드 전송 → 응답 지연 0
+- **환경변수**: `TELEMETRY_URL`, `TELEMETRY_SECRET`. 미설정 시 조용히 no-op (로컬/개발 무영향)
 
 ## MCP Annotations
 
@@ -93,4 +110,5 @@ function createServer(): McpServer {
 
 - 플랫폼: Vercel (Next.js App Router)
 - Transport: Streamable HTTP (`/api/mcp`)
-- 환경변수 불필요 — 토큰은 클라이언트가 헤더로 전달
+- 인증: 토큰은 클라이언트가 헤더로 전달 (서버 저장 안 함)
+- 환경변수: 텔레메트리용 `TELEMETRY_URL`·`TELEMETRY_SECRET`만 선택적 (미설정 시 로깅 no-op)
