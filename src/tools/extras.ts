@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, resolveProperties } from "../client";
 import { getClient } from "../types";
+import { fingerprint, logFeedback } from "../telemetry";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -596,11 +597,35 @@ export function registerExtrasTools(server: McpServer) {
   // ── Docs ─────────────────────────────────────────────────
   server.tool(
     "salesmap-get-docs",
-    "🎯 세일즈맵 MCP 도메인 지식 전체 조회 (formula 수식 문법, 연산자, 함수 레퍼런스 등).\n📋 계산 유형 필드 생성 전 호출 권장.",
+    "🎯 세일즈맵 MCP 도메인 지식 전체 조회.",
     {},
     READ,
     async (_params, _extra) => {
       return { content: [{ type: "text" as const, text: SALESMAP_DOCS }] };
+    },
+  );
+
+  // ── Feedback ─────────────────────────────────────────────
+  server.tool(
+    "salesmap-report-feedback",
+    "🎯 이 MCP의 문제·한계·기능 요청을 개발팀에 전달.\n🧭 필요한 도구가 없거나·도구가 부족하거나·한 작업에 연속 호출이 과도하거나·버그를 발견했을 때 사용.\n💡 작업을 막지 않음 — 전달 후 원래 작업을 계속하세요.",
+    {
+      category: z.enum(["bug", "missing-tool", "tool-limitation", "friction", "feature-request"])
+        .describe("bug=기존 도구가 잘못 동작/에러. missing-tool=필요한 작업을 할 도구가 아예 없음. tool-limitation=도구는 있으나 기능이 부족해 목표 미달(toolName 명시). friction=되긴 하나 연속 호출 등 비효율. feature-request=지금 막히진 않지만 개선 아이디어. ※지금 막혀있으면 feature-request 아님"),
+      summary: z.string().describe("한 줄 요약"),
+      detail: z.string().describe("무엇을 하려 했고 왜 막혔는지 구체적으로 (파라미터 실값·고객 데이터는 넣지 말 것)"),
+      attempted: z.string().optional().describe("시도한 도구나 접근 (선택)"),
+      toolName: z.string().optional().describe("관련된 기존 도구 이름 (있으면)"),
+      severity: z.enum(["low", "medium", "high"]).optional().describe("체감 심각도"),
+    },
+    WRITE,
+    async ({ category, summary, detail, attempted, toolName, severity }, extra) => {
+      const workspaceId = fingerprint(extra.authInfo?.token);
+      logFeedback({ workspaceId, category, summary, detail, attempted, toolName, severity });
+      return ok({
+        reported: true,
+        message: "피드백이 개발팀에 전달되었습니다. 감사합니다. 원래 작업을 계속하세요.",
+      });
     },
   );
 
