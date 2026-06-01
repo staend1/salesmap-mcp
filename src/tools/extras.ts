@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, resolveProperties } from "../client";
 import { getClient } from "../types";
+import { fingerprint, logFeedback } from "../telemetry";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -39,6 +40,145 @@ const quoteProductSchema = z.object({
   paymentStartAt: z.string().optional().describe("시작 결제일 (구독)"),
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
 });
+
+// ── salesmap-get-docs content ─────────────────────────────────
+const SALESMAP_DOCS = `# 세일즈맵 MCP 도메인 지식
+
+## 계산 유형 필드 (Formula)
+
+### 개요
+\`formula\` 파라미터에 수식을 입력하면 **계산 유형 필드**가 됩니다.
+다른 필드의 값을 참조해 자동 계산 결과를 채웁니다.
+\`type\`은 수식의 최종 출력 타입으로 지정해야 합니다.
+
+**변수 참조 형식:** \`{{오브젝트명.필드명}}\`
+예: \`{{딜.금액}}\`, \`{{고객.나이}}\`, \`{{회사.직원수}}\`
+
+**제약:** \`formula\` 사용 시 \`options\`, \`showInCreateForm\`, \`required\`, \`preventDuplicates\` 설정 불가.
+
+> ⚠️ \`date_comp\`는 두 날짜 차이를 **분(minute) 단위**로 반환합니다.
+> 일 단위로 쓰려면 \`minute_to_day(date_comp(...))\` 로 감싸세요.
+
+---
+
+### 연산자
+
+#### 산술 연산자 — 숫자 전용
+
+| 연산자 | 설명 | 예시 |
+|--------|------|------|
+| \`+\` | 더하기 | \`1 + 1\`, \`{{상품.금액}} + 32\` |
+| \`-\` | 빼기 | \`2 - 1\` |
+| \`*\` | 곱하기 | \`2 * 3\` |
+| \`/\` | 나누기 | \`6 / 3\` |
+
+#### 비교 연산자 — 반환: boolean
+
+| 연산자 | 설명 | 지원 타입 | 예시 |
+|--------|------|-----------|------|
+| \`<\` | 왼쪽이 더 작음 | 숫자 | \`3 < 10\` → true |
+| \`>\` | 왼쪽이 더 큼 | 숫자 | \`10 > 3\` → true |
+| \`<=\` | 작거나 같음 | 숫자 | \`10 <= 10\` → true |
+| \`>=\` | 크거나 같음 | 숫자 | \`10 >= 13\` → false |
+| \`==\` | 같음 | 숫자, 문자, 날짜 | \`{{딜.상태}} == "Won"\` |
+| \`!=\` | 다름 | 숫자, 문자, 날짜 | \`123 != 321\` → true |
+
+#### 논리 연산자 — 반환: boolean
+
+| 연산자 | 설명 | 예시 |
+|--------|------|------|
+| \`||\` | OR — 하나라도 참이면 참 | \`3 > 2 || "22" == "33"\` → true |
+| \`&&\` | AND — 둘 다 참이어야 참 | \`3 > 2 && "22" != "33"\` → true |
+
+---
+
+### 함수
+
+#### 수치 연산
+
+| 함수 | 시그니처 | 반환 | 설명 | 예시 |
+|------|----------|------|------|------|
+| \`min\` | \`min(숫자, 숫자)\` | 숫자 | 더 작은 값 | \`min(20, 10)\` = 10 |
+| \`max\` | \`max(숫자, 숫자)\` | 숫자 | 더 큰 값 | \`max(20, 10)\` = 20 |
+| \`abs\` | \`abs(숫자)\` | 숫자 | 절댓값 | \`abs(-20)\` = 20 |
+| \`round_down\` | \`round_down(숫자1, 숫자2)\` | 숫자 | 숫자2 자리로 내림. 음수=정수 자리 | \`round_down(20.151, 2)\` = 20.15, \`round_down(1356.9, -2)\` = 1300 |
+| \`round_up\` | \`round_up(숫자1, 숫자2)\` | 숫자 | 숫자2 자리로 올림. 음수=정수 자리 | \`round_up(20.5, 0)\` = 21, \`round_up(1356.9, -2)\` = 1400 |
+| \`round\` | \`round(숫자1, 숫자2)\` | 숫자 | 숫자2 자리로 반올림. 음수=정수 자리 | \`round(20.151, 2)\` = 20.15 |
+
+#### 문자열
+
+| 함수 | 시그니처 | 반환 | 설명 | 예시 |
+|------|----------|------|------|------|
+| \`concat\` | \`concat(문자, 문자)\` | 문자 | 두 문자열 이어붙이기 | \`concat("안", "녕하세요")\` = "안녕하세요" |
+| \`contains\` | \`contains(문자열, 문자열)\` | boolean | 포함 여부 확인 | \`contains("CRM 솔루션", "CRM")\` = true |
+| \`length\` | \`length(문자열)\` | 숫자 | 문자 수 (공백 포함) | \`length({{회사.이름}})\` |
+| \`lowercase\` | \`lowercase(문자열)\` | 문자 | 영문 소문자 변환 | \`lowercase("Salesmap")\` = "salesmap" |
+| \`uppercase\` | \`uppercase(문자열)\` | 문자 | 영문 대문자 변환 | \`uppercase("Salesmap")\` = "SALESMAP" |
+| \`to_string\` | \`to_string(숫자\|날짜\|날짜시간)\` | 문자 | 타입을 문자열로 변환 | \`to_string({{고객.최근 수정날짜}})\` = "2024-12-20 14:33" |
+| \`sub_string\` | \`sub_string(문자열, 숫자1, 숫자2)\` | 문자 | 숫자1번째부터 숫자2 길이 추출 (0-indexed) | \`sub_string("가나다라", 1, 2)\` = "나다" |
+
+#### 날짜/시간 생성·추출
+
+| 함수 | 시그니처 | 반환 | 설명 | 예시 |
+|------|----------|------|------|------|
+| \`new_date\` | \`new_date(연도, 월, 일)\` | 날짜 | 날짜 생성 | \`new_date(2025, 1, 1)\` |
+| \`new_datetime\` | \`new_datetime(연도, 월, 일, 시, 분)\` | 날짜시간 | 날짜+시간 생성 | \`new_datetime(2025, 1, 1, 9, 0)\` |
+| \`year\` | \`year(날짜\|날짜시간)\` | 숫자 | 연도 추출 | \`year(new_date(2025, 1, 1))\` = 2025 |
+| \`month\` | \`month(날짜\|날짜시간)\` | 숫자 | 월 추출 | \`month(new_date(2025, 1, 1))\` = 1 |
+| \`day\` | \`day(날짜\|날짜시간)\` | 숫자 | 일 추출 | \`day(new_date(2025, 1, 1))\` = 1 |
+| \`hour\` | \`hour(날짜시간)\` | 숫자 | 시 추출 | \`hour(new_datetime(2025,1,1,9,0))\` = 9 |
+| \`minute\` | \`minute(날짜시간)\` | 숫자 | 분 추출 | \`minute(new_datetime(2025,1,1,9,0))\` = 0 |
+| \`minute_to_hour\` | \`minute_to_hour(숫자)\` | 숫자 | 분 → 시간 | \`minute_to_hour(date_comp(...))\` |
+| \`minute_to_day\` | \`minute_to_day(숫자)\` | 숫자 | 분 → 일 | \`minute_to_day(date_comp(...))\` |
+
+#### 날짜 연산
+
+| 함수 | 시그니처 | 반환 | 설명 | 예시 |
+|------|----------|------|------|------|
+| \`add_year\` | \`add_year(날짜, 숫자)\` | 날짜 | 연도 더하기 | \`add_year(new_date(2025,1,1), 10)\` = 2035-01-01 |
+| \`sub_year\` | \`sub_year(날짜, 숫자)\` | 날짜 | 연도 빼기 | \`sub_year(new_date(2025,1,1), 10)\` = 2015-01-01 |
+| \`add_month\` | \`add_month(날짜, 숫자)\` | 날짜 | 월 더하기 | \`add_month(new_date(2025,1,1), 10)\` = 2025-11-01 |
+| \`sub_month\` | \`sub_month(날짜, 숫자)\` | 날짜 | 월 빼기 | \`sub_month({{딜.구독 종료일}}, 1)\` |
+| \`add_day\` | \`add_day(날짜, 숫자)\` | 날짜 | 일 더하기 | \`add_day(new_date(2025,1,1), 10)\` = 2025-01-11 |
+| \`sub_day\` | \`sub_day(날짜, 숫자)\` | 날짜 | 일 빼기 | \`sub_day(new_date(2025,1,1), 10)\` = 2024-12-22 |
+| \`add_hour\` | \`add_hour(날짜시간, 숫자)\` | 날짜시간 | 시 더하기 | \`add_hour(new_datetime(2025,1,1,9,0), 5)\` = 13:00 |
+| \`sub_hour\` | \`sub_hour(날짜시간, 숫자)\` | 날짜시간 | 시 빼기 | \`sub_hour(new_datetime(2025,1,1,9,0), 5)\` = 04:00 |
+| \`add_min\` | \`add_min(날짜시간, 숫자)\` | 날짜시간 | 분 더하기 | \`add_min(new_datetime(2025,1,1,9,0), 5)\` = 09:05 |
+| \`sub_min\` | \`sub_min(날짜시간, 숫자)\` | 날짜시간 | 분 빼기 | \`sub_min(new_datetime(2025,1,1,9,0), 5)\` = 08:55 |
+| \`date_comp\` | \`date_comp(날짜\|날짜시간, 날짜\|날짜시간)\` | 숫자(분) | 두 날짜 차이 (분 단위 반환) | \`date_comp({{고객.고객생일}}, new_date(2025,10,25))\` |
+| \`weekday\` | \`weekday(날짜\|날짜시간)\` | 숫자 | 요일 (일=0, 월=1, …, 토=6) | \`weekday({{고객.생성 일자}})\` |
+
+#### 논리
+
+| 함수 | 시그니처 | 반환 | 설명 | 예시 |
+|------|----------|------|------|------|
+| \`if\` | \`if(논리식, 결과1, 결과2)\` | 결과1 또는 결과2 | 조건 분기. 중첩 가능 | \`if({{고객.나이}} > 20, "미성년자", "성인")\` |
+| \`is_null\` | \`is_null(변수)\` | boolean | 값 없으면 true | \`is_null({{고객.나이}})\` |
+
+---
+
+### 수식 예시
+
+\`\`\`
+// 딜 금액의 80%
+{{딜.금액}} * 0.8
+
+// 구독 만료 30일 전 날짜
+sub_day({{딜.구독 종료일}}, 30)
+
+// 나이대 분류 (중첩 if)
+if({{회사.직원수}} == 20, "적정 규모", if({{회사.직원수}} > 20, "규모 초과", "규모 미달"))
+
+// 두 날짜 차이를 일 단위로
+minute_to_day(date_comp({{고객.가입일}}, new_date(2025, 10, 25)))
+
+// Won 여부 확인
+{{딜.상태}} == "Won"
+
+// 이름에 "님" 붙이기
+concat({{고객.이름}}, "님")
+\`\`\`
+`;
 
 export function registerExtrasTools(server: McpServer) {
   // ── Lead Time ───────────────────────────────────────────
@@ -412,6 +552,80 @@ export function registerExtrasTools(server: McpServer) {
       } catch (e: unknown) {
         return err((e as Error).message);
       }
+    },
+  );
+
+  // ── Create Property ──────────────────────────────────────
+  server.tool(
+    "salesmap-create-property",
+    "🎯 오브젝트에 커스텀 필드 생성.\n📋 salesmap-list-properties로 기존 필드 확인.",
+    {
+      objectType: z.enum(["people", "organization", "deal", "lead", "product", "quote", "quote-product", "todo"])
+        .describe("오브젝트 타입 (custom-object 미지원)"),
+      name: z.string().describe("필드 이름"),
+      type: z.enum(["string", "number", "date", "dateTime", "boolean", "singleSelect", "multiSelect", "multiAttachment", "user", "multiUser"])
+        .describe("필드 타입. 계산 유형 필드를 만들 때는 formula에 계산 결과의 타입을 지정"),
+      description: z.string().optional().describe("필드 설명"),
+      showInCreateForm: z.boolean().optional().describe("레코드 생성 모달에 표시 여부 (기본 false)"),
+      required: z.boolean().optional().describe("GUI에서 필수 입력 여부 (기본 false). true여도 API/MCP에서는 제한 없음. true로 설정 시 showInCreateForm도 true 필요"),
+      options: z.array(z.object({ value: z.string() })).optional()
+        .describe("선택지 목록. singleSelect 1개 이상·multiSelect 2개 이상 필수"),
+      preventDuplicates: z.boolean().optional()
+        .describe("유니크 필드 기능. 사업자등록번호, 전화번호 등 키 역할 필드에 제한적으로 사용. type이 string/number일때만 가능"),
+      formula: z.string().optional()
+        .describe("formula에 수식을 입력하면 필드는 계산 유형 필드가 되며, type은 계산 결과의 타입을 지정해야 함. options·showInCreateForm·required·preventDuplicates 설정 불가. 자세한 내용은 salesmap-get-docs 호출하면 확인 가능"),
+    },
+    WRITE,
+    async ({ objectType, name, type, ...rest }, extra) => {
+      try {
+        const client = getClient(extra);
+        const body: Record<string, unknown> = { name, type };
+        for (const [k, v] of Object.entries(rest)) {
+          if (v !== undefined) body[k] = v;
+        }
+        return ok(await client.post(`/v2/field/${objectType}`, body));
+      } catch (e: unknown) {
+        const msg = (e as Error).message;
+        if (msg.includes("이미 존재")) {
+          return err(`${msg}\n[힌트] salesmap-list-properties로 기존 필드를 확인하세요.`);
+        }
+        return err(msg);
+      }
+    },
+  );
+
+  // ── Docs ─────────────────────────────────────────────────
+  server.tool(
+    "salesmap-get-docs",
+    "🎯 세일즈맵 MCP 도메인 지식 전체 조회.",
+    {},
+    READ,
+    async (_params, _extra) => {
+      return { content: [{ type: "text" as const, text: SALESMAP_DOCS }] };
+    },
+  );
+
+  // ── Feedback ─────────────────────────────────────────────
+  server.tool(
+    "salesmap-report-feedback",
+    "🎯 이 MCP의 문제·한계·기능 요청을 개발팀에 전달.\n🧭 필요한 도구가 없거나·도구가 부족하거나·한 작업에 연속 호출이 과도하거나·버그를 발견했을 때 사용.\n💡 작업을 막지 않음 — 전달 후 원래 작업을 계속하세요.",
+    {
+      category: z.enum(["bug", "missing-tool", "tool-limitation", "friction", "feature-request"])
+        .describe("bug=기존 도구가 잘못 동작/에러. missing-tool=필요한 작업을 할 도구가 아예 없음. tool-limitation=도구는 있으나 기능이 부족해 목표 미달(toolName 명시). friction=되긴 하나 연속 호출 등 비효율. feature-request=지금 막히진 않지만 개선 아이디어. ※지금 막혀있으면 feature-request 아님"),
+      summary: z.string().describe("한 줄 요약"),
+      detail: z.string().describe("무엇을 하려 했고 왜 막혔는지 구체적으로 (파라미터 실값·고객 데이터는 넣지 말 것)"),
+      attempted: z.string().optional().describe("시도한 도구나 접근 (선택)"),
+      toolName: z.string().optional().describe("관련된 기존 도구 이름 (있으면)"),
+      severity: z.enum(["low", "medium", "high"]).optional().describe("체감 심각도"),
+    },
+    WRITE,
+    async ({ category, summary, detail, attempted, toolName, severity }, extra) => {
+      const workspaceId = fingerprint(extra.authInfo?.token);
+      logFeedback({ workspaceId, category, summary, detail, attempted, toolName, severity });
+      return ok({
+        reported: true,
+        message: "피드백이 개발팀에 전달되었습니다. 감사합니다. 원래 작업을 계속하세요.",
+      });
     },
   );
 
