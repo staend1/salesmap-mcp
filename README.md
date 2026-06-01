@@ -4,7 +4,7 @@ AI 어시스턴트를 [세일즈맵](https://salesmap.kr) CRM에 연결하는 [M
 
 ## 특징
 
-- **19개 도구** — 스키마 조회, 검색, CRUD, 관계, 파이프라인 분석, 활동 타임라인 등
+- **22개 도구** — 스키마 조회·필드 생성, 검색, CRUD, 관계, 파이프라인 분석, 활동 타임라인, 피드백 등
 - **멀티테넌트** — 각 사용자가 자신의 세일즈맵 API 토큰으로 인증
 - **Streamable HTTP** — Vercel 배포, 로컬 빌드 불필요
 - **스마트 응답** — properties 미지정 시 타입별 코어 필드만 반환 (컨텍스트 절약), 사전 검증으로 불필요한 API 에러 방지
@@ -52,6 +52,7 @@ claude mcp add salesmap-mcp \
 | 카테고리 | 도구 | 설명 | 파라미터 |
 |---------|------|------|---------|
 | **스키마** | `salesmap-list-properties` | 오브젝트의 필드 이름·타입·옵션 조회 | **objectType** |
+| | `salesmap-create-property` | 오브젝트에 커스텀 필드 생성 (formula 계산 유형 포함) | **objectType** · **name** · **type** · description? · showInCreateForm? · required? · options? · preventDuplicates? · formula? |
 | **검색** | `salesmap-search-objects` | OR/AND 조합 필터 기반 검색. id·name만 반환 | **objectType** · **filterGroups** · after? |
 | **CRUD** | `salesmap-batch-read-objects` | 최대 20개 레코드 일괄 조회. properties 생략 시 코어 필드만 반환 | **objectType** · **objectIds** · properties? |
 | | `salesmap-create-object` | 레코드 생성 | **objectType** · properties? · note? · peopleId? · organizationId? · customObjectDefinitionId? |
@@ -70,6 +71,8 @@ claude mcp add salesmap-mcp \
 | | `salesmap-list-teams` | 팀 목록 조회 | after? |
 | | `salesmap-get-user-details` | 현재 토큰 소유자 정보 조회 | — |
 | **유틸** | `salesmap-get-link` | 레코드의 CRM 웹 URL 생성 | **objectType** · **objectId** |
+| **문서** | `salesmap-get-docs` | MCP 도메인 지식(formula 문법·연산자·함수) 일괄 조회 | — |
+| **피드백** | `salesmap-report-feedback` | 막힘·한계·기능 요청을 개발팀에 전달 | **category** · **summary** · **detail** · attempted? · toolName? · severity? |
 
 ## 아키텍처
 
