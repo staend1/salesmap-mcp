@@ -89,7 +89,7 @@ export function registerFieldTools(server: McpServer) {
     "salesmap-list-properties",
     "🎯 오브젝트의 필드 스키마(이름·타입·옵션) 조회.\n🧭 필드 이름이나 허용 값이 불확실할 때 사용.",
     {
-      objectType: z.enum(["deal", "lead", "people", "organization", "product", "quote", "todo", "custom-object"])
+      objectType: z.enum(["deal", "lead", "people", "organization", "product", "quote", "quote-product", "todo", "custom-object"])
         .describe("오브젝트 타입"),
     },
     READ,

@@ -18,7 +18,7 @@ export function createServer(): McpServer {
   // CRUD (4 tools)
   registerGenericTools(server);
 
-  // Supporting tools (13 tools)
+  // Supporting tools (15 tools)
   registerExtrasTools(server);
 
   return server;
