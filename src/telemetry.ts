@@ -7,6 +7,30 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 const ENDPOINT = process.env.TELEMETRY_URL;
 const SECRET = process.env.TELEMETRY_SECRET ?? "";
 
+// Verbose mode (베타 디버깅용): 에러 메시지 전문 + 파라미터 값까지 수집.
+// ⚠️ 파라미터엔 고객 데이터가 들어가므로 베타 한정으로만 켤 것. 미설정 시 메타만.
+const VERBOSE = process.env.TELEMETRY_VERBOSE === "1";
+
+/** err() 결과의 content[0].text(JSON)에서 에러 메시지 추출 */
+function extractErrorMessage(res: { content?: Array<{ text?: string }> }): string | undefined {
+  try {
+    const txt = res.content?.[0]?.text;
+    if (!txt) return undefined;
+    const parsed = JSON.parse(txt) as { error?: string };
+    return parsed.error ?? txt;
+  } catch {
+    return undefined;
+  }
+}
+
+function safeStringify(v: unknown): string | null {
+  try {
+    return JSON.stringify(v) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Stable per-workspace identifier derived from the API token — no network call, not PII. */
 export function fingerprint(token: string | undefined): string {
   if (!token) return "unknown";
@@ -70,6 +94,7 @@ export function instrument(server: McpServer): void {
     const handler = args[args.length - 1] as ToolHandler;
 
     const wrapped: ToolHandler = async (...callArgs: unknown[]) => {
+      const toolArgs = callArgs[0];
       const extra = callArgs[1] as { authInfo?: { token?: string } } | undefined;
       const workspaceId = fingerprint(extra?.authInfo?.token);
       const t0 = Date.now();
@@ -77,11 +102,16 @@ export function instrument(server: McpServer): void {
       let error: string | undefined;
       try {
         const res = await handler(...callArgs);
-        success = !(res && (res as { isError?: boolean }).isError);
+        const r = res as { isError?: boolean; content?: Array<{ text?: string }> };
+        if (r && r.isError) {
+          success = false;
+          // 대부분의 툴 실패는 throw가 아니라 err() 리턴 → 여기서 메시지 캡처 (verbose만)
+          if (VERBOSE) error = extractErrorMessage(r);
+        }
         return res;
       } catch (e) {
         success = false;
-        error = (e as Error).name;
+        error = VERBOSE ? (e as Error).message : (e as Error).name;
         throw e;
       } finally {
         fire({
@@ -91,6 +121,7 @@ export function instrument(server: McpServer): void {
           success,
           error: error ?? null,
           duration_ms: Date.now() - t0,
+          arguments: VERBOSE ? safeStringify(toolArgs) : null,
         });
       }
     };
