@@ -248,6 +248,16 @@ export async function fetchTeamMap(client: SalesMapClient): Promise<Map<string, 
   return map;
 }
 
+/** 사용자 이름→UUID 맵 (토큰별 5분 캐시). 반환 Map은 읽기 전용으로 취급. */
+export function getUserMap(client: SalesMapClient): Promise<Map<string, string>> {
+  return cached(`${client.fingerprint}:users`, TTL.map, () => fetchUserMap(client));
+}
+
+/** 팀 이름→UUID 맵 (토큰별 5분 캐시). 반환 Map은 읽기 전용으로 취급. */
+export function getTeamMap(client: SalesMapClient): Promise<Map<string, string>> {
+  return cached(`${client.fingerprint}:teams`, TTL.map, () => fetchTeamMap(client));
+}
+
 /**
  * Converts a simplified properties object into SalesMap's fieldList format.
  * Fetches the schema to determine the correct value key for each property.
@@ -281,7 +291,7 @@ export async function resolveProperties(
     return false;
   });
   if (needsUserLookup) {
-    userMap = await fetchUserMap(client);
+    userMap = await getUserMap(client);
   }
 
   const fieldList: Array<Record<string, unknown>> = [];

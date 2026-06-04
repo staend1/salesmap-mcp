@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, fetchUserMap, fetchTeamMap, getFieldSchema } from "../client";
+import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema } from "../client";
 import { getClient } from "../types";
 import type { SalesMapClient } from "../client";
 
@@ -75,8 +75,8 @@ async function resolveFilterIds(
   // Lazy-load maps only if needed
   let userMap: Map<string, string> | null = null;
   let teamMap: Map<string, string> | null = null;
-  if (hasNameValues(userTypeNames)) userMap = await fetchUserMap(client);
-  if (hasNameValues(teamTypeNames)) teamMap = await fetchTeamMap(client);
+  if (hasNameValues(userTypeNames)) userMap = await getUserMap(client);
+  if (hasNameValues(teamTypeNames)) teamMap = await getTeamMap(client);
 
   const resolved: FilterGroup[] = [];
   for (const group of groups) {
