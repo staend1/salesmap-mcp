@@ -84,7 +84,40 @@ function injectHints(type: string, data: unknown): unknown {
   return data;
 }
 
+// 기본 오브젝트: objectType(영문, API/도구 호출용) + label(한글, 가독성)
+const BUILTIN_OBJECTS = [
+  { objectType: "people", label: "고객" },
+  { objectType: "organization", label: "회사" },
+  { objectType: "lead", label: "리드" },
+  { objectType: "deal", label: "딜" },
+  { objectType: "product", label: "상품" },
+  { objectType: "quote", label: "견적서" },
+] as const;
+
 export function registerFieldTools(server: McpServer) {
+  server.tool(
+    "salesmap-list-objects",
+    "🎯 워크스페이스의 전체 오브젝트 목록(기본 + 커스텀) 조회.\n🧭 어떤 오브젝트가 있는지, 다른 도구에 넘길 식별자가 불확실할 때 먼저 호출.\n📦 기본 오브젝트는 objectType(영문)으로, 커스텀은 objectType=custom-object + customObjectDefinitionId로 다른 도구에 전달.",
+    {},
+    READ,
+    async (_params, extra) => {
+      try {
+        const client = getClient(extra);
+        const data = await client.get<{ customObjectDefinitionList?: Array<{ id: string; name: string }> }>(
+          "/v2/custom-object-definitions",
+        );
+        const customObjects = (data.customObjectDefinitionList ?? []).map(d => ({
+          objectType: "custom-object" as const,
+          label: d.name,
+          customObjectDefinitionId: d.id,
+        }));
+        return ok({ builtin: BUILTIN_OBJECTS, customObjects });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   server.tool(
     "salesmap-list-properties",
     "🎯 오브젝트의 필드 스키마(이름·타입·옵션) 조회.\n🧭 필드 이름이나 허용 값이 불확실할 때 사용.",
