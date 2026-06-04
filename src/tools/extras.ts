@@ -560,11 +560,15 @@ export function registerExtrasTools(server: McpServer) {
     "salesmap-create-property",
     "🎯 오브젝트에 커스텀 필드 생성.\n📋 salesmap-list-properties로 기존 필드 확인.",
     {
-      objectType: z.enum(["people", "organization", "deal", "lead", "product", "quote", "quote-product", "todo"])
-        .describe("오브젝트 타입 (custom-object 미지원)"),
+      objectType: z.enum(["people", "organization", "deal", "lead", "product", "quote", "quote-product", "todo", "custom-object"])
+        .describe("오브젝트 타입. custom-object는 customObjectDefinitionName 또는 customObjectDefinitionId로 대상 커오 종류 지정 (기존 커오에 필드 추가만 가능)"),
       name: z.string().describe("필드 이름"),
       type: z.enum(["string", "number", "date", "dateTime", "boolean", "singleSelect", "multiSelect", "multiAttachment", "user", "multiUser"])
         .describe("필드 타입. 계산 유형 필드를 만들 때는 formula에 계산 결과의 타입을 지정"),
+      customObjectDefinitionName: z.string().optional()
+        .describe("custom-object에 필드 생성 시 대상 커오 종류 이름. salesmap-list-objects 참조 (ID 대신 사용 가능)"),
+      customObjectDefinitionId: z.string().optional()
+        .describe("custom-object에 필드 생성 시 대상 커오 종류 ID (salesmap-list-objects의 customObjectDefinitionId)"),
       description: z.string().optional().describe("필드 설명"),
       showInCreateForm: z.boolean().optional().describe("레코드 생성 모달에 표시 여부 (기본 false)"),
       required: z.boolean().optional().describe("GUI에서 필수 입력 여부 (기본 false). true여도 API/MCP에서는 제한 없음. true로 설정 시 showInCreateForm도 true 필요"),
@@ -577,6 +581,9 @@ export function registerExtrasTools(server: McpServer) {
     },
     WRITE,
     async ({ objectType, name, type, ...rest }, extra) => {
+      if (objectType === "custom-object" && !rest.customObjectDefinitionName && !rest.customObjectDefinitionId) {
+        return err("custom-object에 필드를 생성하려면 customObjectDefinitionName 또는 customObjectDefinitionId가 필요합니다. salesmap-list-objects로 확인하세요.");
+      }
       try {
         const client = getClient(extra);
         const body: Record<string, unknown> = { name, type };
@@ -588,6 +595,9 @@ export function registerExtrasTools(server: McpServer) {
         const msg = (e as Error).message;
         if (msg.includes("이미 존재")) {
           return err(`${msg}\n[힌트] salesmap-list-properties로 기존 필드를 확인하세요.`);
+        }
+        if (objectType === "custom-object" && msg.includes("찾을 수 없")) {
+          return err("커스텀 오브젝트 종류를 찾을 수 없습니다. salesmap-list-objects로 정확한 customObjectDefinitionName 또는 customObjectDefinitionId를 확인하세요.");
         }
         return err(msg);
       }

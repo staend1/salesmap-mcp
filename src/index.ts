@@ -15,7 +15,7 @@ export function createServer(): McpServer {
   // Telemetry: log every tool call (must run before tools are registered)
   instrument(server);
 
-  // Schema + Search (2 tools)
+  // Schema + Search (3 tools)
   registerFieldTools(server);
   registerSearchTools(server);
 

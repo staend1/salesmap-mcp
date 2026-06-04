@@ -154,7 +154,10 @@ export function registerGenericTools(server: McpServer) {
       note: z.string().optional().describe("초기 노트"),
       peopleId: z.string().optional().describe("고객 ID (deal/lead는 peopleId 또는 organizationId 중 하나 필수)"),
       organizationId: z.string().optional().describe("회사 ID"),
-      customObjectDefinitionId: z.string().optional().describe("Definition ID (custom-object 필수)"),
+      customObjectDefinitionName: z.string().optional()
+        .describe("custom-object 생성 시 대상 커오 종류 이름. 사용자가 말한 이름으로 시도; 틀리면 salesmap-list-objects로 확인 (ID 대신 사용 가능)"),
+      customObjectDefinitionId: z.string().optional()
+        .describe("custom-object 생성 시 대상 커오 종류 ID (salesmap-list-objects의 customObjectDefinitionId). 이름과 ID 중 하나만"),
     },
     WRITE,
     async ({ objectType, properties, note, ...rest }, extra) => {
@@ -180,7 +183,12 @@ export function registerGenericTools(server: McpServer) {
 
         return ok(await client.post(`/v2/${objectType}`, body));
       } catch (e: unknown) {
-        return errWithSchemaHint((e as Error).message, objectType, summarizeFields({ ...rest, properties }));
+        const msg = (e as Error).message;
+        // custom-object 종류를 못 찾으면 → list-objects로 자가교정 유도
+        if (objectType === "custom-object" && msg.includes("찾을 수 없")) {
+          return err("커스텀 오브젝트 종류를 찾을 수 없습니다. salesmap-list-objects로 정확한 customObjectDefinitionName 또는 customObjectDefinitionId를 확인하세요.");
+        }
+        return errWithSchemaHint(msg, objectType, summarizeFields({ ...rest, properties }));
       }
     },
   );
