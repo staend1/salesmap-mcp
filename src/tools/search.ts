@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, fetchUserMap, fetchTeamMap } from "../client";
+import { ok, err, errWithSchemaHint, fetchUserMap, fetchTeamMap, getFieldSchema } from "../client";
 import { getClient } from "../types";
 import type { SalesMapClient } from "../client";
 
@@ -14,7 +14,6 @@ function isValidId(v: string): boolean { return UUID_RE.test(v) || HEX_ID_RE.tes
 
 type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | string[] }> };
 
-interface SchemaField { name: string; type: string; }
 
 // Auto-resolve types: accept name strings, auto-resolve to UUIDs
 const USER_TYPES = new Set(["user", "multiUser"]);
@@ -45,8 +44,8 @@ async function resolveFilterIds(
   client: SalesMapClient,
   targetType: string,
 ): Promise<{ error?: string; resolved: FilterGroup[] }> {
-  // Fetch schema to determine field types
-  const schemaData = await client.get<{ fieldList: SchemaField[] }>(`/v2/field/${targetType}`);
+  // Fetch schema to determine field types (토큰별 캐시 경유)
+  const schemaData = await getFieldSchema(client, targetType);
   const fieldTypeMap = new Map<string, string>();
   for (const f of schemaData.fieldList) {
     fieldTypeMap.set(f.name, f.type);

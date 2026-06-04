@@ -1,4 +1,6 @@
+import { createHash } from "crypto";
 import type { SalesMapResponse } from "./types";
+import { cached, TTL } from "./cache";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
@@ -21,9 +23,12 @@ async function rateLimit(): Promise<void> {
 
 export class SalesMapClient {
   private token: string;
+  /** 토큰 SHA-256 앞 16자 — 캐시 키의 워크스페이스 분리용 (telemetry fingerprint와 동일) */
+  readonly fingerprint: string;
 
   constructor(token: string) {
     this.token = token;
+    this.fingerprint = createHash("sha256").update(token).digest("hex").slice(0, 16);
   }
 
   private async request<T = unknown>(
@@ -184,6 +189,15 @@ interface SchemaField {
   type: string;
 }
 
+/** 필드 스키마 조회 (토큰별 5분 캐시). search·create·update·quote·batch-read 공용 진입점. */
+export function getFieldSchema(
+  client: SalesMapClient,
+  objectType: string,
+): Promise<{ fieldList: Array<{ name: string; type: string; required?: boolean }> }> {
+  return cached(`${client.fingerprint}:field:${objectType}`, TTL.schema,
+    () => client.get(`/v2/field/${objectType}`));
+}
+
 // User types that accept name-to-UUID auto-resolution
 const USER_VALUE_KEYS = new Set(["userValueId", "userValueIdList"]);
 
@@ -247,7 +261,7 @@ export async function resolveProperties(
   objectType: string,
   properties: Record<string, unknown>,
 ): Promise<{ fieldList: Array<Record<string, unknown>>; errors: string[]; extractedTopLevel: Record<string, unknown> }> {
-  const schemaData = await client.get<{ fieldList: SchemaField[] }>(`/v2/field/${objectType}`);
+  const schemaData = await getFieldSchema(client, objectType);
   const fieldMap = new Map<string, string>();
   for (const f of schemaData.fieldList) {
     fieldMap.set(f.name, f.type);
@@ -375,9 +389,7 @@ export async function getDefaultProperties(
   }
 
   // Custom object: dynamic name field detection
-  const schema = await client.get<{ fieldList: Array<{ name: string; type: string; required: boolean }> }>(
-    "/v2/field/custom-object",
-  );
+  const schema = await getFieldSchema(client, "custom-object");
   const nameFields = schema.fieldList
     .filter(f => f.type === "string" && f.required && f.name !== "RecordId")
     .map(f => f.name);
