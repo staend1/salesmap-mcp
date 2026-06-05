@@ -72,9 +72,14 @@ export class SalesMapClient {
       const json = (await res.json()) as SalesMapResponse<T>;
 
       if (!res.ok || json.success === false) {
-        const msg = json.reason || json.message || `HTTP ${res.status}`;
+        let msg = json.reason || json.message || `HTTP ${res.status}`;
         if (res.status === 404) {
           throw new Error(`레코드를 찾을 수 없습니다 (${path}). ID를 확인하세요.`);
+        }
+        // 유니크 중복 에러는 API가 충돌한 기존 레코드(data:{id,name})를 함께 반환 → 힌트에서 쓰도록 보존
+        if (json.reason?.includes("이미 존재하는") && json.data && typeof json.data === "object") {
+          const dup = json.data as { id?: string; name?: string };
+          if (dup.id) msg += ` (기존 레코드 — id: ${dup.id}${dup.name ? `, 이름: "${dup.name}"` : ""})`;
         }
         throw new Error(msg);
       }
@@ -444,14 +449,14 @@ export function errWithSchemaHint(message: string, objectType: string, filterSum
   let hint: string;
   if (message.includes("정의 되지 않은 값")) {
     hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap-list-properties(objectType: "${objectType}")로 허용 옵션을 확인하세요.`;
-  } else if (message.includes("Invalid fieldName")) {
-    hint = `필드명은 한글입니다 (예: 'name' → '이름'). salesmap-list-properties(objectType: "${objectType}") 결과를 다시 확인하세요.`;
   } else if (message.includes("relation field")) {
     hint = `relation 필드는 UUID만 허용합니다. salesmap-get-pipelines 또는 salesmap-list-users로 UUID를 확인하세요.`;
   } else if (message.includes("userValueId가 없습니다")) {
     hint = `담당자 필드는 userValueId(UUID)로 지정해야 합니다. salesmap-list-users로 ID를 확인하세요.`;
   } else if (message.includes("fieldList이 아닌 파라메터")) {
     hint = `금액(price)은 properties가 아닌 top-level price 파라미터로 전달하세요.`;
+  } else if (message.includes("이미 존재하는")) {
+    hint = `유니크 필드 중복 — 같은 값을 가진 레코드가 이미 있습니다. 에러의 '기존 레코드 id'를 salesmap-update-object로 수정하거나(salesmap-batch-read-objects로 확인), 다른 값을 사용하세요.`;
   } else {
     hint = `필드명 또는 옵션값이 잘못되었을 수 있습니다. salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명과 허용 옵션을 확인하세요.`;
   }
