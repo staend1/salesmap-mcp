@@ -1,8 +1,9 @@
 # 세일즈맵 API MCP Readiness 리포트
 
-> 작성: 2026-04-14 / 최신화: 2026-04-16
+> 작성: 2026-04-14 / 최신화: 2026-06-06
 > 작성자: CX팀 (MCP 서버 구현 경험 기반)
 > 대상: 세일즈맵 API 팀 / 공식 MCP 서버 개발 시 참고
+> 2026-06 갱신: #14(✅해결) #20(✅생성 해결) #5-5·#19 보완, #27(IP 화이트리스트) 추가
 
 ## 요약
 
@@ -187,9 +188,10 @@ HubSpot: "dealname" (internal) → "Deal Name" (label)
 
 **MCP 우회**: `errWithSchemaHint()` 함수로 에러 메시지에 `salesmap-list-properties로 확인하세요` 힌트를 추가합니다.
 
-### 5-5. custom-object 검색 미지원
+### 5-5. custom-object 검색 미지원 (부분 변화, 2026-06)
 
-`targetType: "custom-object"` → `Invalid targetType` 에러.
+`POST /v2/object/custom-object/search` → **여전히 미지원** (`Invalid Parameters`, 재확인됨).
+단, `GET /v2/custom-object?customObjectDefinitionName={이름}`로 **특정 커오 레코드 목록 조회는 가능**해짐 (전체 필드 포함, cursor 페이지네이션). 필터 조건 검색·정렬은 불가 — 전체 목록만. 레코드 생성도 이름으로 가능(#14 참조).
 
 ---
 
@@ -397,11 +399,13 @@ HubSpot: POST /crm/v3/objects/notes
 
 ---
 
-## 14. 커스텀 오브젝트 Definition 목록 조회 API 부재
+## 14. ✅ [해결됨] 커스텀 오브젝트 Definition 목록 조회 API
 
-### 문제
+> **해결 (2026-06)**: `GET /v2/custom-object-definitions` 신설(`[{id, name}]` 반환). MCP `salesmap-list-objects`로 노출. 추가로 레코드 생성/조회(`POST`/`GET /v2/custom-object`)와 필드 생성(`POST /v2/field/custom-object`)이 **`customObjectDefinitionName`(이름)** 으로도 가능해짐 → 커스텀 오브젝트를 이름으로 다룰 수 있게 됨.
 
-`GET /v2/custom-object-definition` API가 없습니다. 워크스페이스에 어떤 커스텀 오브젝트 타입이 정의되어 있는지 프로그래밍적으로 파악할 수 없습니다.
+### 문제 (해결 전)
+
+`GET /v2/custom-object-definition` API가 없었습니다. 워크스페이스에 어떤 커스텀 오브젝트 타입이 정의되어 있는지 프로그래밍적으로 파악할 수 없었습니다.
 
 ### 실제 영향
 
@@ -417,9 +421,9 @@ HubSpot: GET /crm/v3/schemas
   → MCP에서 hubspot-list-schemas 도구로 제공
 ```
 
-### MCP에서의 우회
+### MCP에서의 대응 (해결 후)
 
-우회 불가. 커스텀 오브젝트 타입을 동적으로 다루지 못합니다. 사용자가 `customObjectDefinitionId`를 직접 제공해야 합니다.
+`salesmap-list-objects`로 빌트인+커스텀 오브젝트 목록을 이름과 함께 제공. `create-object`·`create-property`는 `customObjectDefinitionName`(이름) 또는 `customObjectDefinitionId`로 대상 지정. `batch-read-objects`는 커오 레코드에 definition 이름을 라벨링.
 
 ---
 
@@ -626,6 +630,8 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 세일즈맵 API 에러는 `reason` 문자열 하나로만 반환됩니다. 에러 카테고리, 에러 코드, 문제가 된 필드명 등의 구조화된 정보가 없습니다.
 
+> **참고 (2026-06)**: 전부 비구조화는 아님 — **유니크 중복 에러는 `data: {id, name}`(충돌한 기존 레코드)** 를 함께 반환하고, status enum 위반은 허용값(Won/Lost/In progress)을 나열함. MCP는 중복 에러의 `data`를 보존해 힌트에 기존 레코드 id를 노출(검색 없이 update 유도). 다만 대다수 에러는 여전히 `reason` 문자열뿐이라 이슈 자체는 유효.
+
 ```json
 // 세일즈맵: 문자열 하나
 {
@@ -698,11 +704,13 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 ---
 
-## 20. 필드(Property) 생성·수정 API 부재
+## 20. ✅ [생성 해결] 필드(Property) 생성·수정 API
 
-### 문제
+> **부분 해결 (2026-06)**: `POST /v2/field/{type}` 신설(필드 **생성**). MCP `salesmap-create-property`로 노출 (formula 계산 유형·custom-object 포함). ⚠️ **수정(update) API는 미확인** — 옵션 값 변경·필드 설정 변경은 아직 UI 전용일 수 있음.
 
-필드 정의를 프로그래밍적으로 생성하거나 수정하는 API가 없습니다. 커스텀 필드 추가, 옵션 값 변경, 필드 설정 변경 등은 UI에서만 가능합니다.
+### 문제 (수정 부분 잔존)
+
+필드 **수정** API는 확인되지 않았습니다. 옵션 값 변경, 필드 설정 변경 등은 여전히 UI에서만 가능할 수 있습니다. (생성은 위 API로 해결)
 
 ### 실제 영향
 
@@ -722,9 +730,9 @@ HubSpot: 4개 Property 도구
 
 참고: 허브스팟이 `list`와 `get`을 분리한 이유는 토큰 효율. `list`는 5개 필드만 반환하여 전체 목록을 가볍게 훑고, 특정 필드의 옵션이나 validation 규칙이 필요할 때만 `get`으로 상세 조회. 필드가 수십~수백 개인 워크스페이스에서 전부 풀 스키마로 반환하면 토큰이 폭발하기 때문.
 
-### MCP에서의 우회
+### MCP에서의 대응
 
-우회 불가. `list-properties`로 조회만 가능합니다.
+`salesmap-create-property`로 필드 **생성** 가능 (formula 포함, custom-object는 `customObjectDefinitionName`으로 대상 지정). 필드 **수정**은 여전히 불가 — `list-properties`로 조회만.
 
 ---
 
@@ -884,6 +892,41 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 
 ---
 
+## 27. IP 화이트리스트 + 프록시 아키텍처 충돌
+
+### 문제
+
+워크스페이스 **IP 제한(화이트리스트)** 을 켠 고객은 MCP를 사용할 수 없습니다. MCP는 프록시 구조라, 세일즈맵 API가 보는 출발 IP가 **고객 IP가 아니라 MCP 서버(Vercel)의 IP**인데, 이 IP가 고객 허용 목록에 없어서 모든 호출이 기각됩니다.
+
+실제 발생 (2026-06-05, 한 고객 워크스페이스):
+```
+허용되지 않은 IP 입니다. 워크스페이스 관리에서 IP를 추가해주세요. (현재 IP: 16.184.29.134)
+허용되지 않은 IP 입니다. ... (현재 IP: 13.209.98.183)   ← 호출마다 IP가 바뀜
+```
+
+### 원인
+
+```
+고객 AI → [MCP 서버(Vercel)] → 세일즈맵 API
+              ↑ 세일즈맵은 우리 서버의 egress IP만 봄 (고객 IP는 여기까지만 옴)
+```
+- 프록시 구조상 세일즈맵 API는 **우리 서버의 출발 IP**를 검사 → 고객 사무실 IP가 아님
+- Vercel 서버리스는 IP가 **동적**(호출마다 다른 AWS IP) → 고정 IP가 없어 고객이 허용 목록에 추가할 수도 없음
+
+### 수정 방향 제안
+
+- **(인프라, 근본)** MCP 아웃바운드를 **고정 IP로** — AWS **Elastic IP**를 가진 **포워드 프록시**(EC2/Fargate, squid 등) 경유. 고객은 그 IP 하나만 허용하면 됨.
+  - ⚠️ NAT Gateway 아님 (NAT는 VPC 내부 egress용. MCP는 VPC 밖이라 포워드 프록시가 맞음)
+- **(백엔드, 대안)** MCP 전용 자격증명/헤더 요청은 워크스페이스 IP 체크를 우회 + 고객 "MCP 허용" 토글 (고객 동의 기반)
+- **(MCP 측 연결)** `OUTBOUND_PROXY` env + undici `ProxyAgent`로 SalesMapClient만 프록시 경유. CONNECT 터널이라 **토큰은 프록시에 미노출**(TLS end-to-end)
+- **(단기)** 해당 고객에게 **API용 IP 제한 해제** 안내 (즉효, 0비용)
+
+### MCP에서의 우회
+
+우회 불가 (인프라 레벨 문제). 현재 IP 제한을 켠 워크스페이스는 MCP 사용 불가 — 고정 egress IP 확보 또는 고객 측 제한 해제 필요.
+
+---
+
 ## 요약: MCP에서 우회한 API 갭 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
@@ -905,19 +948,20 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 | 15 | 사용자/팀 이름→ID 변환 | fetchUserMap/fetchTeamMap | ~60줄 |
 | 16 | 반환 필드 선택 불가 | DEFAULT_PROPERTIES(타입별 코어 필드 자동 적용) + pickProperties() 후처리 | ~45줄 |
 | 17 | 노트 생성 API 제한 | 레코드 update의 memo 파라미터 우회 | 날짜/유형/담당자 지정 불가 |
-| 18 | 커스텀 오브젝트 Definition 목록 없음 | — | 우회 불가 |
+| 18 | ✅ **해결** — 커스텀 오브젝트 Definition 목록 (custom-object-definitions API + 레코드/필드 name-addressable) | list-objects 도구 | 해결됨 |
 | 18-b | 커스텀 오브젝트 field API가 definition 구분 없이 전체 반환 → 다중 definition 시 기본 필드 오염 | properties 명시로 우회 가능 (LLM 부담) | 미해결 |
 | 19 | Engagement 2급 구조 + API 대부분 부재 (#15 종합) | list-engagements 인라인 + create-note + read-note | sms/meeting/alimtalk 불가, 통합 CRUD 없음 |
 | 20 | 리드→딜 전환 API 없음 | 도구 조합으로 수동 처리 | 이력 이전 불가 |
 | 21 | 필드 스키마에 description 없음 | FIELD_HINTS 하드코딩 주입 (~44필드) | ~60줄 |
 | 22 | 참조 필드가 ID만 허용 | 사용자/팀 이름→UUID 자동 변환 | ~60줄 (파이프라인은 미구현) |
 | 23 | 에러 응답이 비구조화 문자열 | errWithSchemaHint() 패턴 매칭 | ~20줄 (문구 변경 시 깨짐) |
-| 24 | 필드 생성·수정 API 없음 | — | 우회 불가 |
+| 24 | ✅ **생성 해결** — 필드 생성 API (POST /v2/field) / 수정은 미확인 | create-property 도구 | 생성 해결 |
 | 25 | Association 생성 API 없음 | — | 우회 불가 (레코드 생성 시에만 가능) |
 | 23 | 상품 단건 조회·수정·삭제 없음 + search 미지원 | create-quote에서 productId optional 활용, 목록 조회만 가능 | 우회 불가 (대규모 카탈로그) |
 | 24 | user/me와 user 목록 스키마 불일치 | user 목록에서 id 매칭으로 email 추출 | ~5줄 |
 | 25 | 시퀀스 `_id` vs `id` + 필드명 전반 불일치 | `_id`→`id` 재매핑 | ~5줄 |
 | 26 | 레코드 병합(Merge) API 없음 | — | 우회 불가 |
+| 27 | IP 화이트리스트 + 프록시 충돌 (고객 IP제한 시 MCP 기각) | — | 우회 불가 (고정 egress IP 필요) |
 
 **총 우회 코드: ~555줄** (전체 MCP 서버 코드의 약 30%)
 
