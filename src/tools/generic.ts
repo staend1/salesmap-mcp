@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties, getDefinitionMap } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -115,6 +115,9 @@ export function registerGenericTools(server: McpServer) {
           ? properties
           : await getDefaultProperties(client, objectType);
 
+        // custom-object는 definitionId→이름 맵을 1회 조회(캐시) → 레코드마다 이름 라벨링
+        const defMap = objectType === "custom-object" ? await getDefinitionMap(client) : null;
+
         // Fetch all records + associations in parallel
         const tasks = objectIds.map(async (id) => {
           try {
@@ -124,6 +127,11 @@ export function registerGenericTools(server: McpServer) {
               fetchAssociationCounts(client, objectType, id),
             ]);
             const record = pickProperties(rawData as Record<string, unknown>, effectiveProps);
+            if (defMap) {
+              const defId = (rawData as Record<string, unknown>).customObjectDefinitionId as string | undefined;
+              const defName = defId ? defMap.get(defId) : undefined;
+              if (defName) record.customObjectDefinition = defName;
+            }
             if (Object.keys(associations).length > 0) {
               record._associations = associations;
             }

@@ -258,6 +258,24 @@ export function getTeamMap(client: SalesMapClient): Promise<Map<string, string>>
   return cached(`${client.fingerprint}:teams`, TTL.map, () => fetchTeamMap(client));
 }
 
+/** 워크스페이스 roomId (토큰별 30분 캐시). get-link의 URL 생성용. */
+export function getRoomId(client: SalesMapClient): Promise<string> {
+  return cached(`${client.fingerprint}:room`, TTL.room, async () => {
+    const me = await client.get<{ user: { room: { id: string } } }>("/v2/user/me");
+    return me.user.room.id;
+  });
+}
+
+/** 커스텀 오브젝트 definitionId→이름 맵 (토큰별 5분 캐시). 읽기 전용으로 취급. */
+export function getDefinitionMap(client: SalesMapClient): Promise<Map<string, string>> {
+  return cached(`${client.fingerprint}:defs`, TTL.schema, async () => {
+    const data = await client.get<{ customObjectDefinitionList?: Array<{ id: string; name: string }> }>(
+      "/v2/custom-object-definitions",
+    );
+    return new Map((data.customObjectDefinitionList ?? []).map(d => [d.id, d.name]));
+  });
+}
+
 /**
  * Converts a simplified properties object into SalesMap's fieldList format.
  * Fetches the schema to determine the correct value key for each property.
