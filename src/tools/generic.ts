@@ -59,43 +59,11 @@ function summarizeFields(params: Record<string, unknown>): string {
 
 const GET_ONE_TYPES = new Set(["people", "organization", "deal", "lead"]);
 
-// Association targets by object type — used for auto-count in read-object
-const ASSOCIATION_TARGETS: Record<string, string[]> = {
-  people: ["deal", "organization", "lead"],
-  organization: ["deal", "people", "lead"],
-  deal: ["people", "organization"],
-  lead: ["people", "organization"],
-};
-
-async function fetchAssociationCounts(
-  client: { get: (path: string, query?: Record<string, string>) => Promise<unknown> },
-  objectType: string,
-  objectId: string,
-): Promise<Record<string, number>> {
-  const targets = ASSOCIATION_TARGETS[objectType];
-  if (!targets) return {};
-
-  const results = await Promise.all(
-    targets.map(async (toType) => {
-      try {
-        const data = await client.get(
-          `/v2/object/${objectType}/${objectId}/association/${toType}/primary`,
-        ) as { associationIdList?: string[] };
-        return [toType, (data.associationIdList ?? []).length] as const;
-      } catch {
-        return [toType, 0] as const;
-      }
-    }),
-  );
-
-  return Object.fromEntries(results);
-}
-
 export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 생략 시 코어 필드만 반환. properties로 추가 필드 지정 가능. _associations(연관 카운트) 자동 포함.",
+    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 생략 시 코어 필드만 반환. properties로 추가 필드 지정 가능.\n🔗 연결된 레코드(고객·회사·딜 등)는 salesmap-list-associations로 조회.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
@@ -118,22 +86,16 @@ export function registerGenericTools(server: McpServer) {
         // custom-object는 definitionId→이름 맵을 1회 조회(캐시) → 레코드마다 이름 라벨링
         const defMap = objectType === "custom-object" ? await getDefinitionMap(client) : null;
 
-        // Fetch all records + associations in parallel
+        // Fetch all records in parallel
         const tasks = objectIds.map(async (id) => {
           try {
             const path = `/v2/${objectType}/${id}`;
-            const [rawData, associations] = await Promise.all([
-              useGetOne ? client.getOne(path, objectType) : client.get(path),
-              fetchAssociationCounts(client, objectType, id),
-            ]);
+            const rawData = useGetOne ? await client.getOne(path, objectType) : await client.get(path);
             const record = pickProperties(rawData as Record<string, unknown>, effectiveProps);
             if (defMap) {
               const defId = (rawData as Record<string, unknown>).customObjectDefinitionId as string | undefined;
               const defName = defId ? defMap.get(defId) : undefined;
               if (defName) record.customObjectDefinition = defName;
-            }
-            if (Object.keys(associations).length > 0) {
-              record._associations = associations;
             }
             return { id, data: record } as { id: string; data?: Record<string, unknown>; error?: string };
           } catch (e: unknown) {
