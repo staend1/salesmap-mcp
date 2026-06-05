@@ -364,7 +364,7 @@ export async function resolveProperties(
           errors.push(`"${name}" — "${value}" 사용자를 찾을 수 없습니다.`);
           continue;
         }
-        fieldList.push({ name, [valueKey]: userId });
+        fieldList.push({ name, [valueKey]: valueKey.endsWith("List") ? [userId] : userId });
         continue;
       }
       if (Array.isArray(value)) {
@@ -387,7 +387,8 @@ export async function resolveProperties(
       }
     }
 
-    fieldList.push({ name, [valueKey]: value });
+    // 리스트 타입(...List) 키인데 단일 값이면 배열로 감싼다 (multiSelect·multiUser 등에 단건 입력 허용)
+    fieldList.push({ name, [valueKey]: valueKey.endsWith("List") && !Array.isArray(value) ? [value] : value });
   }
 
   return { fieldList, errors, extractedTopLevel };
