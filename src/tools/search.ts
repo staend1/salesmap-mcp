@@ -189,7 +189,7 @@ const filterGroupSchema = z.object({
 export function registerSearchTools(server: McpServer) {
   server.tool(
     "salesmap-search-objects",
-    "🎯 필터 조건으로 레코드 검색 (filterGroups 간 OR, 그룹 내 AND, 최대 3×3).\n📋 salesmap-list-properties로 필드 이름·타입 확인.\n📦 id, name만 반환. 상세 필드는 salesmap-batch-read-objects로 후속 조회.",
+    "🎯 레코드 필터 검색 (그룹 간 OR, 내 AND, 3×3). id·name만 반환.\n📦 상세는 salesmap-batch-read-objects로 후속 조회.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead"]).describe("검색 대상 오브젝트"),
       filterGroups: z.array(filterGroupSchema).min(1).max(3).describe("필터 그룹 (그룹 간 OR)"),

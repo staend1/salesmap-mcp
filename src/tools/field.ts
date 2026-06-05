@@ -97,7 +97,7 @@ const BUILTIN_OBJECTS = [
 export function registerFieldTools(server: McpServer) {
   server.tool(
     "salesmap-list-objects",
-    "🎯 워크스페이스의 전체 오브젝트 목록(기본 + 커스텀) 조회.\n🧭 어떤 오브젝트가 있는지, 다른 도구에 넘길 식별자가 불확실할 때 먼저 호출.\n📦 기본 오브젝트는 objectType(영문)으로, 커스텀은 objectType=custom-object + customObjectDefinitionId로 다른 도구에 전달.",
+    "🎯 워크스페이스의 오브젝트 목록 조회.",
     {},
     READ,
     async (_params, extra) => {

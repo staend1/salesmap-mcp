@@ -285,7 +285,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap-list-associations",
-    "🎯 레코드 간 연결 관계 조회 (primary+custom 병합).\n📦 ID 목록. 상세 조회는 salesmap-batch-read-objects.",
+    "🎯 연관 레코드 조회.",
     {
       objectType: objectTypeEnum.describe("출발 오브젝트 타입"),
       objectId: z.string().describe("출발 오브젝트 ID"),
@@ -354,7 +354,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (get) ───────────────────────────────────────
   server.tool(
     "salesmap-get-quotes",
-    "🎯 딜/리드에 연결된 견적서 목록 조회.",
+    "🎯 lead, deal에 연결된 견적서 조회.",
     {
       objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
       objectId: z.string().describe("딜/리드 UUID"),
@@ -434,7 +434,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Users ───────────────────────────────────────────
   server.tool(
     "salesmap-list-users",
-    "🎯 CRM 사용자 목록 조회. 전체 사용자 확인이나 ID 직접 참조가 필요할 때 사용.",
+    "🎯 CRM 사용자 목록 조회.",
     {
       after: z.string().optional().describe("페이지네이션 커서"),
     },
@@ -527,7 +527,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Changelog ───────────────────────────────────────────
   server.tool(
     "salesmap-list-changelog",
-    "🎯 레코드의 필드 변경 이력 조회.\n📦 자동계산·시스템 필드는 자동 제거됨.",
+    "🎯 필드 변경 이력 조회 (시스템 필드 제외).",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
       objectId: z.string().describe("레코드 UUID"),
@@ -641,7 +641,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드의 활동 타임라인 조회 (이메일·노트·TODO·웹폼·미팅 등).\n📦 이메일 제목과 메모 본문을 자동 포함.",
+    "🎯 레코드 activity 타임라인 조회.",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
       objectId: z.string().describe("레코드 UUID"),
