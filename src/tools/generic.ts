@@ -63,7 +63,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 여러 레코드 일괄 조회 (최대 20개).\n📦 생략 시 코어 필드만 반환. properties로 추가 필드 지정 가능.\n🔗 연결된 레코드(고객·회사·딜 등)는 salesmap-list-associations로 조회.",
+    "🎯 레코드 일괄 조회(최대 20).\n🔗 연결 레코드는 salesmap-list-associations로 조회.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
@@ -114,7 +114,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Create ────────────────────────────────────────────
   server.tool(
     "salesmap-create-object",
-    "🎯 레코드 생성. 필드 값은 모두 properties에 한글 이름으로 전달.\n📋 salesmap-list-properties로 필드 확인. deal은 salesmap-get-pipelines로 파이프라인·단계 ID 확인.",
+    "🎯 레코드 생성.\n📋 list-properties로 필드 확인. lead, deal은 salesmap-get-pipelines로 파이프라인·단계 ID 확인.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object", "product"])
         .describe("오브젝트 타입"),
@@ -207,7 +207,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Delete ───────────────────────────────────────────
   server.tool(
     "salesmap-delete-object",
-    `🛡️ Guardrails: 되돌릴 수 없는 영구 삭제. 반드시 사용자가 명시적으로 삭제를 요청한 경우에만 사용. 첫 호출은 confirmed=false로 레코드 정보를 보여주고, 사용자 확인 후 confirmed=true로 재호출.\n🎯 deal/lead 레코드 영구 삭제.`,
+    `🎯 레코드 삭제.\n🛡️ 영구 삭제 (confirmed=false 미리보기 → true).`,
     {
       objectType: z.enum(["deal", "lead"])
         .describe("오브젝트 타입 (deal, lead만 지원)"),
