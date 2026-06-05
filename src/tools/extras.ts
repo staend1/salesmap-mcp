@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, resolveProperties } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId } from "../client";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 
@@ -273,8 +273,7 @@ export function registerExtrasTools(server: McpServer) {
     async ({ objectType, objectId }, extra) => {
       try {
         const client = getClient(extra);
-        const me = await client.get<{ user: { room: { id: string } } }>("/v2/user/me");
-        const roomId = me.user.room.id;
+        const roomId = await getRoomId(client);
         const path = URL_PATH_MAP[objectType];
         return ok({ url: `https://salesmap.kr/${roomId}/${path}/${objectId}` });
       } catch (e: unknown) {
