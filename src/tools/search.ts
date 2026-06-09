@@ -28,6 +28,10 @@ const RELATION_TYPES = new Set([
   "sequence", "multiSequence",
 ]);
 
+// 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN을 지원하지 않음 → 동등한 IN/NOT_IN으로 매핑
+const REL_LIST_OP_MAP: Record<string, string> = { LIST_CONTAIN: "IN", LIST_NOT_CONTAIN: "NOT_IN" };
+const isRelationType = (t: string) => USER_TYPES.has(t) || TEAM_TYPES.has(t) || RELATION_TYPES.has(t);
+
 const RELATION_TOOL_HINT: Record<string, string> = {
   pipeline: "salesmap-get-pipelines",
   pipelineStage: "salesmap-get-pipelines",
@@ -82,6 +86,12 @@ async function resolveFilterIds(
   for (const group of groups) {
     const filters: FilterGroup["filters"] = [];
     for (const f of group.filters) {
+      // 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN 미지원 → IN/NOT_IN으로 자동 변환 (API 거부 방지)
+      const relType = fieldTypeMap.get(f.propertyName);
+      if (relType && isRelationType(relType) && REL_LIST_OP_MAP[f.operator]) {
+        f.operator = REL_LIST_OP_MAP[f.operator];
+      }
+
       if (f.operator === "EXISTS" || f.operator === "NOT_EXISTS") {
         filters.push(f);
         continue;

@@ -447,8 +447,14 @@ export function err(message: string) {
 
 export function errWithSchemaHint(message: string, objectType: string, filterSummary?: string) {
   let hint: string;
-  if (message.includes("정의 되지 않은 값")) {
+  if (message.includes("Internal Server Error")) {
+    hint = `서버 오류(500) — 대개 입력 값 형식 문제입니다. 날짜는 ISO 8601(YYYY-MM-DD), 숫자 필드는 숫자 값인지 확인하고, 반복되면 필터를 단순화해 재시도하세요.`;
+  } else if (message.includes("정의 되지 않은 값")) {
     hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap-list-properties(objectType: "${objectType}")로 허용 옵션을 확인하세요.`;
+  } else if (message.includes("is not supported for relation field")) {
+    hint = `관계 필드 검색에는 IN/NOT_IN 연산자만 지원됩니다 (LIST_CONTAIN/LIST_NOT_CONTAIN 등 미지원). 값(UUID)은 그대로 두고 연산자만 IN/NOT_IN으로 바꾸세요.`;
+  } else if (message.includes("Invalid operator")) {
+    hint = `해당 필드 타입에 맞지 않는 연산자입니다. 에러의 (type: ...)를 참고하세요 — 관계 필드는 IN/NOT_IN, 숫자/날짜는 비교 연산자(GT/LT 등).`;
   } else if (message.includes("relation field")) {
     hint = `relation 필드는 UUID만 허용합니다. salesmap-get-pipelines 또는 salesmap-list-users로 UUID를 확인하세요.`;
   } else if (message.includes("userValueId가 없습니다")) {
