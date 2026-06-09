@@ -469,7 +469,7 @@ function allowedSearchOperators(columnType: string): string[] | null {
 }
 
 export function errWithSchemaHint(message: string, objectType: string, filterSummary?: string) {
-  let hint: string;
+  let hint: string | null = null;
   if (message.includes("정의 되지 않은 값")) {
     hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap-list-properties(objectType: "${objectType}")로 허용 옵션을 확인하세요.`;
   } else if (message.includes("is not supported for relation field")) {
@@ -495,11 +495,14 @@ export function errWithSchemaHint(message: string, objectType: string, filterSum
     hint = `금액(price)은 properties가 아닌 top-level price 파라미터로 전달하세요.`;
   } else if (message.includes("이미 존재하는")) {
     hint = `유니크 필드 중복 — 같은 값을 가진 레코드가 이미 있습니다. 에러의 '기존 레코드 id'를 salesmap-update-object로 수정하거나(salesmap-batch-read-objects로 확인), 다른 값을 사용하세요.`;
-  } else {
-    hint = `필드명 또는 옵션값이 잘못되었을 수 있습니다. salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명과 허용 옵션을 확인하세요.`;
+  } else if (message.includes("Invalid fieldName") || message.includes("정의되있지 않은 데이터 필드")) {
+    // 진짜 필드명 오류일 때만 list-properties 안내.
+    hint = `필드명이 잘못되었습니다. salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명을 확인하세요.`;
   }
-  if (filterSummary) {
+  // 매칭되는 패턴이 없으면 hint=null → 원본 API 메시지만 그대로 전달.
+  // (백엔드 에러가 충분히 구체적이라, 모호한 "필드명/옵션 확인" 추측은 오히려 방해 → else 제거)
+  if (hint && filterSummary) {
     hint += `\n사용된 필드: ${filterSummary}`;
   }
-  return err(`${message}\n\n[힌트] ${hint}`);
+  return hint ? err(`${message}\n\n[힌트] ${hint}`) : err(message);
 }
