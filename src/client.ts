@@ -445,6 +445,29 @@ export function err(message: string) {
   };
 }
 
+// 검색 연산자 × 필드 타입 허용 매트릭스 (백엔드 getAvailableOperationList 기준, 2026-06)
+// "Invalid operator … (type: X)" 에러 시 그 타입의 유효 연산자 목록을 AI에게 안내.
+const SEARCH_OPS_BY_TYPE: Record<string, string[]> = {
+  string: ["EQ", "NEQ", "CONTAINS", "NOT_CONTAINS", "EXISTS", "NOT_EXISTS"],
+  number: ["EQ", "GT", "GTE", "LT", "LTE", "EXISTS", "NOT_EXISTS"],
+  boolean: ["EQ", "NEQ", "EXISTS", "NOT_EXISTS"],
+  singleSelect: ["EQ", "NEQ", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
+  multiSelect: ["LIST_CONTAIN", "LIST_NOT_CONTAIN", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
+  singleRelation: ["EQ", "NEQ", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
+  multiRelation: ["IN", "NOT_IN", "EXISTS", "NOT_EXISTS"], // LIST_CONTAIN/LIST_NOT_CONTAIN은 백엔드 버그로 차단 → IN/NOT_IN 사용
+};
+const DATE_SEARCH_OPS = ["EXISTS", "NOT_EXISTS", "DATE_ON_OR_AFTER", "DATE_ON_OR_BEFORE", "DATE_IS_SPECIFIC_DAY", "DATE_BETWEEN", "DATE_MORE_THAN_DAYS_AGO", "DATE_LESS_THAN_DAYS_AGO", "DATE_LESS_THAN_DAYS_LATER", "DATE_MORE_THAN_DAYS_LATER", "DATE_AGO", "DATE_LATER"];
+const SINGLE_RELATION_TYPES = new Set(["user", "people", "organization", "deal", "lead", "pipeline", "pipelineStage", "webForm", "sequence", "customObject"]);
+
+/** columnType("Invalid operator … (type: X)"의 X) → 허용 연산자 목록. 미지 타입은 null. */
+function allowedSearchOperators(columnType: string): string[] | null {
+  if (columnType === "date" || columnType === "dateTime") return DATE_SEARCH_OPS;
+  if (SEARCH_OPS_BY_TYPE[columnType]) return SEARCH_OPS_BY_TYPE[columnType];
+  if (SINGLE_RELATION_TYPES.has(columnType)) return SEARCH_OPS_BY_TYPE.singleRelation;
+  if (columnType.startsWith("multi") || columnType === "team") return SEARCH_OPS_BY_TYPE.multiRelation;
+  return null;
+}
+
 export function errWithSchemaHint(message: string, objectType: string, filterSummary?: string) {
   let hint: string;
   if (message.includes("정의 되지 않은 값")) {
@@ -452,12 +475,23 @@ export function errWithSchemaHint(message: string, objectType: string, filterSum
   } else if (message.includes("is not supported for relation field")) {
     hint = `관계 필드 검색에는 IN/NOT_IN 연산자만 지원됩니다 (LIST_CONTAIN/LIST_NOT_CONTAIN 등 미지원). 값(UUID)은 그대로 두고 연산자만 IN/NOT_IN으로 바꾸세요.`;
   } else if (message.includes("Invalid operator")) {
-    hint = `해당 필드 타입에 맞지 않는 연산자입니다. 에러의 (type: ...)를 참고하세요 — 관계 필드는 IN/NOT_IN, 숫자/날짜는 비교 연산자(GT/LT 등).`;
+    // (type: X) 파싱 → 매트릭스로 그 타입의 정확한 허용 연산자 목록 안내 (API는 유효 목록을 안 줌)
+    const m = message.match(/Invalid operator "([^"]+)" for field "[^"]+" \(type: ([^)]+)\)/);
+    const allowed = m ? allowedSearchOperators(m[2]) : null;
+    if (m && allowed) {
+      hint = `'${m[2]}' 타입 필드에는 '${m[1]}' 연산자를 쓸 수 없습니다. 허용 연산자: ${allowed.join(", ")}.`;
+    } else {
+      hint = `해당 필드 타입에 맞지 않는 연산자입니다. 에러의 (type: ...)를 참고해 연산자를 바꾸세요 — 관계 필드는 IN/NOT_IN, 숫자/날짜는 비교 연산자(GT/LT 등).`;
+    }
   } else if (message.includes("relation field")) {
     hint = `relation 필드는 UUID만 허용합니다. salesmap-get-pipelines 또는 salesmap-list-users로 UUID를 확인하세요.`;
   } else if (message.includes("userValueId가 없습니다")) {
+    // resolveProperties가 user 필드를 항상 올바른 userValueId 키로 변환하므로 사실상 도달 불가.
+    // 스키마 미식별 등 만약을 대비해 잔존.
     hint = `담당자 필드는 userValueId(UUID)로 지정해야 합니다. salesmap-list-users로 ID를 확인하세요.`;
   } else if (message.includes("fieldList이 아닌 파라메터")) {
+    // TOP_LEVEL_ONLY가 금액 등을 미리 top-level로 추출하므로 사실상 도달 불가.
+    // 목록에 없는 다른 top-level 전용 필드를 대비해 잔존.
     hint = `금액(price)은 properties가 아닌 top-level price 파라미터로 전달하세요.`;
   } else if (message.includes("이미 존재하는")) {
     hint = `유니크 필드 중복 — 같은 값을 가진 레코드가 이미 있습니다. 에러의 '기존 레코드 id'를 salesmap-update-object로 수정하거나(salesmap-batch-read-objects로 확인), 다른 값을 사용하세요.`;
