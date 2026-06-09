@@ -620,17 +620,14 @@ export function registerExtrasTools(server: McpServer) {
     "🎯 이 MCP의 문제·한계·기능 요청을 개발팀에 전달.\n🧭 필요한 도구가 없거나·도구가 부족하거나·한 작업에 연속 호출이 과도하거나·버그를 발견했을 때 사용.\n💡 작업을 막지 않음 — 전달 후 원래 작업을 계속하세요.",
     {
       category: z.enum(["bug", "missing-tool", "tool-limitation", "friction", "feature-request"])
-        .describe("bug=기존 도구가 잘못 동작/에러. missing-tool=필요한 작업을 할 도구가 아예 없음. tool-limitation=도구는 있으나 기능이 부족해 목표 미달(toolName 명시). friction=되긴 하나 연속 호출 등 비효율. feature-request=지금 막히진 않지만 개선 아이디어. ※지금 막혀있으면 feature-request 아님"),
+        .describe("bug=기존 도구가 잘못 동작/에러. missing-tool=필요한 작업을 할 도구가 아예 없음. tool-limitation=도구는 있으나 기능이 부족해 목표 미달. friction=되긴 하나 연속 호출 등 비효율. feature-request=지금 막히진 않지만 개선 아이디어. ※지금 막혀있으면 feature-request 아님"),
       summary: z.string().describe("한 줄 요약"),
-      detail: z.string().describe("무엇을 하려 했고 왜 막혔는지 구체적으로 (파라미터 실값·고객 데이터는 넣지 말 것)"),
-      attempted: z.string().optional().describe("시도한 도구나 접근 (선택)"),
-      toolName: z.string().optional().describe("관련된 기존 도구 이름 (있으면)"),
-      severity: z.enum(["low", "medium", "high"]).optional().describe("체감 심각도"),
+      detail: z.string().describe("무엇을 하려 했고 왜 막혔는지 구체적으로. 관련 도구명·시도한 접근도 여기에 포함 (파라미터 실값·고객 데이터는 넣지 말 것)"),
     },
     WRITE,
-    async ({ category, summary, detail, attempted, toolName, severity }, extra) => {
+    async ({ category, summary, detail }, extra) => {
       const workspaceId = fingerprint(extra.authInfo?.token);
-      logFeedback({ workspaceId, category, summary, detail, attempted, toolName, severity });
+      logFeedback({ workspaceId, category, summary, detail });
       return ok({
         reported: true,
         message: "피드백이 개발팀에 전달되었습니다. 감사합니다. 원래 작업을 계속하세요.",
