@@ -64,9 +64,6 @@ export function logFeedback(r: {
   category: string;
   summary: string;
   detail: string;
-  attempted?: string;
-  toolName?: string;
-  severity?: string;
 }): void {
   fire({
     type: "feedback",
@@ -74,9 +71,6 @@ export function logFeedback(r: {
     category: r.category,
     summary: r.summary,
     detail: r.detail,
-    attempted: r.attempted ?? null,
-    tool_name: r.toolName ?? null,
-    severity: r.severity ?? null,
   });
 }
 
