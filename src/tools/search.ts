@@ -32,9 +32,19 @@ const RELATION_TYPES = new Set([
 const REL_LIST_OP_MAP: Record<string, string> = { LIST_CONTAIN: "IN", LIST_NOT_CONTAIN: "NOT_IN" };
 const isRelationType = (t: string) => USER_TYPES.has(t) || TEAM_TYPES.has(t) || RELATION_TYPES.has(t);
 
+// 그룹 필드: list API가 없어 유효 id를 구할 방법이 없음 → 값 검색 원천 불가(EXISTS/NOT_EXISTS만)
+const GROUP_TYPES = new Set(["multiLeadGroup", "multiPeopleGroup"]);
+
+// 비-id 값을 넣었을 때 "id를 어디서 조회하라"고 안내할 도구 (타입별)
 const RELATION_TOOL_HINT: Record<string, string> = {
   pipeline: "salesmap-get-pipelines",
   pipelineStage: "salesmap-get-pipelines",
+  sequence: "salesmap-list-sequences",
+  multiSequence: "salesmap-list-sequences",
+  multiProduct: "salesmap-list-products",
+  webForm: "salesmap-list-webforms",
+  multiWebForm: "salesmap-list-webforms",
+  multiCustomObject: "salesmap-list-associations(연결 레코드 조회) 또는 해당 레코드 읽기",
 };
 
 /**
@@ -86,8 +96,12 @@ async function resolveFilterIds(
   for (const group of groups) {
     const filters: FilterGroup["filters"] = [];
     for (const f of group.filters) {
-      // 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN 미지원 → IN/NOT_IN으로 자동 변환 (API 거부 방지)
       const relType = fieldTypeMap.get(f.propertyName);
+      // 그룹 필드(리드/고객 그룹)는 id 조회 수단이 없어 값 검색 불가 → EXISTS/NOT_EXISTS 외 사전 차단
+      if (relType && GROUP_TYPES.has(relType) && f.operator !== "EXISTS" && f.operator !== "NOT_EXISTS") {
+        return { error: `"${f.propertyName}" 그룹 필드는 값 검색이 불가합니다 (id 조회 수단 없음). EXISTS/NOT_EXISTS만 사용하세요.`, resolved: [] };
+      }
+      // 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN 미지원 → IN/NOT_IN으로 자동 변환 (API 거부 방지)
       if (relType && isRelationType(relType) && REL_LIST_OP_MAP[f.operator]) {
         f.operator = REL_LIST_OP_MAP[f.operator];
       }
@@ -232,16 +246,22 @@ export function registerSearchTools(server: McpServer) {
         const obj = data as Record<string, unknown>;
         const objectList = obj.objectList as unknown[] | undefined;
         if (Array.isArray(objectList) && objectList.length === 0) {
-          obj.hint = "결과 없음 — 필터 조건이나 필드 이름(salesmap-list-properties)을 확인하세요.";
+          obj.hint = "결과 없음 — 필터 조건·필드 이름을 확인하세요. 관계 필드(시퀀스·웹폼·상품·커스텀오브젝트 등)는 값이 정확한 id인지 salesmap-list-* 도구나 레코드 읽기로 확인하세요 (일부 관계 필드는 잘못된 id에 빈 결과를 반환).";
           return ok(obj);
         }
 
         return ok(data);
       } catch (e: unknown) {
+        const message = (e as Error).message;
+        // 관계 필드(id 참조)는 search API가 값 검증을 스킵하는 경우가 있어, id가 아니거나 없는 id면
+        // 500 또는 빈 결과를 냄 (백엔드 known issue). 500이면 아래 힌트로 list 도구 안내.
+        if (message.includes("Internal Server Error")) {
+          return err(`${message}\n\n[힌트] 관계 필드(최근 등록한 시퀀스·등록된 시퀀스 목록·최근 제출된 웹폼·제출된 웹폼 목록·메인 견적 상품 리스트·팀·담당자 등 — 다른 레코드를 id로 참조하는 필드)는 id 형식이 아니거나 존재하지 않는 id로 검색하면 500 또는 빈 결과가 납니다. salesmap-list-sequences/list-webforms/list-products/list-teams/list-users로 정확한 id를 확인하거나, EXISTS/NOT_EXISTS를 사용하세요.`);
+        }
         const filters = (filterGroups as FilterGroup[]).flatMap(g =>
           g.filters.map(f => `${f.propertyName} ${f.operator} ${JSON.stringify(f.value)}`),
         );
-        return errWithSchemaHint((e as Error).message, objectType, filters.join(", "));
+        return errWithSchemaHint(message, objectType, filters.join(", "));
       }
     },
   );
