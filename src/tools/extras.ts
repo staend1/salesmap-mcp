@@ -471,6 +471,67 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
+  // ── Products / Sequences / WebForms (관계 필드 검색에 쓸 id 조회용) ──
+  // search 필터의 multiProduct·sequence·multiSequence·webForm·multiWebForm 필드는
+  // id로만 검색되므로, 유저가 이름으로 지시하면 이 목록에서 id를 찾아 검색에 사용한다.
+  server.tool(
+    "salesmap-list-products",
+    "🎯 상품 목록 조회 (id·이름). 상품 관계 필드(예: 메인 견적 상품 리스트) 검색 시 id 확인용.",
+    { after: z.string().optional().describe("페이지네이션 커서") },
+    READ,
+    async ({ after }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+        if (after) query.cursor = after;
+        const data = await client.get<Record<string, unknown>>("/v2/product", query);
+        const list = (data.productList as Array<Record<string, unknown>>) ?? [];
+        return ok({ products: list.map(p => ({ id: p.id, name: p["이름"] })), nextCursor: data.nextCursor ?? null });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  server.tool(
+    "salesmap-list-sequences",
+    "🎯 시퀀스 목록 조회 (id·이름). 시퀀스 관계 필드(예: 등록된 시퀀스 목록) 검색 시 id 확인용.",
+    { after: z.string().optional().describe("페이지네이션 커서") },
+    READ,
+    async ({ after }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+        if (after) query.cursor = after;
+        const data = await client.get<Record<string, unknown>>("/v2/sequence", query);
+        const list = (data.sequenceList as Array<Record<string, unknown>>) ?? [];
+        // 시퀀스만 id 키가 _id (api-issues #23)
+        return ok({ sequences: list.map(s => ({ id: s._id, name: s.name })), nextCursor: data.nextCursor ?? null });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
+  server.tool(
+    "salesmap-list-webforms",
+    "🎯 웹폼 목록 조회 (id·이름). 웹폼 관계 필드(예: 제출된 웹폼 목록·최근 제출된 웹폼) 검색 시 id 확인용.",
+    { after: z.string().optional().describe("페이지네이션 커서") },
+    READ,
+    async ({ after }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+        if (after) query.cursor = after;
+        const data = await client.get<Record<string, unknown>>("/v2/webForm", query);
+        const list = (data.webFormList as Array<Record<string, unknown>>) ?? [];
+        return ok({ webForms: list.map(w => ({ id: w.id, name: w.name })), nextCursor: data.nextCursor ?? null });
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   // ── Current User ──────────────────────────────────────
   server.tool(
     "salesmap-get-user-details",

@@ -22,7 +22,7 @@ export function createServer(): McpServer {
   // CRUD (4 tools)
   registerGenericTools(server);
 
-  // Supporting tools (16 tools)
+  // Supporting tools (19 tools)
   registerExtrasTools(server);
 
   return server;
