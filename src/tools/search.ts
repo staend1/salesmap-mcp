@@ -242,14 +242,6 @@ export function registerSearchTools(server: McpServer) {
 
         const data = await client.post(`/v2/object/${objectType}/search`, { filterGroupList: apiFilterGroups }, query);
 
-        // 0-result hint
-        const obj = data as Record<string, unknown>;
-        const objectList = obj.objectList as unknown[] | undefined;
-        if (Array.isArray(objectList) && objectList.length === 0) {
-          obj.hint = "결과 없음 — 필터 조건·필드 이름을 확인하세요. 관계 필드(시퀀스·웹폼·상품·커스텀오브젝트 등)는 값이 정확한 id인지 salesmap-list-* 도구나 레코드 읽기로 확인하세요 (일부 관계 필드는 잘못된 id에 빈 결과를 반환).";
-          return ok(obj);
-        }
-
         return ok(data);
       } catch (e: unknown) {
         const message = (e as Error).message;
