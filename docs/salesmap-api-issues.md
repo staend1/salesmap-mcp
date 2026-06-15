@@ -1,9 +1,9 @@
 # 세일즈맵 API MCP Readiness 리포트
 
-> 작성: 2026-04-14 / 최신화: 2026-06-06
+> 작성: 2026-04-14 / 최신화: 2026-06-11
 > 작성자: CX팀 (MCP 서버 구현 경험 기반)
 > 대상: 세일즈맵 API 팀 / 공식 MCP 서버 개발 시 참고
-> 2026-06 갱신: #13(✅해결) #19(✅생성 해결) #4-5·#18 보완, #25(IP 화이트리스트) 추가. #4(필드 한글) 삭제 후 전체 -1 재번호.
+> 2026-06 갱신: #13(✅해결) #19(✅생성 해결) #4-5·#18 보완, #25(IP 화이트리스트)·#26(관계필드 LIST_CONTAIN)·#27(페이지네이션 nextCursor 힌트) 추가. #4(필드 한글) 삭제 후 전체 -1 재번호.
 
 ## 요약
 
@@ -960,6 +960,74 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 
 ---
 
+## 27. 페이지네이션 — `nextCursor`를 반환해도 LLM이 추가 탐색을 안 함
+
+### 문제
+
+커서 페이지네이션 메커니즘 자체는 **정상 작동**합니다. `list-engagements`(activity), `search`, `list-*` 등은 `after` 입력을 받고, 다음 페이지가 있으면 응답에 `nextCursor`를 채워 반환합니다 (예: activity는 페이지당 50건 + 다음 커서).
+
+문제는 **소비자(LLM)가 `nextCursor`를 받고도 "이게 전부"라고 단정**하고 추가 조회를 멈추는 것입니다. 응답 어디에도 *"이건 일부다, 이어서 조회하라"* 는 신호가 없어서, 50건을 전체로 간주합니다.
+
+```
+GET /v2/people/activity?peopleId=X
+→ { peopleActivityList: [50건], nextCursor: "019e38df-…" }   ← 더 있다는 뜻
+→ LLM: "활동 50건 확인했습니다" (끝)   ← 230건 중 50건인데 단정
+```
+
+부수적으로 입력 파라미터는 `after`인데 응답 키는 `nextCursor`라 **이름이 비대칭**입니다(GraphQL Relay 컨벤션이긴 함 — `after` 입력 / `endCursor` 출력). LLM에는 "nextCursor 값을 after에 넣어라"가 한 단계 더 헷갈리는 지점.
+
+### 실제 영향
+
+- "이 고객 전체 활동/히스토리 요약해줘" → 최근 50건만 보고 결론 → **불완전한 분석**
+- 전체 건수를 알 수 없어 "50건 중 50건"인지 "230건 중 50건"인지 구분 불가
+
+### 근본 원인 / API 한계
+
+- **activity API가 `total`/count를 안 줌** — 응답 키가 `peopleActivityList`(+`nextCursor`)뿐. "230건 중 50건" 같은 정확한 진행률을 표시하려면 전부 페이지네이션해서 세야 함.
+- activity API에 `order`/`sort`/`size` 파라미터 없음 (검색 정렬 미지원 #4-1과 같은 결).
+
+### 해결 아이디어 검토
+
+| 아이디어 | 평가 | 세일즈맵 현실 |
+|---|---|---|
+| 디폴트 최신순 + 정렬 지원 | 타임라인 정석 | **API 미지원** (order 파라미터 없음) |
+| 전체 건수 노출 "50/230" | LLM에 매우 효과적 | **API가 total 미제공** → count 엔드포인트 신설 전엔 불가 |
+| 서버단 상한까지 자동 페이지네이션 | 가장 강력(LLM 커서 루프 제거) | 토큰 폭발 + engagements는 항목별 email/memo 인라인이라 호출 N배 → **상한 필수** |
+| 응답에 "더 있음" 힌트 | 저비용·즉효 | ✅ **채택** (아래) |
+
+### HubSpot 비교 (조사: REST + 공식 MCP 소스 검증)
+
+- **REST**: 커서(`paging.next.after` + `paging.next.link`), `limit`로 페이지 크기. **List API(`GET …/objects/{type}`)는 total 없음**(세일즈맵과 동일), **Search API(`POST …/search`)만 `total` 제공**(`limit:0`으로 카운트하는 우회가 관행). 즉 "조회엔 total 없음"은 허브스팟도 같음.
+- **공식 MCP(`@hubspot/mcp-server` v0.4.0, 21개 도구)**: `after`를 입력으로 노출하고 `paging`을 응답에 그대로 직렬화하지만 — **"더 있음" 힌트는 0건**(런타임 주입 문자열 없음). 자동 페이지네이션도 안 하고, 심지어 search의 `total`마저 버려서 모델에 매치 수를 안 알려줌. → **허브스팟 MCP조차 이 문제를 방치**.
+- **MCP 스펙**: 커서/`nextCursor` 페이지네이션은 **프로토콜 list 연산(`tools/list` 등)에만** 규정, **tool 호출 결과는 미표준**. 제안 #799가 `hasMore`/`paginationHint`를 논의 중(계류).
+- **커뮤니티 베스트프랙티스**: LLM은 컨텍스트 압축으로 페이지네이션 상태를 잃으므로, 구조화 메타데이터(`total`/`has_more`/`truncated`)와 **자연어 힌트를 함께** 주라고 권장(예: "Showing 50 of 15,234 — refine the query").
+
+### MCP에서의 우회 (2026-06 채택)
+
+`ok()`(모든 도구 응답이 거치는 직렬화 단일 경유점)에서 **응답에 비어있지 않은 `nextCursor`가 있으면 힌트 한 줄을 자동 주입**합니다.
+
+```typescript
+// client.ts — ok() 진입 시
+function withMoreHint(data) {
+  if (data?.nextCursor 가 비어있지 않은 문자열 && data.hint 없음)
+    return { ...data, hint: `결과가 더 있습니다(이 응답은 일부). 더 필요하면 after="${nextCursor}"로 이어서 조회하세요.` };
+  return data;
+}
+```
+
+- `nextCursor`가 `null`이면(마지막 페이지) **미부착** → 노이즈 없음.
+- 힌트가 `after="<값>"`을 직접 박아줘서 **`after`/`nextCursor` 이름 비대칭도 동시에 브리지**.
+- 적용 범위: `search-objects`·`list-engagements`·`list-changelog`·`list-products`/`sequences`/`webforms`·`list-users`/`teams` **전부** + 향후 페이지네이션 도구 자동(단일 지점이라).
+- **허브스팟 MCP도 안 하는 신호** — 이 힌트로 오히려 앞섬. 다만 *정확한 total*은 여전히 불가(부분 신호일 뿐).
+
+### 근본 해결 (백엔드)
+
+1. activity·목록 조회 응답에 **`total`(또는 최소한 `hasMore`) 포함** → "50/230" 정확 표시 가능
+2. activity에 **정렬(`order`, 기본 최신순) + `size`** 파라미터
+3. (선택) 검색처럼 **count 전용 조회** 또는 `limit:0` 카운트 지원
+
+---
+
 ## 요약: MCP에서 우회한 API 갭 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
@@ -995,8 +1063,9 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 | 24 | 레코드 병합(Merge) API 없음 | — | 우회 불가 |
 | 25 | IP 화이트리스트 + 프록시 충돌 (고객 IP제한 시 MCP 기각) | — | 우회 불가 (고정 egress IP 필요) |
 | 26 | 관계 필드 검색에 LIST_CONTAIN 미지원 (IN/NOT_IN만) + 힌트 오발동 | LIST_CONTAIN→IN 자동 변환 + operator 힌트 분리 | ~6줄 |
+| 27 | 페이지네이션 `nextCursor` 신호를 LLM이 무시 (1페이지를 전부로 단정) | `ok()`에서 nextCursor 존재 시 "더 있음 + `after=`" 힌트 자동 주입 | ~12줄 |
 
-**총 우회 코드: ~515줄** (전체 MCP 서버 코드의 약 30%)
+**총 우회 코드: ~527줄** (전체 MCP 서버 코드의 약 30%)
 
 ---
 
@@ -1011,6 +1080,7 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 5. Search 값 파싱 실패 시 500 대신 400 + 명확한 메시지 (#4-4)
 6. 에러 응답에 유효값 힌트 포함
 7. 관계 필드 검색에 LIST_CONTAIN/LIST_NOT_CONTAIN 지원 (또는 미지원 시 IN 권장 메시지) (#26)
+8. 조회·activity 응답에 `total`(또는 `hasMore`) 포함 + activity 정렬(`order`, 기본 최신순)·`size` 파라미터 → 페이지네이션 완전성 (#27)
 
 ### 단기 (설계 개선)
 
