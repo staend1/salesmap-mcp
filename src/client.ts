@@ -432,9 +432,25 @@ export async function getDefaultProperties(
 }
 
 // Tool response helpers
+/**
+ * nextCursor가 있으면(=다음 페이지 존재) "더 있음 + 이어서 조회법" 힌트를 덧붙인다.
+ * LLM이 한 페이지(예: activity 50건)를 전부로 단정하고 추가 탐색을 멈추는 문제 방지.
+ * 모든 페이지네이션 도구(search·list-engagements·list-* 등)가 ok()를 거치므로 한 곳에서 일괄 처리.
+ * (docs/salesmap-api-issues.md #27)
+ */
+function withMoreHint(data: unknown): unknown {
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const obj = data as Record<string, unknown>;
+    if (typeof obj.nextCursor === "string" && obj.nextCursor && obj.hint === undefined) {
+      return { ...obj, hint: `결과가 더 있습니다(이 응답은 일부). 더 필요하면 after="${obj.nextCursor}"로 이어서 조회하세요.` };
+    }
+  }
+  return data;
+}
+
 export function ok(data: unknown) {
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(withMoreHint(data), null, 2) }],
   };
 }
 
