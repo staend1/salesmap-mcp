@@ -588,7 +588,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Changelog ───────────────────────────────────────────
   server.tool(
     "salesmap-list-changelog",
-    "🎯 필드 변경 이력 조회 (시스템 필드 제외).",
+    "🎯 필드 값이 언제 누가 무엇에 의해서 바뀌었는지 추적 (시스템 필드 제외).\n🧭 \"이 필드 언제 바뀌었어?\", \"담당자 언제 바뀜?\", \"이 값 언제 체크됐어?\" 같은 질문에 사용.",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
       objectId: z.string().describe("레코드 UUID"),
