@@ -1805,6 +1805,12 @@ Response: { timelineList: [...] }
 }
 ```
 
+> **⚠️ 실전 노트 (2026-06-26 실측):** 실제 전송 payload는 위 문서와 두 군데 다름. 웹훅 수신기는 실측 기준으로 파싱할 것.
+> - **`event`가 아니라 `history` 키**로 옴: `{"history":"생성", ...}` (값은 동일하게 `생성|수정|삭제|병합`).
+> - **`objectType`이 한글이 아니라 영문**: 리드는 `"리드"`가 아니라 **`"lead"`**로 옴 (`source`는 `"웹 폼"` 등 한글). 매칭 시 `objectType.toLowerCase()`로 영문 처리 권장. 딜/고객/회사도 영문(`deal`/`people`/`organization`)일 가능성 높음(미확인).
+> - `objectId`는 문서대로 정상.
+> - 실측 예: `{"history":"생성","occurredAt":"2026-06-26T06:31:43.742Z","source":"웹 폼","sourceId":"<id>","objectType":"lead","objectId":"<leadId>","eventId":"<id>"}`
+
 ### beforeField / afterField 형태
 
 | 필드 유형 | 값 형태 | 예시 |
