@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId, getUserMap } from "../client";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 
@@ -393,6 +393,71 @@ export function registerExtrasTools(server: McpServer) {
         return ok(await client.post("/v2/quote", body));
       } catch (e: unknown) {
         return errWithSchemaHint((e as Error).message, "quote", undefined);
+      }
+    },
+  );
+
+  // ── Notes ─────────────────────────────────────────────
+  server.tool(
+    "salesmap-list-notes",
+    "🎯 노트(메모) 목록 조회. 담당자·유형·날짜·연결 레코드 기준으로 필터 가능.",
+    {
+      after: z.string().optional().describe("페이지네이션 커서"),
+      startDate: z.string().optional().describe("작성일 시작 (예: 2026-01-01)"),
+      endDate: z.string().optional().describe("작성일 종료 (예: 2026-06-30)"),
+      owner: z.string().optional().describe("노트를 작성한 담당자. 사용자 이름 또는 userId 모두 허용"),
+      type: z.string().optional().describe("노트 유형 이름 (예: '미팅', '콜'). 사용 가능한 유형은 조회 실패 시 오류 메시지에서 확인"),
+      leadId: z.string().optional().describe("연결된 리드 ID"),
+      dealId: z.string().optional().describe("연결된 딜 ID"),
+      peopleId: z.string().optional().describe("연결된 고객 ID"),
+      organizationId: z.string().optional().describe("연결된 회사 ID"),
+    },
+    READ,
+    async ({ after, startDate, endDate, owner, type, leadId, dealId, peopleId, organizationId }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+
+        if (after) query.cursor = after;
+        if (startDate) query.startDate = startDate;
+        if (endDate) query.endDate = endDate;
+        if (leadId) query.leadId = leadId;
+        if (dealId) query.dealId = dealId;
+        if (peopleId) query.peopleId = peopleId;
+        if (organizationId) query.organizationId = organizationId;
+
+        // owner: 이름이면 userId로 변환
+        if (owner) {
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const HEX_ID_RE = /^[0-9a-f]{24}$/i;
+          if (UUID_RE.test(owner) || HEX_ID_RE.test(owner)) {
+            query.ownerId = owner;
+          } else {
+            const userMap = await getUserMap(client);
+            const userId = userMap.get(owner);
+            if (!userId) {
+              const names = [...userMap.keys()].join(", ");
+              return err(`담당자 "${owner}"를 찾을 수 없습니다. 사용 가능한 이름: ${names}`);
+            }
+            query.ownerId = userId;
+          }
+        }
+
+        // type: 이름으로 typeId 조회
+        if (type) {
+          const typeData = await client.get<{ data: { typeList: Array<{ _id: string; value: string }> } }>("/v2/memo/type-list");
+          const typeList = typeData.data?.typeList ?? [];
+          const found = typeList.find(t => t.value === type);
+          if (!found) {
+            const names = typeList.map(t => t.value).join(", ");
+            return err(`노트 유형 "${type}"을 찾을 수 없습니다. 사용 가능한 유형: ${names}`);
+          }
+          query.typeId = found._id;
+        }
+
+        return ok(await client.get("/v2/memo", query));
+      } catch (e: unknown) {
+        return err((e as Error).message);
       }
     },
   );
