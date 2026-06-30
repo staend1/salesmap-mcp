@@ -10,6 +10,13 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: fal
 const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "note", "custom-object"]);
 const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
 
+// ── v3 activity 마이그레이션 플래그 ──────────────────────────────
+// false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
+const V3_ACTIVITY = true;
+
+const ALL_ACTIVITY_TYPES = ["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"] as const;
+type ActivityType = typeof ALL_ACTIVITY_TYPES[number];
+
 // ── Changelog noise filter ────────────────────────────────────
 const HISTORY_NOISE_FIELDS = new Set([
   "RecordId", "생성 날짜", "수정 날짜", "매출(억)", "링크드인", "프로필 사진",
@@ -676,54 +683,72 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드 activity 타임라인 조회.",
+    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n🔑 각 유형별로 data 배열과 cursor를 독립 반환 — 더 많이 필요하면 cursors에 해당 유형 cursor를 담아 재호출.",
     {
       objectType: timelineObjectType.describe("오브젝트 타입"),
       objectId: z.string().describe("레코드 UUID"),
-      after: z.string().optional().describe("페이지네이션 커서"),
+      types: z.array(z.enum(["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"])).optional()
+        .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note'])"),
+      cursors: z.record(z.string()).optional()
+        .describe("유형별 페이지네이션 커서. {email: '...', note: '...'} 형태. 이전 응답의 cursor 값 사용"),
     },
     READ,
-    async ({ objectType, objectId, after }, extra) => {
+    async ({ objectType, objectId, types, cursors }, extra) => {
       try {
         const client = getClient(extra);
+
+        if (V3_ACTIVITY) {
+          // ── v3: 유형별 분리 응답, 이메일/레코딩 데이터 인라인 포함 (마이그레이션: 2026-06-30) ──
+          const V3_TYPE_MAP: Record<string, string> = {
+            deal: "딜", lead: "리드", people: "고객", organization: "회사",
+          };
+          const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+          const activeTypes: ActivityType[] = (types as ActivityType[]) ?? [...ALL_ACTIVITY_TYPES];
+          const body: Record<string, unknown> = { objectType: apiType, objectId };
+          for (const t of activeTypes) {
+            const cursor = cursors?.[t];
+            body[t] = cursor ? { cursor } : {};
+          }
+          return ok(await client.post("/v3/object/activity", body));
+        }
+
+        // ── v2 fallback (롤백 시 사용) ──────────────────────
         const query: Record<string, string> = { [`${objectType}Id`]: objectId };
-        if (after) query.cursor = after;
+        if (cursors) {
+          const firstCursor = Object.values(cursors)[0];
+          if (firstCursor) query.cursor = firstCursor;
+        }
         const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/activity`, query);
         const key = `${objectType}ActivityList`;
         const items = (data[key] as Array<Record<string, unknown>>) ?? [];
-
         const compacted = items.map(item => compactRecord(item));
 
-        // Auto-inline email subjects and memo texts (with caching)
         const emailCache = new Map<string, string | null>();
         const memoCache = new Map<string, string | null>();
-
         for (const item of compacted) {
           const emailId = item.emailId as string | undefined;
           if (emailId) {
             if (!emailCache.has(emailId)) {
               try {
-                const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
-                emailCache.set(emailId, (data.email?.subject as string) ?? null);
+                const d = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
+                emailCache.set(emailId, (d.email?.subject as string) ?? null);
               } catch { emailCache.set(emailId, null); }
             }
             const subject = emailCache.get(emailId);
             if (subject) item.emailSubject = subject;
           }
-
           const memoId = item.memoId as string | undefined;
           if (memoId) {
             if (!memoCache.has(memoId)) {
               try {
-                const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
-                memoCache.set(memoId, (data.memo?.text as string) ?? null);
+                const d = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
+                memoCache.set(memoId, (d.memo?.text as string) ?? null);
               } catch { memoCache.set(memoId, null); }
             }
             const text = memoCache.get(memoId);
             if (text) item.noteText = text;
           }
         }
-
         return ok({ [key]: compacted, nextCursor: data.nextCursor ?? null });
       } catch (e: unknown) {
         return err((e as Error).message);
