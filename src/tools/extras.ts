@@ -692,17 +692,17 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n🔑 각 유형별로 data 배열과 cursor를 독립 반환 — 더 많이 필요하면 cursors에 해당 유형 cursor를 담아 재호출.",
+    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.",
     {
-      objectType: timelineObjectType.describe("오브젝트 타입"),
+      objectType: z.string().describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
       objectId: z.string().describe("레코드 UUID"),
       types: z.array(z.enum(["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"])).optional()
         .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note'])"),
-      cursors: z.record(z.string()).optional()
-        .describe("유형별 페이지네이션 커서. {email: '...', note: '...'} 형태. 이전 응답의 cursor 값 사용"),
+      after: z.string().optional()
+        .describe("페이지네이션 커서. 이전 응답의 cursor 값. types로 유형 한정 후 사용."),
     },
     READ,
-    async ({ objectType, objectId, types, cursors }, extra) => {
+    async ({ objectType, objectId, types, after }, extra) => {
       try {
         const client = getClient(extra);
 
@@ -715,18 +715,14 @@ export function registerExtrasTools(server: McpServer) {
           const activeTypes: ActivityType[] = (types as ActivityType[]) ?? [...ALL_ACTIVITY_TYPES];
           const body: Record<string, unknown> = { objectType: apiType, objectId };
           for (const t of activeTypes) {
-            const cursor = cursors?.[t];
-            body[t] = cursor ? { cursor } : {};
+            body[t] = after ? { cursor: after } : {};
           }
           return ok(await client.post("/v3/object/activity", body));
         }
 
         // ── v2 fallback (롤백 시 사용) ──────────────────────
         const query: Record<string, string> = { [`${objectType}Id`]: objectId };
-        if (cursors) {
-          const firstCursor = Object.values(cursors)[0];
-          if (firstCursor) query.cursor = firstCursor;
-        }
+        if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/activity`, query);
         const key = `${objectType}ActivityList`;
         const items = (data[key] as Array<Record<string, unknown>>) ?? [];
