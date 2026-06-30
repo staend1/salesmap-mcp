@@ -10,6 +10,16 @@ const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 
+// ── v3 마이그레이션 플래그 ────────────────────────────────
+// false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
+const V3_OBJECT_READ = true;
+
+// v2 영문 → v3 한글 objectType 매핑
+const V3_TYPE_MAP: Record<string, string> = {
+  deal: "딜", lead: "리드", people: "고객", organization: "회사",
+  quote: "견적서", product: "상품", "quote-product": "상품변형",
+};
+
 // ── pre-validation ────────────────────────────────────
 function validateCreate(type: string, params: Record<string, unknown>): string | null {
   if (type === "deal") {
@@ -63,30 +73,37 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 레코드 일괄 조회(최대 20).\n🔗 연결 레코드는 salesmap-list-associations로 조회.",
+    "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연관 레코드를 인라인으로 포함 가능.",
     {
-      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
-        .describe("오브젝트 타입 (모든 ID가 같은 타입이어야 함)"),
-      objectIds: z.array(z.string()).min(1).max(20).describe("레코드 ID 배열 (최대 20개)"),
-      properties: z.array(z.string()).optional()
-        .describe("반환할 필드 이름 목록 (한글). 생략 시 코어 필드만 반환."),
+      objectType: z.string()
+        .describe("오브젝트 타입. 'deal' | 'lead' | 'people' | 'organization' 또는 커스텀 오브젝트 이름 (예: '티켓(CRM)')"),
+      objectIds: z.array(z.string()).min(1).max(500).describe("레코드 ID 배열 (최대 500개)"),
+      fieldList: z.array(z.string()).optional()
+        .describe("반환할 필드명 목록 (한글). 생략 시 전체 필드 반환."),
+      associationList: z.array(z.string()).optional()
+        .describe("인라인으로 포함할 연관 관계명 목록. salesmap-list-associations 결과의 관계명 참조."),
     },
     READ,
-    async ({ objectType, objectIds, properties }, extra) => {
+    async ({ objectType, objectIds, fieldList, associationList }, extra) => {
       try {
         const client = getClient(extra);
+
+        if (V3_OBJECT_READ) {
+          // ── v3: 단일 배치 호출 (마이그레이션: 2026-06-30) ──
+          const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+          const body: Record<string, unknown> = { objectType: apiType, idList: objectIds };
+          if (fieldList?.length) body.fieldList = fieldList;
+          if (associationList?.length) body.associationList = associationList;
+          return ok(await client.post("/v3/object/read", body));
+        }
+
+        // ── v2 fallback (롤백 시 사용) ──────────────────────
         const useGetOne = GET_ONE_TYPES.has(objectType);
-        const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
-
-        // Determine which properties to return
-        const effectiveProps = (properties && properties.length > 0)
-          ? properties
+        const effectiveProps = (fieldList && fieldList.length > 0)
+          ? fieldList
           : await getDefaultProperties(client, objectType);
-
-        // custom-object는 definitionId→이름 맵을 1회 조회(캐시) → 레코드마다 이름 라벨링
         const defMap = objectType === "custom-object" ? await getDefinitionMap(client) : null;
-
-        // Fetch all records in parallel
+        const results: Array<{ id: string; data?: Record<string, unknown>; error?: string }> = [];
         const tasks = objectIds.map(async (id) => {
           try {
             const path = `/v2/${objectType}/${id}`;
@@ -103,7 +120,6 @@ export function registerGenericTools(server: McpServer) {
           }
         });
         results.push(...await Promise.all(tasks));
-
         return ok({ total: results.length, records: results });
       } catch (e: unknown) {
         return err((e as Error).message);
