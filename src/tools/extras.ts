@@ -10,8 +10,9 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: fal
 const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "note", "custom-object"]);
 const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
 
-// ── v3 activity 마이그레이션 플래그 ──────────────────────────────
+// ── v3 마이그레이션 플래그 ──────────────────────────────────────
 // false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
+const V3_PIPELINES = true; // v2 차이: deal/lead만 지원, 커스텀 오브젝트 파이프라인 없음
 const V3_ACTIVITY = true;
 
 const ALL_ACTIVITY_TYPES = ["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"] as const;
@@ -407,8 +408,16 @@ export function registerExtrasTools(server: McpServer) {
     async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
-        return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
+        if (V3_PIPELINES) {
+          // 마이그레이션: 2026-06-30 | 개선: 커스텀 오브젝트 파이프라인 지원 추가
+          const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
+          return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
+        }
+        // v2 fallback (롤백 시 사용) — deal/lead만 지원
+        if (objectType !== "deal" && objectType !== "lead") {
+          return err("v2에서는 deal, lead만 지원됩니다.");
+        }
+        return ok(await client.get(`/v2/${objectType}/pipeline`));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
