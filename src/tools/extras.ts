@@ -285,45 +285,21 @@ export function registerExtrasTools(server: McpServer) {
   // ── Association ───────────────────────────────────────
   server.tool(
     "salesmap-list-associations",
-    "🎯 연관 레코드 조회.",
+    "🎯 오브젝트에 어떤 연결 관계가 있는지 스키마 조회.\n🧭 batch-read-objects의 associationList에 넣을 관계명 확인용. '메인 X'가 기본 연결(primary).",
     {
-      objectType: objectTypeEnum.describe("출발 오브젝트 타입"),
-      objectId: z.string().describe("출발 오브젝트 ID"),
-      toObjectType: objectTypeEnum.describe("도착 오브젝트 타입"),
+      objectType: z.string().describe("오브젝트 타입. 'deal' | 'lead' | 'people' | 'organization' 또는 커스텀 오브젝트 이름"),
     },
     READ,
-    async ({ objectType, objectId, toObjectType }, extra) => {
+    async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        const apiType = (t: string) => t === "note" ? "memo" : t;
-        const basePath = `/v2/object/${apiType(objectType)}/${objectId}/association/${apiType(toObjectType)}`;
-        const [primary, custom] = await Promise.all([
-          client.get(basePath + "/primary").catch(() => null),
-          client.get(basePath + "/custom").catch(() => null),
-        ]);
 
-        // Primary returns associationIdList (string[]), custom returns associationItemList ({id,label}[])
-        const primaryIds: string[] = (primary as Record<string, unknown>)?.associationIdList as string[] ?? [];
-        const customItems: Array<{ id: string; label?: string }> =
-          (custom as Record<string, unknown>)?.associationItemList as Array<{ id: string; label?: string }> ?? [];
-
-        // Merge: normalize primary IDs to objects, deduplicate
-        const seen = new Set<string>();
-        const merged: Array<{ id: string; label?: string; source: string }> = [];
-        for (const id of primaryIds) {
-          if (id && !seen.has(id)) {
-            seen.add(id);
-            merged.push({ id, source: "primary" });
-          }
-        }
-        for (const item of customItems) {
-          if (item.id && !seen.has(item.id)) {
-            seen.add(item.id);
-            merged.push({ id: item.id, label: item.label, source: "custom" });
-          }
-        }
-
-        return ok({ total: merged.length, records: merged });
+        // v3: association schema (마이그레이션: 2026-06-30)
+        const V3_TYPE_MAP: Record<string, string> = {
+          deal: "딜", lead: "리드", people: "고객", organization: "회사",
+        };
+        const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+        return ok(await client.post("/v3/association/list", { objectType: apiType }));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
