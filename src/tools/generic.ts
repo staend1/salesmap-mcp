@@ -73,7 +73,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연관 레코드를 인라인으로 포함 가능.",
+    "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연결 레코드를 인라인으로 포함 가능.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 'deal' | 'lead' | 'people' | 'organization' 또는 커스텀 오브젝트 이름 (예: '티켓(CRM)')"),
@@ -81,7 +81,7 @@ export function registerGenericTools(server: McpServer) {
       fieldList: z.array(z.string()).optional()
         .describe("반환할 필드명 목록 (한글). 생략 시 전체 필드 반환."),
       associationList: z.array(z.string()).optional()
-        .describe("인라인으로 포함할 연관 관계명 목록. salesmap-list-associations 결과의 관계명 참조."),
+        .describe("인라인으로 포함할 연결 관계명 목록. salesmap-list-associations로 확인. '메인 고객·메인 회사·메인 딜' 등 '메인 X'가 기본 연결(primary)이므로, 유저가 '연결된 고객/회사' 등으로 표현하면 '메인 X' 관계명 사용."),
     },
     READ,
     async ({ objectType, objectIds, fieldList, associationList }, extra) => {
