@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId, getUserMap } from "../client";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 
@@ -9,6 +9,14 @@ const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: fal
 
 const objectTypeEnum = z.enum(["people", "organization", "deal", "lead", "note", "custom-object"]);
 const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
+
+// ── v3 마이그레이션 플래그 ──────────────────────────────────────
+// false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
+const V3_PIPELINES = true; // v2 차이: deal/lead만 지원, 커스텀 오브젝트 파이프라인 없음
+const V3_ACTIVITY = true;
+
+const ALL_ACTIVITY_TYPES = ["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"] as const;
+type ActivityType = typeof ALL_ACTIVITY_TYPES[number];
 
 // ── Changelog noise filter ────────────────────────────────────
 const HISTORY_NOISE_FIELDS = new Set([
@@ -389,6 +397,71 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
+  // ── Notes ─────────────────────────────────────────────
+  server.tool(
+    "salesmap-list-notes",
+    "🎯 노트 목록 조회. 담당자·유형·날짜·연결 레코드 기준으로 필터 가능.",
+    {
+      after: z.string().optional().describe("페이지네이션 커서"),
+      startDate: z.string().optional().describe("작성일 시작 (예: 2026-01-01)"),
+      endDate: z.string().optional().describe("작성일 종료 (예: 2026-06-30)"),
+      owner: z.string().optional().describe("노트를 작성한 담당자. 사용자 이름 또는 userId 모두 허용"),
+      type: z.string().optional().describe("노트 유형 이름 (예: '미팅', '콜')"),
+      leadId: z.string().optional().describe("연결된 리드 ID"),
+      dealId: z.string().optional().describe("연결된 딜 ID"),
+      peopleId: z.string().optional().describe("연결된 고객 ID"),
+      organizationId: z.string().optional().describe("연결된 회사 ID"),
+    },
+    READ,
+    async ({ after, startDate, endDate, owner, type, leadId, dealId, peopleId, organizationId }, extra) => {
+      try {
+        const client = getClient(extra);
+        const query: Record<string, string> = {};
+
+        if (after) query.cursor = after;
+        if (startDate) query.startDate = startDate;
+        if (endDate) query.endDate = endDate;
+        if (leadId) query.leadId = leadId;
+        if (dealId) query.dealId = dealId;
+        if (peopleId) query.peopleId = peopleId;
+        if (organizationId) query.organizationId = organizationId;
+
+        // owner: 이름이면 userId로 변환
+        if (owner) {
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          const HEX_ID_RE = /^[0-9a-f]{24}$/i;
+          if (UUID_RE.test(owner) || HEX_ID_RE.test(owner)) {
+            query.ownerId = owner;
+          } else {
+            const userMap = await getUserMap(client);
+            const userId = userMap.get(owner);
+            if (!userId) {
+              const names = [...userMap.keys()].join(", ");
+              return err(`담당자 "${owner}"를 찾을 수 없습니다. 사용 가능한 이름: ${names}`);
+            }
+            query.ownerId = userId;
+          }
+        }
+
+        // type: 이름으로 typeId 조회
+        if (type) {
+          const typeData = await client.get<{ data: { typeList: Array<{ _id: string; value: string }> } }>("/v2/memo/type-list");
+          const typeList = typeData.data?.typeList ?? [];
+          const found = typeList.find(t => t.value === type);
+          if (!found) {
+            const names = typeList.map(t => t.value).join(", ");
+            return err(`노트 유형 "${type}"을 찾을 수 없습니다. 사용 가능한 유형: ${names}`);
+          }
+          query.typeId = found._id;
+        }
+
+        return ok(await client.get("/v2/memo", query));
+      } catch (e: unknown) {
+        return err((e as Error).message);
+      }
+    },
+  );
+
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap-get-pipelines",
@@ -400,8 +473,16 @@ export function registerExtrasTools(server: McpServer) {
     async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
-        return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
+        if (V3_PIPELINES) {
+          // 마이그레이션: 2026-06-30 | 개선: 커스텀 오브젝트 파이프라인 지원 추가
+          const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
+          return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
+        }
+        // v2 fallback (롤백 시 사용) — deal/lead만 지원
+        if (objectType !== "deal" && objectType !== "lead") {
+          return err("v2에서는 deal, lead만 지원됩니다.");
+        }
+        return ok(await client.get(`/v2/${objectType}/pipeline`));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -676,54 +757,68 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드 activity 타임라인 조회.",
+    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.",
     {
-      objectType: timelineObjectType.describe("오브젝트 타입"),
+      objectType: z.string().describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
       objectId: z.string().describe("레코드 UUID"),
-      after: z.string().optional().describe("페이지네이션 커서"),
+      types: z.array(z.enum(["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"])).optional()
+        .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note'])"),
+      after: z.string().optional()
+        .describe("페이지네이션 커서. 이전 응답의 cursor 값. types로 유형 한정 후 사용."),
     },
     READ,
-    async ({ objectType, objectId, after }, extra) => {
+    async ({ objectType, objectId, types, after }, extra) => {
       try {
         const client = getClient(extra);
+
+        if (V3_ACTIVITY) {
+          // ── v3: 유형별 분리 응답, 이메일/레코딩 데이터 인라인 포함 (마이그레이션: 2026-06-30) ──
+          const V3_TYPE_MAP: Record<string, string> = {
+            deal: "딜", lead: "리드", people: "고객", organization: "회사",
+          };
+          const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+          const activeTypes: ActivityType[] = (types as ActivityType[]) ?? [...ALL_ACTIVITY_TYPES];
+          const body: Record<string, unknown> = { objectType: apiType, objectId };
+          for (const t of activeTypes) {
+            body[t] = after ? { cursor: after } : {};
+          }
+          return ok(await client.post("/v3/object/activity", body));
+        }
+
+        // ── v2 fallback (롤백 시 사용) ──────────────────────
         const query: Record<string, string> = { [`${objectType}Id`]: objectId };
         if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>(`/v2/${objectType}/activity`, query);
         const key = `${objectType}ActivityList`;
         const items = (data[key] as Array<Record<string, unknown>>) ?? [];
-
         const compacted = items.map(item => compactRecord(item));
 
-        // Auto-inline email subjects and memo texts (with caching)
         const emailCache = new Map<string, string | null>();
         const memoCache = new Map<string, string | null>();
-
         for (const item of compacted) {
           const emailId = item.emailId as string | undefined;
           if (emailId) {
             if (!emailCache.has(emailId)) {
               try {
-                const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
-                emailCache.set(emailId, (data.email?.subject as string) ?? null);
+                const d = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
+                emailCache.set(emailId, (d.email?.subject as string) ?? null);
               } catch { emailCache.set(emailId, null); }
             }
             const subject = emailCache.get(emailId);
             if (subject) item.emailSubject = subject;
           }
-
           const memoId = item.memoId as string | undefined;
           if (memoId) {
             if (!memoCache.has(memoId)) {
               try {
-                const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
-                memoCache.set(memoId, (data.memo?.text as string) ?? null);
+                const d = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${memoId}`);
+                memoCache.set(memoId, (d.memo?.text as string) ?? null);
               } catch { memoCache.set(memoId, null); }
             }
             const text = memoCache.get(memoId);
             if (text) item.noteText = text;
           }
         }
-
         return ok({ [key]: compacted, nextCursor: data.nextCursor ?? null });
       } catch (e: unknown) {
         return err((e as Error).message);
