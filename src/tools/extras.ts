@@ -400,13 +400,13 @@ export function registerExtrasTools(server: McpServer) {
   // ── Notes ─────────────────────────────────────────────
   server.tool(
     "salesmap-list-notes",
-    "🎯 노트(메모) 목록 조회. 담당자·유형·날짜·연결 레코드 기준으로 필터 가능.",
+    "🎯 노트 목록 조회. 담당자·유형·날짜·연결 레코드 기준으로 필터 가능.",
     {
       after: z.string().optional().describe("페이지네이션 커서"),
       startDate: z.string().optional().describe("작성일 시작 (예: 2026-01-01)"),
       endDate: z.string().optional().describe("작성일 종료 (예: 2026-06-30)"),
       owner: z.string().optional().describe("노트를 작성한 담당자. 사용자 이름 또는 userId 모두 허용"),
-      type: z.string().optional().describe("노트 유형 이름 (예: '미팅', '콜'). 사용 가능한 유형은 조회 실패 시 오류 메시지에서 확인"),
+      type: z.string().optional().describe("노트 유형 이름 (예: '미팅', '콜')"),
       leadId: z.string().optional().describe("연결된 리드 ID"),
       dealId: z.string().optional().describe("연결된 딜 ID"),
       peopleId: z.string().optional().describe("연결된 고객 ID"),
