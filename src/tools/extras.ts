@@ -416,15 +416,16 @@ export function registerExtrasTools(server: McpServer) {
   // ── Pipeline ──────────────────────────────────────────
   server.tool(
     "salesmap-get-pipelines",
-    "🎯 파이프라인 목록과 각 단계(stage) ID 조회.",
+    "🎯 파이프라인 목록과 각 단계(stage) ID 조회. 딜·리드·커스텀 오브젝트 모두 지원.\n🧭 커스텀 오브젝트 이름은 salesmap-list-objects로 확인.",
     {
-      objectType: z.enum(["deal", "lead"]).describe("딜 또는 리드"),
+      objectType: z.string().describe("'deal', 'lead', 또는 커스텀 오브젝트 이름 (예: '티켓(CRM)')"),
     },
     READ,
     async ({ objectType }, extra) => {
       try {
         const client = getClient(extra);
-        return ok(await client.get(`/v2/${objectType}/pipeline`));
+        const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
+        return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
