@@ -94,7 +94,27 @@ export function registerGenericTools(server: McpServer) {
           const body: Record<string, unknown> = { objectType: apiType, idList: objectIds };
           if (fieldList?.length) body.fieldList = fieldList;
           if (associationList?.length) body.associationList = associationList;
-          return ok(await client.post("/v3/object/read", body));
+          try {
+            return ok(await client.post("/v3/object/read", body));
+          } catch (e: unknown) {
+            const msg = (e as Error).message;
+            // fieldList 에러: 잘못된 필드명 + list-properties 안내
+            if (msg.includes("필드를 찾을 수 없습니다")) {
+              const hint = `salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명을 확인하세요.\n요청한 fieldList: ${fieldList?.join(", ")}`;
+              return err(`${msg}\n\n[힌트] ${hint}`);
+            }
+            // associationList 에러: 사용 가능한 관계명 자동 조회해서 함께 반환
+            if (msg.includes("관계 이름을 찾을 수 없습니다")) {
+              try {
+                const schema = await client.post<{ associationList: Array<{ name: string }> }>("/v3/association/list", { objectType: apiType });
+                const names = schema.associationList.map((a) => a.name).join(", ");
+                return err(`${msg}\n\n[힌트] "${objectType}" 오브젝트의 사용 가능한 관계명: ${names}`);
+              } catch {
+                return err(`${msg}\n\n[힌트] salesmap-list-associations(objectType: "${objectType}")로 사용 가능한 관계명을 확인하세요.`);
+              }
+            }
+            return err(msg);
+          }
         }
 
         // ── v2 fallback (롤백 시 사용) ──────────────────────
