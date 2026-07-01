@@ -84,6 +84,8 @@ export class SalesMapClient {
         throw new Error(msg);
       }
 
+      // v3 API는 success/data 래퍼 없이 응답 직접 반환
+      if (json.success === undefined) return json as unknown as T;
       return json.data as T;
     }
 
