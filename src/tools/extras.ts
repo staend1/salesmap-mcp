@@ -908,7 +908,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Run Script ───────────────────────────────────────────
   server.tool(
     "salesmap-run-script",
-    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.",
+    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
     {
       script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.get('/v2/deal'); return dealList.map(d => d.dealId);"),
     },
@@ -951,7 +951,10 @@ export function registerExtrasTools(server: McpServer) {
 
         let msg = error.message ?? String(e);
         if (lineNo && failLine) msg += `\n[스크립트 ${lineNo}번째 줄] ${failLine}`;
-        msg += "\n[힌트] 엔드포인트·요청 형식 확인: salesmap-get-api-ref";
+        const isApiError = msg.startsWith("[GET ") || msg.startsWith("[POST ");
+        msg += isApiError
+          ? "\n[힌트] 엔드포인트·요청 형식 확인: salesmap-get-api-ref"
+          : "\n[힌트] 스크립트 로직 오류 — 변수명·타입·null 체크 확인";
         return err(msg);
       }
     },
