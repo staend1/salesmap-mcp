@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId, getUserMap } from "../client";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
+import { SALESMAP_API_REF } from "./api-ref";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -49,7 +50,7 @@ const quoteProductSchema = z.object({
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
 });
 
-// ── salesmap-get-docs content ─────────────────────────────────
+// ── salesmap-get-guide content (MCP 사용 가이드) ──────────────────
 const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 
 > 세션 시작 시 또는 어떤 도구를 써야 할지 모를 때 참조하세요.
@@ -855,7 +856,7 @@ export function registerExtrasTools(server: McpServer) {
       preventDuplicates: z.boolean().optional()
         .describe("유니크 필드 기능. 사업자등록번호, 전화번호 등 키 역할 필드에 제한적으로 사용. type이 string/number일때만 가능"),
       formula: z.string().optional()
-        .describe("formula에 수식을 입력하면 필드는 계산 유형 필드가 되며, type은 계산 결과의 타입을 지정해야 함. options·showInCreateForm·required·preventDuplicates 설정 불가. 자세한 내용은 salesmap-get-docs 호출하면 확인 가능"),
+        .describe("formula에 수식을 입력하면 필드는 계산 유형 필드가 되며, type은 계산 결과의 타입을 지정해야 함. options·showInCreateForm·required·preventDuplicates 설정 불가. 자세한 내용은 salesmap-get-guide 호출하면 확인 가능"),
     },
     WRITE,
     async ({ objectType, name, type, ...rest }, extra) => {
@@ -882,14 +883,25 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Docs ─────────────────────────────────────────────────
+  // ── Guide ─────────────────────────────────────────────────
   server.tool(
-    "salesmap-get-docs",
-    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
+    "salesmap-get-guide",
+    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
     {},
     READ,
     async (_params, _extra) => {
       return { content: [{ type: "text" as const, text: SALESMAP_DOCS }] };
+    },
+  );
+
+  // ── API Ref ───────────────────────────────────────────────
+  server.tool(
+    "salesmap-get-api-ref",
+    "🎯 세일즈맵 REST API 레퍼런스 조회. 엔드포인트·요청/응답 형식·에러 코드 수록.\n🧭 run-script로 직접 API를 호출하기 전에 참조. MCP 도구 사용 가이드는 salesmap-get-guide 참조.",
+    {},
+    READ,
+    async (_params, _extra) => {
+      return { content: [{ type: "text" as const, text: SALESMAP_API_REF }] };
     },
   );
 
@@ -899,10 +911,9 @@ export function registerExtrasTools(server: McpServer) {
     "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.",
     {
       script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.get('/v2/deal'); return dealList.map(d => d.dealId);"),
-      label: z.string().optional().describe("스크립트가 하는 일 한 줄 요약 (로그용)"),
     },
     WRITE,
-    async ({ script, label: _label }, extra) => {
+    async ({ script }, extra) => {
       const client = getClient(extra);
 
       const salesmap = {
