@@ -917,8 +917,14 @@ export function registerExtrasTools(server: McpServer) {
       const client = getClient(extra);
 
       const salesmap = {
-        get: (path: string, query?: Record<string, string>) => client.get(path, query),
-        post: (path: string, body?: Record<string, unknown>) => client.post(path, body),
+        get: async (path: string, query?: Record<string, string>) => {
+          try { return await client.get(path, query); }
+          catch (e: unknown) { throw new Error(`[GET ${path}] ${(e as Error).message}`); }
+        },
+        post: async (path: string, body?: Record<string, unknown>) => {
+          try { return await client.post(path, body); }
+          catch (e: unknown) { throw new Error(`[POST ${path}] ${(e as Error).message}`); }
+        },
       };
 
       const { createContext, runInContext } = await import("node:vm");
@@ -932,12 +938,20 @@ export function registerExtrasTools(server: McpServer) {
 
       try {
         const result = await Promise.race([
-          runInContext(wrapped, context) as Promise<unknown>,
+          runInContext(wrapped, context, { filename: "salesmap-script" }) as Promise<unknown>,
           timeoutPromise,
         ]);
         return ok(result);
       } catch (e: unknown) {
-        return err((e as Error).message ?? String(e));
+        const error = e as Error;
+        // 스택에서 스크립트 줄 번호 추출 (wrapped 첫 줄 보정 -1)
+        const match = error.stack?.match(/salesmap-script:(\d+)/);
+        const lineNo = match ? parseInt(match[1]) - 1 : null;
+        const failLine = lineNo && lineNo > 0 ? script.split("\n")[lineNo - 1]?.trim() : null;
+
+        let msg = error.message ?? String(e);
+        if (lineNo && failLine) msg += `\n[스크립트 ${lineNo}번째 줄] ${failLine}`;
+        return err(msg);
       }
     },
   );
