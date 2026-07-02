@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId, getUserMap } from "../client";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
+import { SALESMAP_API_REF } from "./api-ref";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -49,7 +50,7 @@ const quoteProductSchema = z.object({
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
 });
 
-// ── salesmap-get-docs content ─────────────────────────────────
+// ── salesmap-get-guide content (MCP 사용 가이드) ──────────────────
 const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 
 > 세션 시작 시 또는 어떤 도구를 써야 할지 모를 때 참조하세요.
@@ -105,6 +106,7 @@ const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 | 필드 관리 | \`list-properties\`, \`create-property\` |
 | 파이프라인·견적 | \`get-pipelines\`, \`list-products\`, \`create-quote\`, \`get-quotes\`, \`get-link\` |
 | 시퀀스·웹폼 | \`list-sequences\`, \`list-webforms\` |
+| 서버 실행 | \`run-script\` |
 
 ---
 
@@ -161,6 +163,23 @@ get-pipelines(objectType: "deal")                 # 파이프라인·단계 ID �
 search-objects(objectType, filterGroups)
   → get-lead-time(objectType, objectId)           # 단계별 진입일·체류시간·퇴장일
 \`\`\`
+
+### 대량 집계·멀티홉 작업 (run-script)
+N건 루프·집계처럼 도구를 여러 번 연달아 호출해야 할 때 사용.
+중간 데이터가 컨텍스트에 쌓이지 않고 결과만 반환됨.
+\`\`\`
+run-script(script: \`
+  const { dealList } = await salesmap.get('/v2/deal', { limit: '100' });
+  const results = [];
+  for (const deal of dealList) {
+    const timeline = await salesmap.post('/v3/object/activity', { objectType: '딜', objectId: deal.dealId, note: {} });
+    results.push({ dealId: deal.dealId, noteCount: timeline.note?.data?.length ?? 0 });
+  }
+  return results;
+\`)
+\`\`\`
+⚠️ 최대 30초. 쓰기(create·update·delete) API도 호출 가능하므로 신중하게.
+
 
 ---
 
@@ -838,7 +857,7 @@ export function registerExtrasTools(server: McpServer) {
       preventDuplicates: z.boolean().optional()
         .describe("유니크 필드 기능. 사업자등록번호, 전화번호 등 키 역할 필드에 제한적으로 사용. type이 string/number일때만 가능"),
       formula: z.string().optional()
-        .describe("formula에 수식을 입력하면 필드는 계산 유형 필드가 되며, type은 계산 결과의 타입을 지정해야 함. options·showInCreateForm·required·preventDuplicates 설정 불가. 자세한 내용은 salesmap-get-docs 호출하면 확인 가능"),
+        .describe("formula에 수식을 입력하면 필드는 계산 유형 필드가 되며, type은 계산 결과의 타입을 지정해야 함. options·showInCreateForm·required·preventDuplicates 설정 불가. 자세한 내용은 salesmap-get-guide 호출하면 확인 가능"),
     },
     WRITE,
     async ({ objectType, name, type, ...rest }, extra) => {
@@ -865,14 +884,80 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Docs ─────────────────────────────────────────────────
+  // ── Guide ─────────────────────────────────────────────────
   server.tool(
-    "salesmap-get-docs",
-    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
+    "salesmap-get-guide",
+    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
     {},
     READ,
     async (_params, _extra) => {
       return { content: [{ type: "text" as const, text: SALESMAP_DOCS }] };
+    },
+  );
+
+  // ── API Ref ───────────────────────────────────────────────
+  server.tool(
+    "salesmap-get-api-ref",
+    "🎯 세일즈맵 REST API 레퍼런스 조회. 엔드포인트·요청/응답 형식·에러 코드 수록.\n🧭 run-script로 직접 API를 호출하기 전에 참조. MCP 도구 사용 가이드는 salesmap-get-guide 참조.",
+    {},
+    READ,
+    async (_params, _extra) => {
+      return { content: [{ type: "text" as const, text: SALESMAP_API_REF }] };
+    },
+  );
+
+  // ── Run Script ───────────────────────────────────────────
+  server.tool(
+    "salesmap-run-script",
+    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
+    {
+      script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.get('/v2/deal'); return dealList.map(d => d.dealId);"),
+    },
+    WRITE,
+    async ({ script }, extra) => {
+      const client = getClient(extra);
+
+      const salesmap = {
+        get: async (path: string, query?: Record<string, string>) => {
+          try { return await client.get(path, query); }
+          catch (e: unknown) { throw new Error(`[GET ${path}] ${(e as Error).message}`); }
+        },
+        post: async (path: string, body?: Record<string, unknown>) => {
+          try { return await client.post(path, body); }
+          catch (e: unknown) { throw new Error(`[POST ${path}] ${(e as Error).message}`); }
+        },
+      };
+
+      const { createContext, runInContext } = await import("node:vm");
+      const context = createContext({ salesmap, Promise });
+      const wrapped = `(async () => {\n${script}\n})()`;
+
+      const timeoutMs = 30_000;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`스크립트 실행 제한 시간(${timeoutMs / 1000}초) 초과`)), timeoutMs)
+      );
+
+      try {
+        const result = await Promise.race([
+          runInContext(wrapped, context, { filename: "salesmap-script" }) as Promise<unknown>,
+          timeoutPromise,
+        ]);
+        return ok(result);
+      } catch (e: unknown) {
+        const error = e as Error;
+        // 스택에서 스크립트 줄 번호 추출 (wrapped 첫 줄 보정 -1)
+        const match = error.stack?.match(/salesmap-script:(\d+)/);
+        const lineNo = match ? parseInt(match[1]) - 1 : null;
+        const failLine = lineNo && lineNo > 0 ? script.split("\n")[lineNo - 1]?.trim() : null;
+
+        let msg = error.message ?? String(e);
+        if (lineNo && failLine) msg += `\n[스크립트 ${lineNo}번째 줄] ${failLine}`;
+        const isApiError = msg.startsWith("[GET ") || msg.startsWith("[POST ");
+        msg += isApiError
+          ? "\n[힌트] 엔드포인트·요청 형식 확인: salesmap-get-api-ref"
+          : "\n[힌트] 스크립트 로직 오류 — 변수명·타입·null 체크 확인";
+        return err(msg);
+      }
     },
   );
 
