@@ -1028,6 +1028,30 @@ function withMoreHint(data) {
 
 ---
 
+## 28. Activity(타임라인) 배치 조회 엔드포인트 부재
+
+### 문제
+
+`/v3/object/activity`는 **단일 `objectId`만** 받는다. 여러 레코드의 타임라인을 한 번에 조회하는 배치 엔드포인트가 없고, `/v3/object/read`(배치 읽기)도 `activity`를 인라인으로 포함하는 파라미터가 없다. (2026-07 백엔드 코드 확인: `objectReadApi`와 `objectActivityApi`가 완전 분리, activity 합산 경로 없음)
+
+### 실제 영향
+
+N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) 기준 `list-engagements`가 6,703호출로 최다이며, `list-engagements → list-engagements` 연속 전이가 6,385회 — 대부분 레코드별 순회 배치 작업이다. p90 7.9초·20.9%가 5초 초과·rate limit 429 다발의 근본 원인.
+
+### MCP에서의 우회 / 완화 (근본 해결 아님)
+
+- `salesmap-list-engagements`에 `limit`(1~50) 노출 + `note.htmlBody` 제거로 응답 경량화 (2026-07)
+- 429를 body의 "N초 후 재시도" 파싱 기반으로 정확 대기 (2026-07)
+- `salesmap-run-script`로 서버측 순회 유도 (중간 데이터가 컨텍스트에 안 쌓임)
+
+### 백엔드 제안
+
+1. **`/v3/object/read`에 activity 인라인 파라미터** (예: `activityTypes: ["email","note"]` → 각 레코드에 활동 동봉) — 가장 이상적. batch-read 1콜로 레코드+활동 확보
+2. 또는 **여러 objectId를 받는 배치 activity 엔드포인트**
+3. (부수) 429 응답에 `Retry-After` / `X-RateLimit-Remaining` 헤더 — 현재는 body 텍스트("8.316초 후 재시도해주세요.")만 제공
+
+---
+
 ## 요약: MCP에서 우회한 API 갭 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
