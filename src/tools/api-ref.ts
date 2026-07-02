@@ -2025,14 +2025,14 @@ v2와 달리 \`success\`/\`data\` 래퍼 없이 본문을 직접 반환합니다
 | 유형 | 주요 필드 |
 | --- | --- |
 | \`todo\` | \`title\`, \`type\`, \`content\`, \`startDate\`, \`endDate\`, \`isAllDay\`, \`done\`, \`doneDate\` |
-| \`note\` | \`text\`(순수 텍스트), \`htmlBody\`(HTML 렌더링 — 채널톡 대화록 등 통짜로 커질 수 있음), \`pinned\` |
+| \`note\` | \`text\`(순수 텍스트), \`pinned\`. ※API 원응답엔 \`htmlBody\`(렌더링용 HTML)도 있으나 \`text\`와 내용이 중복되고 응답을 크게 키워 MCP에서 제거함 |
 | \`recording\` | \`title\`, \`status\`, \`duration\`(초), \`source\`, \`coreSummary\`(AI 통화 요약). ※녹음 파일 URL·STT 전문은 없음 |
 | \`meeting\` | \`title\`, \`status\`, \`content\`, \`startDate\`, \`endDate\` |
 | \`email\` | \`subject\`, \`fromName\`, \`fromAddress\`, \`toName\`, \`toAddress\`, \`status\`, \`date\`, \`openCount\`, \`clickCount\`. ※본문(html/text)은 없음 |
 | \`alimtalk\` | \`content\`, \`recipientNo\`, \`resultCode\`, \`resultCodeName\`, \`createDate\`, \`receiveDate\` |
 | \`sms\` | \`subject\`, \`text\`, \`sendStatus\`, \`resultCode\`, \`toPhoneNumber\`, \`sendType\`, \`imageUrl\`, \`imageFileName\` |
 
-> 응답 크기 팁: \`note.htmlBody\`와 \`recording.coreSummary\`가 응답을 크게 키웁니다. 요약·집계만 필요하면 해당 유형을 빼거나 \`limit\`을 낮추세요.
+> 응답 크기 팁: \`recording.coreSummary\`(AI 요약)가 응답을 키울 수 있습니다. 요약·집계만 필요하면 해당 유형을 빼거나 \`limit\`을 낮추세요.
 
 ***
 
