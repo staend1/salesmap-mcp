@@ -2025,7 +2025,7 @@ v2와 달리 \`success\`/\`data\` 래퍼 없이 본문을 직접 반환합니다
 | 유형 | 주요 필드 |
 | --- | --- |
 | \`todo\` | \`title\`, \`type\`, \`content\`, \`startDate\`, \`endDate\`, \`isAllDay\`, \`done\`, \`doneDate\` |
-| \`note\` | \`text\`(순수 텍스트), \`pinned\`. ※API 원응답엔 \`htmlBody\`(렌더링용 HTML)도 있으나 \`text\`와 내용이 중복되고 응답을 크게 키워 MCP에서 제거함 |
+| \`note\` | \`text\`(순수 텍스트), \`pinned\`. ※API 원응답의 \`htmlBody\`(렌더링용 HTML)는 \`text\`와 내용이 중복되어 MCP에서 제거함 |
 | \`recording\` | \`title\`, \`status\`, \`duration\`(초), \`source\`, \`coreSummary\`(AI 통화 요약). ※녹음 파일 URL·STT 전문은 없음 |
 | \`meeting\` | \`title\`, \`status\`, \`content\`, \`startDate\`, \`endDate\` |
 | \`email\` | \`subject\`, \`fromName\`, \`fromAddress\`, \`toName\`, \`toAddress\`, \`status\`, \`date\`, \`openCount\`, \`clickCount\`. ※본문(html/text)은 없음 |

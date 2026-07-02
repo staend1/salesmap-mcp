@@ -1045,7 +1045,7 @@ export function registerExtrasTools(server: McpServer) {
             body[t] = opt;
           }
           const res = await client.post<Record<string, unknown>>("/v3/object/activity", body);
-          // note.htmlBody는 text와 내용 중복인 렌더링용 HTML — 응답의 대부분을 차지하므로 제거
+          // note.htmlBody는 text와 내용 중복인 렌더링용 HTML — AI 분석엔 불필요하므로 제거
           const noteGroup = res.note as { data?: Array<Record<string, unknown>> } | undefined;
           if (noteGroup?.data) {
             for (const n of noteGroup.data) delete n.htmlBody;
