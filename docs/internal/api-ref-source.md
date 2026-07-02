@@ -102,6 +102,8 @@
 
 성공 응답은 다음 구조를 따릅니다.
 
+> ⚠️ **run-script 사용 시:** `salesmap.get()`/`post()`는 이 `success`/`data` 래퍼를 **벗겨서** 반환합니다. 스크립트에서는 `r.dealList`처럼 최상위 키로 접근하세요 (`r.data.dealList` 아님). 이 문서의 응답 예시는 래핑된 원형 기준입니다.
+
 ```json
 { "success": true, "data": { ... } }
 ```
