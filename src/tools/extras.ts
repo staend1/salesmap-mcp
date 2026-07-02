@@ -50,7 +50,150 @@ const quoteProductSchema = z.object({
 });
 
 // ── salesmap-get-docs content ─────────────────────────────────
-const SALESMAP_DOCS = `# 세일즈맵 MCP 도메인 지식
+const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
+
+> 세션 시작 시 또는 어떤 도구를 써야 할지 모를 때 참조하세요.
+
+---
+
+## 오브젝트 모델
+
+세일즈맵은 B2B 영업 CRM입니다.
+
+### 관계 구조
+
+\`\`\`
+고객 (people) ──┐
+                ├──→ 리드 (lead) ──→ 딜 (deal)
+회사 (org)    ──┘
+고객 ↔ 회사 (N:N 연결)
+커스텀 오브젝트 — 어떤 오브젝트에도 자유롭게 연결 가능
+\`\`\`
+
+**핵심:** 리드에서 딜을 생성해도 리드는 사라지지 않고 공존합니다. 딜·리드 모두 고객·회사에 직접 연결됩니다.
+
+### 오브젝트 정의
+
+| 오브젝트 | 정의 |
+|---|---|
+| 고객 (people) | 잠재 고객부터 기존 고객까지 모든 개인의 연락처·이력. 회사 없이 독립 존재 가능 |
+| 회사 (organization) | 여러 고객이 소속된 법인체 정보. B2B 계약 주체 |
+| 리드 (lead) | **마케팅 단계** 영업 기회. 웹폼·콘텐츠 다운로드 등 초기 관심 단계. 리드 파이프라인으로 MQL 육성 |
+| 딜 (deal) | **세일즈 단계** 영업 기회. 계약 성사 목표, 협상 상태·금액·파이프라인 관리 |
+| 커스텀 오브젝트 | 워크스페이스별 맞춤 데이터. 예: 티켓(회사 연결), 정산(딜 연결), 수업(딜+강사+수강생 연결) |
+| 메모 (memo) | 고객·딜 등에 남기는 내부 기록. 미팅 노트·상담 내용 등 |
+| TODO | 영업 담당자의 할 일. 전화·미팅·업무 등 follow-up 관리 |
+| 견적서 (quote) | 딜·리드에 연결된 가격 제안서. 상품×수량×할인 |
+| 상품 (product) | 판매하는 제품/서비스. 일반형 또는 구독형(월간·연간) |
+| 시퀀스 (sequence) | 자동화된 이메일 캠페인. 단계별 발송·오픈/클릭/회신 추적 |
+
+**전형적인 흐름:** 웹폼 → 고객·회사 생성 → 리드(마케팅 육성) → 딜 생성(리드 유지) → 파이프라인 진행 → 견적서 발송 → 성사/실패
+
+---
+
+## MCP 도구 맵
+
+| 카테고리 | 도구 |
+|---|---|
+| 탐색·메타 | \`list-objects\`, \`get-user-details\`, \`list-users\`, \`list-teams\` |
+| 레코드 조회 | \`search-objects\`, \`batch-read-objects\` |
+| 관계 탐색 | \`list-associations\` |
+| 타임라인·노트 | \`list-engagements\`, \`list-notes\`, \`read-note\` |
+| 이력·변경 | \`list-changelog\`, \`get-lead-time\` |
+| 레코드 생성·수정·삭제 | \`create-object\`, \`update-object\`, \`delete-object\` |
+| 노트 생성 | \`create-note\` |
+| 필드 관리 | \`list-properties\`, \`create-property\` |
+| 파이프라인·견적 | \`get-pipelines\`, \`list-products\`, \`create-quote\`, \`get-quotes\`, \`get-link\` |
+| 시퀀스·웹폼 | \`list-sequences\`, \`list-webforms\` |
+
+---
+
+## 시나리오별 도구 조합
+
+### 레코드 조회·분석
+\`\`\`
+search-objects(objectType, filterGroups)
+  → batch-read-objects(objectIds, fieldList?)     # 상세 필드 조회
+  → list-engagements(objectId, types?)            # 타임라인 (이메일·노트·미팅 등)
+  → list-notes(leadId | dealId | ...)             # 메모 목록
+\`\`\`
+
+### 연결 레코드 함께 읽기
+\`\`\`
+list-associations(objectType)                     # 사용 가능한 관계명 확인
+  → batch-read-objects(objectIds, associationList) # 관계 레코드 인라인 포함
+\`\`\`
+
+### 레코드 생성 (연결된 상태로)
+생성 순서 엄수: **회사 → 고객 → 딜/리드** (부모 ID가 먼저 존재해야 함)
+\`\`\`
+create-object(objectType: "organization", properties)
+  → create-object(objectType: "people", properties + organizationId)
+  → create-object(objectType: "deal" | "lead", properties + peopleId + organizationId)
+\`\`\`
+⚠️ 리드 생성 시 \`peopleId\` 또는 \`organizationId\` 중 하나 **필수**.
+순서를 지키지 않아도 각각 독립 생성 후 update-object로 나중에 연결 가능.
+
+### 레코드 수정
+\`\`\`
+search-objects(objectType, filterGroups)          # ID 확인
+  → list-properties(objectType)                   # 정확한 필드명·옵션 확인
+  → update-object(id, objectType, fieldList)
+\`\`\`
+
+### 필드 추가
+\`\`\`
+list-properties(objectType)                       # 기존 필드 확인
+  → create-property(objectType, name, type, ...)
+\`\`\`
+formula(계산 유형) 필드는 아래 **계산 유형 필드** 섹션 참조.
+
+### 견적서 생성
+\`\`\`
+get-pipelines(objectType: "deal")                 # 파이프라인·단계 ID 확인
+  → list-products()                               # 상품 ID·가격 확인
+  → create-quote(dealId OR leadId, quoteProductList)
+\`\`\`
+⚠️ 구독형 상품 포함 시: \`paymentCount\`(결제 횟수)·\`startPaymentDate\`(시작 결제일) 필수.
+
+### 파이프라인 체류 시간 분석
+\`\`\`
+search-objects(objectType, filterGroups)
+  → get-lead-time(objectType, objectId)           # 단계별 진입일·체류시간·퇴장일
+\`\`\`
+
+---
+
+## fieldList 핵심 규칙
+
+\`create-object\`·\`update-object\`에서 커스텀 필드 값은 \`fieldList\` 배열로 지정.
+\`name\`은 세일즈맵 UI의 **한글 필드명과 정확히 일치**해야 함 (\`list-properties\`로 확인).
+
+### 값 키 (필드 타입별)
+
+| 타입 | 값 키 | 예시 |
+|---|---|---|
+| 텍스트·단일 선택 | \`stringValue\` | \`{ "name": "상태", "stringValue": "활성" }\` |
+| 숫자 | \`numberValue\` | \`{ "name": "직원수", "numberValue": 50 }\` |
+| 복수 선택 | \`stringValueList\` | \`{ "name": "관심 제품", "stringValueList": ["CRM"] }\` |
+| 날짜 | \`dateValue\` | \`{ "name": "계약일", "dateValue": "2026-01-15" }\` |
+| 불리언 | \`booleanValue\` | \`{ "name": "동의 여부", "booleanValue": true }\` |
+| 사용자(단일) | \`userValueId\` | \`{ "name": "담당자", "userValueId": "<userId>" }\` |
+| 사용자(복수) | \`userValueIdList\` | \`{ "name": "팔로워", "userValueIdList": ["<id>"] }\` |
+| 고객 | \`peopleValueId\` / \`peopleValueIdList\` | \`{ "name": "담당 고객", "peopleValueId": "<id>" }\` |
+| 회사 | \`organizationValueId\` | \`{ "name": "거래처", "organizationValueId": "<id>" }\` |
+
+### 자주 틀리는 패턴
+
+| 잘못된 방법 | 올바른 방법 |
+|---|---|
+| top-level \`ownerId\` 전달 | \`fieldList\`의 \`userValueId\` 사용 |
+| \`fieldList\`에 \`{ name: "금액" }\` (딜) | top-level \`price\` 파라미터 사용 |
+| 담당자 이름을 \`stringValue\`로 | \`userValueId\`에 userId 전달 (\`list-users\`로 확인) |
+| 선택 필드에 미등록 옵션 값 | \`list-properties\`에서 정확한 옵션 확인 후 사용 |
+| \`stringValue: ""\` (빈 문자열) | 필드 초기화는 해당 항목을 \`fieldList\`에서 생략 |
+
+---
 
 ## 계산 유형 필드 (Formula)
 
@@ -725,7 +868,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Docs ─────────────────────────────────────────────────
   server.tool(
     "salesmap-get-docs",
-    "🎯 세일즈맵 MCP 도메인 지식 전체 조회.",
+    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
     {},
     READ,
     async (_params, _extra) => {
