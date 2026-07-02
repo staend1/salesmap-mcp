@@ -63,8 +63,15 @@ export class SalesMapClient {
       });
 
       if (res.status === 429) {
-        const wait = Math.pow(2, attempt) * 1000;
-        await new Promise((r) => setTimeout(r, wait));
+        // 429 body의 "N초 후 재시도해주세요."를 파싱해 그만큼 대기 (백엔드가 잔여 시간을 정확히 알려줌).
+        // 파싱 실패 시에만 지수 백오프로 폴백.
+        let waitMs = Math.pow(2, attempt) * 1000;
+        try {
+          const body = (await res.json()) as { reason?: string; message?: string };
+          const m = (body.reason || body.message || "").match(/([\d.]+)\s*초/);
+          if (m) waitMs = Math.ceil(parseFloat(m[1]) * 1000) + 200; // +200ms 여유
+        } catch { /* body 파싱 실패 → 지수 백오프 유지 */ }
+        await new Promise((r) => setTimeout(r, waitMs));
         lastError = new Error("Rate limit exceeded (429)");
         continue;
       }

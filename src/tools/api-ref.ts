@@ -1988,7 +1988,10 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 | --- | --- | :-: | --- |
 | \`objectType\` | string | 필수 | \`"고객"\` \\| \`"회사"\` \\| \`"딜"\` \\| \`"리드"\` 또는 커스텀 오브젝트 이름. **한글 이름**을 사용합니다. |
 | \`objectId\` | string(UUID) | 필수 | 조회할 레코드 ID |
-| \`todo\` / \`note\` / \`recording\` / \`meeting\` / \`email\` / \`alimtalk\` / \`sms\` | object | 선택 | 조회할 활동 유형. 원하는 유형의 키를 body에 포함하며, 값은 \`{}\`(첫 페이지) 또는 \`{ "cursor": "<이전 응답의 해당 유형 cursor>" }\`. 최소 1개 이상 포함합니다. |
+| \`todo\` / \`note\` / \`recording\` / \`meeting\` / \`email\` / \`alimtalk\` / \`sms\` | object | 선택 | 조회할 활동 유형. 원하는 유형의 키를 body에 포함하며, 값은 \`{}\`(기본 5건) 또는 \`{ "limit": 1~50, "cursor": "<이전 응답의 해당 유형 cursor>" }\`. 최소 1개 이상 포함합니다. |
+
+* \`limit\`: 유형별 반환 건수 (1~50, 기본 5). \`cursor\` 없이도 한 번에 최대 50건.
+* \`cursor\`: 유형별 독립 페이지네이션 커서. 첫 페이지는 생략.
 
 **요청 예시**
 
@@ -1996,7 +1999,7 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 {
   "objectType": "딜",
   "objectId": "<dealId>",
-  "email": {},
+  "email": { "limit": 10 },
   "note": {}
 }
 \`\`\`
@@ -2007,14 +2010,29 @@ v2와 달리 \`success\`/\`data\` 래퍼 없이 본문을 직접 반환합니다
 
 \`\`\`json
 {
-  "email": { "data": [ { "...": "..." } ], "cursor": "..." },
-  "note": { "data": [ { "...": "..." } ], "cursor": null }
+  "email": { "data": [ /* email 항목 */ ], "cursor": "..." },
+  "note": { "data": [ /* note 항목 */ ], "cursor": null }
 }
 \`\`\`
 
 * 유형별 \`cursor\`가 \`null\`이 아니면 다음 페이지가 있습니다. 해당 유형만 \`{ "cursor": ... }\`로 담아 재호출합니다.
-* 이메일·녹음 활동은 상세 데이터가 인라인으로 포함됩니다.
 * 에러는 v2와 동일하게 \`{ "success": false, "message", "reason" }\` 형태로 반환됩니다.
+
+**유형별 응답 필드**
+
+공통: \`_id\`, \`createdAt\`.
+
+| 유형 | 주요 필드 |
+| --- | --- |
+| \`todo\` | \`title\`, \`type\`, \`content\`, \`startDate\`, \`endDate\`, \`isAllDay\`, \`done\`, \`doneDate\` |
+| \`note\` | \`text\`(순수 텍스트), \`pinned\`. ※API 원응답의 \`htmlBody\`(렌더링용 HTML)는 \`text\`와 내용이 중복되어 MCP에서 제거함 |
+| \`recording\` | \`title\`, \`status\`, \`duration\`(초), \`source\`, \`coreSummary\`(AI 통화 요약). ※녹음 파일 URL·STT 전문은 없음 |
+| \`meeting\` | \`title\`, \`status\`, \`content\`, \`startDate\`, \`endDate\` |
+| \`email\` | \`subject\`, \`fromName\`, \`fromAddress\`, \`toName\`, \`toAddress\`, \`status\`, \`date\`, \`openCount\`, \`clickCount\`. ※본문(html/text)은 없음 |
+| \`alimtalk\` | \`content\`, \`recipientNo\`, \`resultCode\`, \`resultCodeName\`, \`createDate\`, \`receiveDate\` |
+| \`sms\` | \`subject\`, \`text\`, \`sendStatus\`, \`resultCode\`, \`toPhoneNumber\`, \`sendType\`, \`imageUrl\`, \`imageFileName\` |
+
+> 응답 크기 팁: \`recording.coreSummary\`(AI 요약)가 응답을 키울 수 있습니다. 요약·집계만 필요하면 해당 유형을 빼거나 \`limit\`을 낮추세요.
 
 ***
 
