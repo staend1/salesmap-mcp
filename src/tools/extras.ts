@@ -105,6 +105,7 @@ const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 | 필드 관리 | \`list-properties\`, \`create-property\` |
 | 파이프라인·견적 | \`get-pipelines\`, \`list-products\`, \`create-quote\`, \`get-quotes\`, \`get-link\` |
 | 시퀀스·웹폼 | \`list-sequences\`, \`list-webforms\` |
+| 서버 실행 | \`run-script\` |
 
 ---
 
@@ -161,6 +162,22 @@ get-pipelines(objectType: "deal")                 # 파이프라인·단계 ID �
 search-objects(objectType, filterGroups)
   → get-lead-time(objectType, objectId)           # 단계별 진입일·체류시간·퇴장일
 \`\`\`
+
+### 대량 집계·멀티홉 작업 (run-script)
+N건 루프·집계처럼 도구를 여러 번 연달아 호출해야 할 때 사용.
+중간 데이터가 컨텍스트에 쌓이지 않고 결과만 반환됨.
+\`\`\`
+run-script(script: \`
+  const { dealList } = await salesmap.get('/v2/deal', { limit: '100' });
+  const results = [];
+  for (const deal of dealList) {
+    const timeline = await salesmap.post('/v3/object/activity', { objectType: '딜', objectId: deal.dealId, note: {} });
+    results.push({ dealId: deal.dealId, noteCount: timeline.note?.data?.length ?? 0 });
+  }
+  return results;
+\`)
+\`\`\`
+⚠️ 최대 30초. 쓰기(create·update·delete) API도 호출 가능하므로 신중하게.
 
 ---
 
@@ -873,6 +890,44 @@ export function registerExtrasTools(server: McpServer) {
     READ,
     async (_params, _extra) => {
       return { content: [{ type: "text" as const, text: SALESMAP_DOCS }] };
+    },
+  );
+
+  // ── Run Script ───────────────────────────────────────────
+  server.tool(
+    "salesmap-run-script",
+    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.",
+    {
+      script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.get('/v2/deal'); return dealList.map(d => d.dealId);"),
+      label: z.string().optional().describe("스크립트가 하는 일 한 줄 요약 (로그용)"),
+    },
+    WRITE,
+    async ({ script, label: _label }, extra) => {
+      const client = getClient(extra);
+
+      const salesmap = {
+        get: (path: string, query?: Record<string, string>) => client.get(path, query),
+        post: (path: string, body?: Record<string, unknown>) => client.post(path, body),
+      };
+
+      const { createContext, runInContext } = await import("node:vm");
+      const context = createContext({ salesmap, Promise });
+      const wrapped = `(async () => {\n${script}\n})()`;
+
+      const timeoutMs = 30_000;
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`스크립트 실행 제한 시간(${timeoutMs / 1000}초) 초과`)), timeoutMs)
+      );
+
+      try {
+        const result = await Promise.race([
+          runInContext(wrapped, context) as Promise<unknown>,
+          timeoutPromise,
+        ]);
+        return ok(result);
+      } catch (e: unknown) {
+        return err((e as Error).message ?? String(e));
+      }
     },
   );
 
