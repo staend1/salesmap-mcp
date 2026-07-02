@@ -942,6 +942,9 @@ export function registerExtrasTools(server: McpServer) {
           runInContext(wrapped, context, { filename: "salesmap-script" }) as Promise<unknown>,
           timeoutPromise,
         ]);
+        if (result === undefined) {
+          return err("스크립트가 값을 반환하지 않았습니다. 결과를 반환하려면 스크립트 마지막에 return <값>을 추가하세요.");
+        }
         return ok(result);
       } catch (e: unknown) {
         const error = e as Error;
