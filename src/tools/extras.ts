@@ -169,16 +169,22 @@ N건 루프·집계처럼 도구를 여러 번 연달아 호출해야 할 때 �
 중간 데이터가 컨텍스트에 쌓이지 않고 결과만 반환됨.
 \`\`\`
 run-script(script: \`
-  const { dealList } = await salesmap.get('/v2/deal', { limit: '100' });
+  const { dealList } = await salesmap.getAll('/v2/deal');   // 전 페이지 자동 순회
   const results = [];
   for (const deal of dealList) {
-    const timeline = await salesmap.post('/v3/object/activity', { objectType: '딜', objectId: deal.dealId, note: {} });
-    results.push({ dealId: deal.dealId, noteCount: timeline.note?.data?.length ?? 0 });
+    const timeline = await salesmap.post('/v3/object/activity', { objectType: '딜', objectId: deal.id, note: {} });
+    results.push({ dealId: deal.id, noteCount: timeline.note?.data?.length ?? 0 });
   }
   return results;
 \`)
 \`\`\`
 ⚠️ 최대 30초. 쓰기(create·update·delete) API도 호출 가능하므로 신중하게.
+
+**run-script 필수 규칙**
+- \`salesmap.get/post\`는 응답의 \`success\`/\`data\` 래퍼를 **벗겨서** 반환 — \`r.dealList\`로 접근 (\`r.data.dealList\` 아님). api-ref의 응답 예시는 래핑 형태이므로 주의.
+- 목록은 \`salesmap.getAll(path, query?)\` 사용 — \`nextCursor\`를 자동 순회해 전 페이지를 합쳐 반환. 수동 \`get\`은 첫 페이지만 나와 조용히 잘림.
+- **결과가 전부 0·빈 배열이면 데이터가 없는 게 아니라 접근 경로가 틀렸을 가능성부터 의심** — 샘플 1건을 raw로 \`return\`해서 실제 구조를 먼저 확인.
+- N건 각각 상세 조회하기 전에, 필터 파라미터를 생략하면 전체를 한 번에 받을 수 있는 엔드포인트인지 확인 — N번 호출을 1번으로 줄일 수 있음.
 
 
 ---
@@ -909,9 +915,9 @@ export function registerExtrasTools(server: McpServer) {
   // ── Run Script ───────────────────────────────────────────
   server.tool(
     "salesmap-run-script",
-    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
+    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 N건 레코드 루프·집계·변환 등 도구 여러 번 연달아 써야 할 때 적합. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 30초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
     {
-      script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.get('/v2/deal'); return dealList.map(d => d.dealId);"),
+      script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)·salesmap.getAll(path, query?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.getAll('/v2/deal'); return dealList.map(d => d.dealId);\n※ 응답은 data 언랩 상태 — r.dealList로 접근 (r.data.dealList 아님)"),
     },
     WRITE,
     async ({ script }, extra) => {
@@ -925,6 +931,26 @@ export function registerExtrasTools(server: McpServer) {
         post: async (path: string, body?: Record<string, unknown>) => {
           try { return await client.post(path, body); }
           catch (e: unknown) { throw new Error(`[POST ${path}] ${(e as Error).message}`); }
+        },
+        // nextCursor 자동 순회 — 전 페이지 배열을 합쳐 반환 (활동 많은 레코드의 조용한 잘림 방지)
+        getAll: async (path: string, query?: Record<string, string>) => {
+          const merged: Record<string, unknown> = {};
+          let cursor: string | undefined;
+          const MAX_PAGES = 100;
+          for (let page = 0; page < MAX_PAGES; page++) {
+            const q = cursor ? { ...query, cursor } : query;
+            let res: Record<string, unknown>;
+            try { res = await client.get<Record<string, unknown>>(path, q); }
+            catch (e: unknown) { throw new Error(`[GET ${path}${cursor ? " (page " + (page + 1) + ")" : ""}] ${(e as Error).message}`); }
+            for (const [k, v] of Object.entries(res)) {
+              if (Array.isArray(v)) merged[k] = [...((merged[k] as unknown[]) ?? []), ...v];
+              else if (k !== "nextCursor") merged[k] = v;
+            }
+            const next = res.nextCursor as string | null | undefined;
+            if (!next) break;
+            cursor = next;
+          }
+          return merged;
         },
       };
 
