@@ -1,4 +1,5 @@
 // AI용 세일즈맵 REST API 레퍼런스 — salesmap-get-api-ref 도구용
+// 원본: docs/internal/api-ref-source.md — 수정 시 원본 고치고 재생성할 것
 export const SALESMAP_API_REF = `# AI용 문서
 
 ## 세일즈맵 API 레퍼런스
@@ -21,6 +22,7 @@ export const SALESMAP_API_REF = `# AI용 문서
 * 딜 (Deal)
 * 리드 (Lead)
 * 커스텀 오브젝트 (Custom Object)
+* 액티비티 (Activity)
 * 견적서 · 상품 · 파이프라인 (Quote / Product / Pipeline)
 * 통합 검색 · 연관관계 (Search & Association)
 * 필드 · 파일 · 이메일 (Field / File / Email)
@@ -71,14 +73,14 @@ export const SALESMAP_API_REF = `# AI용 문서
 | 견적서 생성 / 딜·리드 견적 조회         | \`POST /v2/quote\` / \\\`GET /v2/{deal                                     |
 | 노트(메모) 생성                   | 레코드 생성·수정 시 body \`memo\` (전용 생성 API 없음. "노트 / 메모" 섹션 참조)                |
 | 노트 조회 / 유형 목록               | \`GET /v2/memo\` (필터 가능) / \`GET /v2/memo/type-list\`                      |
-| 변경 이력 / 활동(타임라인) 조회         | \`GET /v2/{type}/history\` / \`GET /v2/{type}/activity\`                   |
+| 변경 이력 / 활동(타임라인) 조회         | \`GET /v2/{type}/history\` / \`POST /v3/object/activity\`                   |
 | 삭제                          | "부록 > 삭제 API 요약" 참조 (딜·리드만 API 삭제 가능)                                  |
 
 > **생성 순서 (연결된 상태로 만들 때):** 연결 대상 ID(\`organizationId\`·\`peopleId\`)는 생성 시 검증되어 **이미 존재해야** 하며, 없으면 \`400\`(\`organizationId의 대상을 찾을 수 없습니다.\` 등)을 반환합니다. 따라서 처음부터 연결된 상태로 만들려면 **회사 → 고객 → 딜·리드** 순으로 생성하세요(부모를 먼저 만들고, 반환된 \`id\`를 자식 생성 body의 \`organizationId\`·\`peopleId\`로 전달). 순서를 지키지 않아도 각 오브젝트를 독립적으로 만든 뒤 수정 API(\`POST /v2/{type}/{id}\`)로 나중에 연결할 수 있습니다.
 
 ### 히스토리 vs 액티비티
 
-여러 오브젝트가 \`…/history\`(히스토리)와 \`…/activity\`(액티비티) 두 종류의 타임라인을 제공합니다. \`…/activity\` 엔드포인트는 세일즈맵 GUI에서 \\*\\*"타임라인"\\*\\*이라는 이름으로 표시됩니다.
+여러 오브젝트가 히스토리(\`GET /v2/{type}/history\`)와 액티비티(\`POST /v3/object/activity\`) 두 종류의 타임라인을 제공합니다. 액티비티는 세일즈맵 GUI에서 \\*\\*"타임라인"\\*\\*이라는 이름으로 표시됩니다.
 
 |       | 히스토리 (history)                      | 액티비티 (activity)      |
 | ----- | ----------------------------------- | -------------------- |
@@ -248,7 +250,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 * \`POST /v2/people\` — 고객 생성
 * \`GET /v2/people/{peopleId}\` — 고객 상세 조회
 * \`POST /v2/people/{peopleId}\` — 고객 수정
-* \`GET /v2/people/activity\` — 고객 액티비티 조회
+* \`POST /v3/object/activity\` — 고객 액티비티(타임라인) 조회
 * \`GET /v2/people/history\` — 고객 히스토리 조회
 * \`GET /v2/people-temp/{email}\` — 이메일로 고객 조회
 
@@ -256,7 +258,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 
 * \`GET /v2/organization\` — 회사 목록 조회
 * \`GET /v2/organization/{organizationId}\` — 회사 단건 조회
-* \`GET /v2/organization/activity\` — 회사 액티비티(활동 타임라인)
+* \`POST /v3/object/activity\` — 회사 액티비티(타임라인) 조회
 * \`GET /v2/organization/history\` — 회사 필드 변경 이력
 * \`POST /v2/organization\` — 회사 생성
 * \`POST /v2/organization/{organizationId}\` — 회사 수정
@@ -266,7 +268,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 * \`GET /v2/deal\` — 딜 목록 조회
 * \`GET /v2/deal/{dealId}\` — 딜 상세 조회
 * \`GET /v2/deal/pipeline\` — 딜 파이프라인(단계) 목록 조회
-* \`GET /v2/deal/activity\` — 딜 액티비티 조회
+* \`POST /v3/object/activity\` — 딜 액티비티(타임라인) 조회
 * \`GET /v2/deal/history\` — 딜 히스토리(변경 이력) 조회
 * \`GET /v2/deal/{dealId}/quote\` — 딜의 견적서 목록 조회
 * \`POST /v2/deal\` — 딜 생성
@@ -278,7 +280,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 * \`GET /v2/lead\` — 리드 목록 조회
 * \`GET /v2/lead/{leadId}\` — 리드 상세 조회
 * \`GET /v2/lead/pipeline\` — 리드 파이프라인 조회
-* \`GET /v2/lead/activity\` — 리드 액티비티 조회
+* \`POST /v3/object/activity\` — 리드 액티비티(타임라인) 조회
 * \`GET /v2/lead/history\` — 리드 히스토리 조회
 * \`GET /v2/lead/{leadId}/quote\` — 리드 견적서 목록 조회
 * \`POST /v2/lead\` — 리드 생성
@@ -293,7 +295,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 * \`POST /v2/custom-object\` — 커스텀 오브젝트 생성
 * \`POST /v2/custom-object/{customObjectId}\` — 커스텀 오브젝트 수정
 * \`GET /v2/custom-object/history\` — 커스텀 오브젝트 히스토리 조회
-* \`GET /v2/custom-object/activity\` — 커스텀 오브젝트 액티비티 조회
+* \`POST /v3/object/activity\` — 커스텀 오브젝트 액티비티(타임라인) 조회
 * \`POST /v2/custom-object-temp\` — 커스텀 오브젝트 임시 생성
 
 **견적서 · 상품 · 파이프라인 (Quote / Product / Pipeline)**
@@ -586,56 +588,9 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 
 ***
 
-#### GET /v2/people/activity — 고객 액티비티 조회
+#### 액티비티(타임라인) 조회 — 고객
 
-고객의 이메일·웹폼·노트·TODO 등 영업 활동(engagement)을 조회합니다.
-
-**요청 파라미터**
-
-| 이름         | 위치    | 타입           |  필수 | 설명                                       |
-| ---------- | ----- | ------------ | :-: | ---------------------------------------- |
-| \`peopleId\` | query | string(UUID) |  선택 | 특정 고객으로 필터링합니다. 생략 시 전체 고객의 액티비티를 반환합니다. |
-| \`cursor\`   | query | string(UUID) |  선택 | 페이지네이션 커서                                |
-
-**응답** \`200 OK\`
-
-\`data.peopleActivityList\`는 액티비티 레코드 배열입니다. 해당 없는 항목은 \`null\`입니다.
-
-\`\`\`json
-{
-  "success": true,
-  "data": {
-    "peopleActivityList": [
-      {
-        "id": "...",
-        "type": "email",
-        "date": "...",
-        "peopleId": "...",
-        "emailId": "...",
-        "messageId": "...",
-        "threadId": "...",
-        "webFormId": null,
-        "webFormName": null,
-        "smsId": null,
-        "memoId": null,
-        "todoId": null,
-        "documentId": null,
-        "documentName": null
-      }
-    ],
-    "nextCursor": null
-  }
-}
-\`\`\`
-
-액티비티 레코드 키: \`id\`, \`type\`(예: \`"create"\`, \`"email"\`), \`date\`(ISO8601), \`peopleId\`, \`emailId\`, \`messageId\`, \`threadId\`, \`webFormId\`, \`webFormName\`, \`smsId\`, \`memoId\`, \`todoId\`, \`documentId\`, \`documentName\`.
-
-**에러**
-
-| 코드  | message               | reason             | 조건    |
-| --- | --------------------- | ------------------ | ----- |
-| 401 | Unauthorized          | (위 401 reason과 동일) | 인증 실패 |
-| 500 | Internal Server Error | —                  | 서버 오류 |
+\`POST /v3/object/activity\`를 사용합니다. "액티비티 (Activity)" 섹션 참조.
 
 ***
 
@@ -728,7 +683,7 @@ Base: \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Be
 | ---- | ----------------------------------- | ---------------- |
 | GET  | \`/v2/organization\`                  | 회사 목록 조회         |
 | GET  | \`/v2/organization/{organizationId}\` | 회사 단건 조회         |
-| GET  | \`/v2/organization/activity\`         | 회사 액티비티(활동 타임라인) |
+| POST | \`/v3/object/activity\`               | 회사 액티비티(타임라인) — "액티비티 (Activity)" 섹션 참조 |
 | GET  | \`/v2/organization/history\`          | 회사 필드 변경 이력      |
 | POST | \`/v2/organization\`                  | 회사 생성            |
 | POST | \`/v2/organization/{organizationId}\` | 회사 수정            |
@@ -815,37 +770,9 @@ id, RecordId, 이름, 주소, 웹 주소, 전화, 업종, 직원수, 프로필 �
 
 ***
 
-#### GET /v2/organization/activity — 회사 액티비티(활동 타임라인)
+#### 액티비티(타임라인) 조회 — 회사
 
-회사와 관련된 모든 활동(이메일·미팅·웹폼·메모·TODO·생성 등)을 시계열로 조회합니다.
-
-**요청 파라미터**
-
-| 이름               | 위치    | 타입           |  필수 | 설명                                      |
-| ---------------- | ----- | ------------ | :-: | --------------------------------------- |
-| \`organizationId\` | query | string(UUID) | 아니오 | 특정 회사로 필터합니다. 생략하면 워크스페이스 전체 활동을 반환합니다. |
-| \`cursor\`         | query | string       | 아니오 | 페이지네이션 커서(페이지당 50건).                    |
-
-**응답** \`200 OK\`
-
-\`\`\`json
-{ "success": true, "data": { "organizationActivityList": [ { "...": "..." } ], "nextCursor": "..." } }
-\`\`\`
-
-항목 스키마(고정 키, 해당 없으면 \`null\`):
-
-\`\`\`
-{ id, type, date, organizationId, emailId, messageId, threadId,
-  webFormId, webFormName, smsId, memoId, todoId }
-\`\`\`
-
-\`type\` 값: \`create\`, \`email\`, \`emailOpen\`, \`webFormSubmit\`, \`memoCreate\`, \`meeting\`, \`todoCreate\`. \`todoCreate\`는 \`todoId\`가 채워집니다. type 목록은 폐쇄형으로 가정하지 않습니다.
-
-**에러**
-
-| HTTP | message      | reason                                              | 조건    |
-| ---- | ------------ | --------------------------------------------------- | ----- |
-| 401  | Unauthorized | \`유효하지 않은 토큰입니다.\` / \`헤더에서 Authorization을 찾을 수 없습니다.\` | 인증 실패 |
+\`POST /v3/object/activity\`를 사용합니다. "액티비티 (Activity)" 섹션 참조.
 
 ***
 
@@ -1130,42 +1057,9 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 ***
 
-#### GET /v2/deal/activity — 딜 액티비티 조회
+#### 액티비티(타임라인) 조회 — 딜
 
-딜에서 발생한 활동을 조회합니다.
-
-**요청 파라미터**
-
-| 이름     | 위치    | 타입           |  필수 | 설명                                              |
-| ------ | ----- | ------------ | :-: | ----------------------------------------------- |
-| dealId | query | string(uuid) |  선택 | 특정 딜로 필터합니다. 미지정 시 워크스페이스 전체 액티비티를 최신순으로 반환합니다. |
-| cursor | query | string       |  선택 | 페이지네이션 커서                                       |
-
-**응답** \`200 OK\`
-
-\`data.dealActivityList\`는 액티비티 배열이고, \`data.nextCursor\`는 다음 페이지 커서입니다. 페이지 크기는 50건입니다.
-
-\`\`\`json
-{ "success": true, "data": { "dealActivityList": [ { "id": "...", "type": "create", "date": "...", "dealId": "..." } ], "nextCursor": "..." } }
-\`\`\`
-
-| 키                                    | 타입              | 설명                                        |
-| ------------------------------------ | --------------- | ----------------------------------------- |
-| \`id\`                                 | string(uuid)    | 액티비티 ID                                   |
-| \`type\`                               | string          | 활동 유형. 예: \`create\`, \`email\`, \`todoCreate\` |
-| \`date\`                               | string(ISO8601) | 발생 시각                                     |
-| \`dealId\`                             | string(uuid)    | 대상 딜                                      |
-| \`emailId\` / \`messageId\` / \`threadId\` | string\\|null    | 이메일 관련                                    |
-| \`webFormId\` / \`webFormName\`          | string\\|null    | 웹폼 관련                                     |
-| \`smsId\` / \`memoId\` / \`todoId\`        | string\\|null    | 각 활동 참조                                   |
-| \`dealStatus\`                         | string\\|null    | 상태 변화 활동 시 딜 상태                           |
-
-**에러**
-
-| 코드  | message               | reason                           | 조건    |
-| --- | --------------------- | -------------------------------- | ----- |
-| 401 | Unauthorized          | \`헤더에서 Authorization을 찾을 수 없습니다.\` | 인증 없음 |
-| 500 | Internal Server Error | —                                | 서버 오류 |
+\`POST /v3/object/activity\`를 사용합니다. "액티비티 (Activity)" 섹션 참조.
 
 ***
 
@@ -1488,42 +1382,9 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 ***
 
-#### GET /v2/lead/activity — 리드 액티비티 조회
+#### 액티비티(타임라인) 조회 — 리드
 
-리드의 액티비티 이력을 조회합니다.
-
-**요청 파라미터**
-
-| 이름     | 위치    | 타입           |  필수 | 설명                                     |
-| ------ | ----- | ------------ | :-: | -------------------------------------- |
-| leadId | query | string(uuid) |     | 특정 리드로 필터링합니다. 생략 시 전체 리드 액티비티를 반환합니다. |
-| cursor | query | string       |     | 페이지네이션 커서                              |
-
-**응답** \`200 OK\`
-
-\`data.leadActivityList\`는 액티비티 배열입니다.
-
-\`\`\`json
-{ "success": true, "data": { "leadActivityList": [ { "id": "...", "type": "create", "date": "...", "leadId": "...", "memoId": null } ] } }
-\`\`\`
-
-| 항목 키                                                       | 타입                 | 설명          |
-| ---------------------------------------------------------- | ------------------ | ----------- |
-| \`id\`                                                       | string(uuid)       | 액티비티 ID     |
-| \`type\`                                                     | string             | 액티비티 종류     |
-| \`date\`                                                     | string(ISO8601)    | 발생 시각       |
-| \`leadId\`                                                   | string(uuid)       | 대상 리드       |
-| \`emailId\` \`messageId\` \`threadId\` \`smsId\` \`memoId\` \`todoId\` | string(uuid)\\|null | 해당 타입 연결 ID |
-| \`webFormId\` \`webFormName\`                                  | string\\|null       | 웹폼 제출 시     |
-
-\`type\` 값에는 \`create\`, \`memoCreate\`, \`todoCreate\`, \`webFormSubmit\`, \`email\` 등이 있습니다.
-
-**에러**
-
-| 코드  | message      | reason                           | 조건    |
-| --- | ------------ | -------------------------------- | ----- |
-| 401 | Unauthorized | \`헤더에서 Authorization을 찾을 수 없습니다.\` | 인증 없음 |
-| 500 | —            | —                                | 서버 오류 |
+\`POST /v3/object/activity\`를 사용합니다. "액티비티 (Activity)" 섹션 참조.
 
 ***
 
@@ -2065,55 +1926,9 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 
 ***
 
-#### GET /v2/custom-object/activity — 커스텀 오브젝트 액티비티 조회
+#### 액티비티(타임라인) 조회 — 커스텀 오브젝트
 
-레코드의 활동 타임라인(생성·메모·이메일 등)을 조회합니다.
-
-**요청 파라미터**
-
-| 이름               | 위치    | 타입     |  필수 | 설명                  |
-| ---------------- | ----- | ------ | :-: | ------------------- |
-| \`customObjectId\` | query | string |     | 특정 레코드로 필터. 생략 시 전체 |
-| \`cursor\`         | query | string |     | 페이지네이션 커서           |
-
-**응답 \`200 OK\`**
-
-\`\`\`json
-{
-  "success": true,
-  "data": {
-    "customObjectActivityList": [
-      {
-        "id": "<id>",
-        "type": "create",
-        "date": "...",
-        "customObjectId": "<id>",
-        "emailId": null, "messageId": null, "threadId": null, "smsId": null,
-        "memoId": null, "todoId": null, "meetingId": null,
-        "kakaoAlimtalkId": null, "emailLinkId": null
-      }
-    ]
-  }
-}
-\`\`\`
-
-| 경로                                                                           | 타입           | 설명                               |
-| ---------------------------------------------------------------------------- | ------------ | -------------------------------- |
-| \`…[].id\`                                                                     | string       | 액티비티 ID                          |
-| \`…[].type\`                                                                   | string       | 활동 유형(예: \`create\`, \`memoCreate\`) |
-| \`…[].date\`                                                                   | string(ISO)  | 활동 시각                            |
-| \`…[].customObjectId\`                                                         | string       | 대상 레코드 ID                        |
-| \`…[].{email,message,thread,sms,memo,todo,meeting,kakaoAlimtalk,emailLink}Id\` | string\\|null | 연결된 객체 ID(해당 활동일 때만 채워짐)         |
-
-> **참고:** 커스텀 오브젝트 액티비티에는 \`meetingId\`, \`kakaoAlimtalkId\`, \`emailLinkId\`가 포함되며 \`webFormId\`는 포함되지 않습니다. 이 응답에는 \`nextCursor\`가 포함되지 않으므로, 사용 전 존재 여부를 확인합니다.
-
-**에러**
-
-| 코드  | message               | 조건       |
-| --- | --------------------- | -------- |
-| 401 | Unauthorized          | 토큰 무효/누락 |
-| 429 | Too Many Requests     | 레이트리밋 초과 |
-| 500 | Internal Server Error | 서버 오류    |
+\`POST /v3/object/activity\`를 사용합니다. "액티비티 (Activity)" 섹션 참조.
 
 ***
 
@@ -2154,6 +1969,50 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 | 401 | Unauthorized          | 토큰 무효/누락                                                                                 |
 | 429 | Too Many Requests     | 레이트리밋 초과                                                                                 |
 | 500 | Internal Server Error | 서버 오류                                                                                    |
+
+***
+
+### 액티비티 (Activity)
+
+모든 오브젝트(고객·회사·딜·리드·커스텀 오브젝트)의 활동 타임라인을 단일 엔드포인트로 조회합니다. 세일즈맵 GUI의 **"타임라인"**에 해당합니다.
+
+#### POST /v3/object/activity — 액티비티(타임라인) 조회
+
+투두·노트·녹음·미팅·이메일·알림톡·문자 활동을 유형별로 조회합니다.
+
+**요청 파라미터** (body, \`application/json\`)
+
+| 이름 | 타입 | 필수 | 설명 |
+| --- | --- | :-: | --- |
+| \`objectType\` | string | 필수 | \`"고객"\` \\| \`"회사"\` \\| \`"딜"\` \\| \`"리드"\` 또는 커스텀 오브젝트 이름. **한글 이름**을 사용합니다. |
+| \`objectId\` | string(UUID) | 필수 | 조회할 레코드 ID |
+| \`todo\` / \`note\` / \`recording\` / \`meeting\` / \`email\` / \`alimtalk\` / \`sms\` | object | 선택 | 조회할 활동 유형. 원하는 유형의 키를 body에 포함하며, 값은 \`{}\`(첫 페이지) 또는 \`{ "cursor": "<이전 응답의 해당 유형 cursor>" }\`. 최소 1개 이상 포함합니다. |
+
+**요청 예시**
+
+\`\`\`json
+{
+  "objectType": "딜",
+  "objectId": "<dealId>",
+  "email": {},
+  "note": {}
+}
+\`\`\`
+
+**응답** \`200 OK\`
+
+v2와 달리 \`success\`/\`data\` 래퍼 없이 본문을 직접 반환합니다. 요청한 유형별로 독립된 \`data\` 배열과 \`cursor\`를 반환합니다.
+
+\`\`\`json
+{
+  "email": { "data": [ { "...": "..." } ], "cursor": "..." },
+  "note": { "data": [ { "...": "..." } ], "cursor": null }
+}
+\`\`\`
+
+* 유형별 \`cursor\`가 \`null\`이 아니면 다음 페이지가 있습니다. 해당 유형만 \`{ "cursor": ... }\`로 담아 재호출합니다.
+* 이메일·녹음 활동은 상세 데이터가 인라인으로 포함됩니다.
+* 에러는 v2와 동일하게 \`{ "success": false, "message", "reason" }\` 형태로 반환됩니다.
 
 ***
 
@@ -3646,7 +3505,7 @@ app.post('/webhook/salesmap', (req, res) => {
 4. **담당자/관계 필드**: 이름이 아니라 ID(\`userValueId\`, \`peopleValueId\` 등)로 지정합니다.
 5. **회사 중복**: 생성이 중복으로 실패하면 에러 응답의 \`data.id\`로 기존 회사를 재사용합니다.
 6. **단건 조회**: \`data.<object>\`는 1요소 배열입니다. \`data.people[0]\`처럼 접근합니다.
-7. **이메일 본문**: 이메일 메타는 액티비티의 \`emailId\`로 식별한 뒤 \`GET /v2/email/{id}\`로 개별 조회합니다.
+7. **이메일 본문**: 액티비티(\`POST /v3/object/activity\`) 응답에 인라인으로 포함됩니다. \`emailId\`만 있는 경우 \`GET /v2/email/{id}\`로 개별 조회합니다.
 8. **시퀀스 분석**: 목록 → \`step\` → \`enrollment\` → \`timeline\` 순으로 드릴다운합니다.
 9. **웹훅 처리**: 10초 내 \`200\`을 응답하고 처리는 비동기로, 중복은 \`eventId + objectId\`로 감지합니다.
 10. **삭제**: 딜·리드는 \`POST /v2/{type}/{id}/delete\`로 삭제합니다. 고객·회사·필드·파일에는 삭제 API가 없습니다.
