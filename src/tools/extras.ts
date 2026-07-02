@@ -951,6 +951,7 @@ export function registerExtrasTools(server: McpServer) {
 
         let msg = error.message ?? String(e);
         if (lineNo && failLine) msg += `\n[스크립트 ${lineNo}번째 줄] ${failLine}`;
+        msg += "\n[힌트] 엔드포인트·요청 형식 확인: salesmap-get-api-ref";
         return err(msg);
       }
     },
