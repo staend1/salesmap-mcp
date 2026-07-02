@@ -1014,17 +1014,19 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.",
+    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n📏 limit으로 유형별 건수 조절(1~50, 기본 5). 요약·집계 땐 낮게, 전체 이력 땐 높게.\n🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.",
     {
       objectType: z.string().describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
       objectId: z.string().describe("레코드 UUID"),
       types: z.array(z.enum(["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"])).optional()
-        .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note'])"),
+        .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note']). note·recording은 본문·요약이 커 응답이 무거우니 필요한 유형만 지정 권장"),
+      limit: z.number().int().min(1).max(50).optional()
+        .describe("유형별 반환 건수 (1~50, 기본 5). 모든 조회 유형에 동일 적용."),
       after: z.string().optional()
         .describe("페이지네이션 커서. 이전 응답의 cursor 값. types로 유형 한정 후 사용."),
     },
     READ,
-    async ({ objectType, objectId, types, after }, extra) => {
+    async ({ objectType, objectId, types, limit, after }, extra) => {
       try {
         const client = getClient(extra);
 
@@ -1037,7 +1039,10 @@ export function registerExtrasTools(server: McpServer) {
           const activeTypes: ActivityType[] = (types as ActivityType[]) ?? [...ALL_ACTIVITY_TYPES];
           const body: Record<string, unknown> = { objectType: apiType, objectId };
           for (const t of activeTypes) {
-            body[t] = after ? { cursor: after } : {};
+            const opt: Record<string, unknown> = {};
+            if (after) opt.cursor = after;
+            if (limit !== undefined) opt.limit = limit;
+            body[t] = opt;
           }
           return ok(await client.post("/v3/object/activity", body));
         }
