@@ -73,7 +73,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Read ────────────────────────────────────────
   server.tool(
     "salesmap-batch-read-objects",
-    "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연결 레코드를 인라인으로 포함 가능.",
+    "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연결 레코드를 인라인으로 포함 가능.\n🔗 다른 레코드를 참조하는 관계형 필드(고객·회사·딜 연결 등)는 fieldList가 아닌 associationList에 지정.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
@@ -98,8 +98,19 @@ export function registerGenericTools(server: McpServer) {
             return ok(await client.post("/v3/object/read", body));
           } catch (e: unknown) {
             const msg = (e as Error).message;
-            // fieldList 에러: 잘못된 필드명 + list-properties 안내
+            // fieldList 에러: 관계형 필드면 associationList로 안내, 아니면 list-properties 안내
+            // (v3는 관계형 필드를 field가 아닌 association으로 취급 — list-properties엔 필드로 보여서 이름 재확인만으론 못 벗어남)
             if (msg.includes("필드를 찾을 수 없습니다")) {
+              const missing = msg.match(/필드를 찾을 수 없습니다:\s*(.+)/)?.[1]?.trim();
+              if (missing) {
+                try {
+                  const schema = await client.post<{ associationList: Array<{ name: string }> }>("/v3/association/list", { objectType: apiType });
+                  const assocNames = new Set(schema.associationList.map((a) => a.name));
+                  if (assocNames.has(missing)) {
+                    return err(`${msg}\n\n[힌트] "${missing}"은(는) 관계형 필드입니다 — fieldList가 아닌 associationList: ["${missing}"]으로 조회하세요.`);
+                  }
+                } catch { /* association 조회 실패 시 아래 기본 힌트로 */ }
+              }
               const hint = `salesmap-list-properties(objectType: "${objectType}")로 정확한 필드명을 확인하세요.\n요청한 fieldList: ${fieldList?.join(", ")}`;
               return err(`${msg}\n\n[힌트] ${hint}`);
             }
