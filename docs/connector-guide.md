@@ -8,7 +8,7 @@
 
 ---
 
-## 시작 전: 세일즈맵 API 토큰 발급
+## 시작 전: 세일즈맵 API 토큰 준비
 
 1. [세일즈맵](https://salesmap.kr) 접속 → 좌측 하단 **설정**
 2. **개인 → 연동 → API** 메뉴로 이동
@@ -16,14 +16,20 @@
 
 `[이미지 1: 세일즈맵 설정 > 개인 > 연동 > API 토큰 생성 화면]`
 
-> ⚠️ **토큰을 재발급하면 기존 연동(웹훅·자동화·다른 AI 연결 등)이 전부 끊깁니다.** 이미 토큰이 있다면 새로 만들지 말고 복사해서 사용하세요.
-> 💡 API는 무료(Free) 또는 Professional 이상 플랜에서 제공됩니다. (Starter 플랜 제외)
-> 🔒 토큰은 비밀번호와 같습니다 — 다른 사람과 공유하지 마세요.
+{% hint style="warning" %}
+**토큰을 재발급하면 기존 연동(웹훅·자동화·다른 AI 연결 등)이 전부 끊깁니다.** 이미 토큰이 있다면 새로 만들지 말고 복사해서 사용하세요.
+{% endhint %}
+
+{% hint style="info" %}
+API는 무료(Free) 또는 Professional 이상 플랜에서 제공됩니다 (Starter 플랜 제외). 토큰은 비밀번호와 같습니다 — 다른 사람과 공유하지 마세요.
+{% endhint %}
 
 ---
 
-## Claude에 연결하기
+## AI 서비스에 연결하기
 
+{% tabs %}
+{% tab title="Claude" %}
 **요건**: Claude 유료 플랜 (Pro/Max/Team/Enterprise)
 
 1. [claude.ai](https://claude.ai) 접속 → 좌측 하단 프로필 → **설정** → **커넥터**
@@ -47,12 +53,12 @@
 
 `[이미지 5: 연결 완료 후 Claude 대화 예시 — "이번 주 딜 정리해줘"]`
 
-> 데스크톱 앱에서도 동일하게 설정 → 커넥터에서 추가할 수 있습니다.
+{% hint style="info" %}
+데스크톱 앱에서도 동일하게 설정 → 커넥터에서 추가할 수 있습니다.
+{% endhint %}
+{% endtab %}
 
----
-
-## ChatGPT에 연결하기
-
+{% tab title="ChatGPT" %}
 **요건**: ChatGPT 유료 플랜 (Plus/Pro/Business/Enterprise) + 개발자 모드 활성화
 
 1. [chatgpt.com](https://chatgpt.com) 접속 → 프로필 → **설정**
@@ -72,11 +78,9 @@
 6. 대화창에서 도구 아이콘 → 세일즈맵 커넥터를 켜고 사용하세요.
 
 `[이미지 8: ChatGPT 대화에서 세일즈맵 커넥터 활성화]`
+{% endtab %}
 
----
-
-## Gemini에 연결하기
-
+{% tab title="Gemini" %}
 **요건**: 개인 Google 계정 (현재 Google 정책상 미국 계정 한정 — 국내 정식 오픈 시 별도 안내 예정)
 
 1. [gemini.google.com](https://gemini.google.com) 접속 → **설정 → Connected Apps**
@@ -86,7 +90,11 @@
 
 3. 세일즈맵 연결 페이지가 열리면 **API 토큰을 붙여넣고 [연결 승인]**
 
-> Gemini 지원 지역이 확대되는 대로 이 가이드를 업데이트합니다.
+{% hint style="info" %}
+Gemini 지원 지역이 확대되는 대로 이 가이드를 업데이트합니다.
+{% endhint %}
+{% endtab %}
+{% endtabs %}
 
 ---
 
