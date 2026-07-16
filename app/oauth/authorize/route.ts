@@ -83,8 +83,9 @@ function renderForm(req: AuthReq, errorMsg?: string): Response {
     <input type="hidden" name="code_challenge_method" value="S256">
     <label for="token">세일즈맵 API 토큰</label>
     <input type="password" id="token" name="token" autocomplete="off" required placeholder="토큰을 붙여넣으세요">
-    <div class="hint">토큰 위치: 세일즈맵 → 설정 → 개인 → 연동 → API → 토큰 생성
-      <a href="https://salesmap.kr" target="_blank" rel="noopener">세일즈맵 열기 ↗</a></div>
+    <div class="hint">토큰 위치: 세일즈맵 → 설정 → 개인 → 연동 → API</div>
+    <div class="hint">이미 토큰이 있다면 <b>복사</b>해서 쓰세요. <b>재발급하면 기존 연동이 모두 끊깁니다</b> — 토큰이 없을 때만 '토큰 생성'을 눌러주세요.</div>
+    <div class="hint"><a href="https://salesmap.kr" target="_blank" rel="noopener">세일즈맵 열기 ↗</a></div>
     <button type="submit">연결 승인</button>
   </form>`);
 }
@@ -109,7 +110,8 @@ export async function POST(request: Request) {
   const req = validateAuthReq(form);
   if (typeof req === "string") return renderFatal(req);
 
-  const token = (form.get("token") as string | null)?.trim() ?? "";
+  // 구 JSON 가이드 습관으로 "Bearer <토큰>"째로 붙여넣는 경우 방어 — 접두사 자동 제거
+  const token = ((form.get("token") as string | null)?.trim() ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return renderForm(req, "API 토큰을 입력해주세요.");
 
   // 세일즈맵에 실제 토큰 검증 — 무효 토큰으로는 code가 발급되지 않음
