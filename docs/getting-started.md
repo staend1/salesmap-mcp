@@ -106,22 +106,23 @@ claude mcp add --transport http salesmap https://mcp.ai.salesmap.kr/mcp
 {% endtab %}
 
 {% tab title="Codex" %}
-`~/.codex/config.toml`에 추가:
-
-```toml
-[mcp_servers.salesmap]
-url = "https://mcp.ai.salesmap.kr/mcp"
-bearer_token_env_var = "SALESMAP_API_TOKEN"
-```
-
-토큰은 환경변수로 등록 (설정 파일에 토큰 원문을 남기지 않는 방식):
+터미널에서 두 줄:
 
 ```bash
-# ~/.zshrc 또는 ~/.bashrc 에 추가
+# ~/.zshrc 또는 ~/.bashrc 에 추가 후 터미널 재시작 (토큰을 파일에 남기지 않는 방식)
 export SALESMAP_API_TOKEN="<API_토큰>"
+
+codex mcp add salesmap --url https://mcp.ai.salesmap.kr/mcp --bearer-token-env-var SALESMAP_API_TOKEN
 ```
 
-터미널 재시작 후 Codex 실행 → `/mcp`로 연결 확인.
+또는 토큰 없이 추가하고 브라우저에서 입력하는 **OAuth 방식**:
+
+```bash
+codex mcp add salesmap --url https://mcp.ai.salesmap.kr/mcp
+codex mcp login salesmap    # 브라우저가 열리면 API 토큰 붙여넣고 승인
+```
+
+Codex 실행 후 `/mcp`로 연결 확인.
 {% endtab %}
 
 {% tab title="Antigravity" %}
