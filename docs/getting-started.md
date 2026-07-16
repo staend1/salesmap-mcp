@@ -94,14 +94,6 @@ claude mcp add --transport http salesmap https://mcp.ai.salesmap.kr/mcp \
   --header "Authorization: Bearer <API_토큰>"
 ```
 
-토큰을 커맨드에 남기고 싶지 않다면 토큰 없이 추가 후 브라우저에서 입력:
-
-```bash
-claude mcp add --transport http salesmap https://mcp.ai.salesmap.kr/mcp
-```
-
-이후 세션에서 `/mcp` → salesmap 인증 → 브라우저에 API 토큰 붙여넣고 승인.
-
 확인: `claude mcp list` 에서 salesmap ✓ connected
 {% endtab %}
 
@@ -113,13 +105,6 @@ claude mcp add --transport http salesmap https://mcp.ai.salesmap.kr/mcp
 export SALESMAP_API_TOKEN="<API_토큰>"
 
 codex mcp add salesmap --url https://mcp.ai.salesmap.kr/mcp --bearer-token-env-var SALESMAP_API_TOKEN
-```
-
-또는 토큰 없이 추가하고 브라우저에서 입력하는 **OAuth 방식**:
-
-```bash
-codex mcp add salesmap --url https://mcp.ai.salesmap.kr/mcp
-codex mcp login salesmap    # 브라우저가 열리면 API 토큰 붙여넣고 승인
 ```
 
 Codex 실행 후 `/mcp`로 연결 확인.
@@ -154,7 +139,6 @@ Streamable HTTP 원격 MCP를 지원하는 클라이언트라면:
 
 - URL: `https://mcp.ai.salesmap.kr/mcp`
 - 헤더: `Authorization: Bearer <API_토큰>`
-- OAuth 지원 클라이언트는 헤더 없이 URL만 넣어도 브라우저 인증이 동작합니다.
 
 HTTP 원격 미지원(stdio 전용) 구형 클라이언트는 mcp-remote 브리지 사용:
 
