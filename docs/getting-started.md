@@ -135,22 +135,10 @@ Antigravity는 `serverUrl` 키를 씁니다 — `url`이나 `httpUrl`은 인식�
 {% endtab %}
 
 {% tab title="기타" %}
-Streamable HTTP 원격 MCP를 지원하는 클라이언트라면:
+원격 MCP(Streamable HTTP)를 지원하는 클라이언트라면 아래 두 값만 넣으면 됩니다:
 
-- URL: `https://mcp.ai.salesmap.kr/mcp`
+- 서버 URL: `https://mcp.ai.salesmap.kr/mcp`
 - 헤더: `Authorization: Bearer <API_토큰>`
-
-HTTP 원격 미지원(stdio 전용) 구형 클라이언트는 mcp-remote 브리지 사용:
-
-```json
-{
-  "command": "npx",
-  "args": ["-y", "mcp-remote", "https://mcp.ai.salesmap.kr/mcp",
-           "--header", "Authorization: Bearer <API_토큰>"]
-}
-```
-
-(Node.js 20 이상 필요)
 {% endtab %}
 {% endtabs %}
 
