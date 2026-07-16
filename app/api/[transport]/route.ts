@@ -30,7 +30,13 @@ export async function POST(request: Request) {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // MCP 스펙: GET SSE 스트림 미지원 서버는 405를 반환해야 함.
+  // ChatGPT 등은 인증 후 GET으로 스트림을 열어보고, 200 JSON이 오면 "MCP 서버 아님"으로 판정.
+  if (request.headers.get("accept")?.includes("text/event-stream")) {
+    return new Response(null, { status: 405, headers: { Allow: "POST, DELETE" } });
+  }
+  // 브라우저 등 일반 GET은 헬스체크 유지
   return Response.json({ status: "ok", name: "salesmap-mcp", version: "1.0.0" });
 }
 
