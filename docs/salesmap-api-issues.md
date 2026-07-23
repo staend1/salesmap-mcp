@@ -63,9 +63,17 @@ POST /crm/v3/objects/deals/batch/update
 ```
 
 ```json
-// HubSpot: 서버가 타입 추론
-{ "properties": { "담당자": "uuid", "금액": 50000, "이메일": "a@b.com" } }
+// HubSpot: 평탄한 name→value 맵. 타입 키 없음 (2026-07 공식 문서 재검증, 원문 예시)
+{ "properties": {
+    "dealname": "New deal",
+    "amount": "1500.00",
+    "closedate": "2019-12-07T16:50:06.678Z",
+    "hubspot_owner_id": "910901",
+    "hs_buying_role": ";BUDGET_HOLDER;END_USER"
+}}
 ```
+
+허브스팟은 프로퍼티 **이름**만으로 서버가 자기 스키마에서 타입을 찾아 해석합니다. 타입별 부담이 "키 선택"이 아니라 "값 표기 규칙"(날짜=ISO 8601 또는 epoch ms, 복수선택=세미콜론 문자열)으로만 남고, 그마저 관대함 — 복수선택 필드에 단일 문자열을 보내도 400이 아니라 단일 값으로 수용됩니다. 클라이언트(LLM)가 타입을 몰라도 대부분 통과하는 구조.
 
 ### 실제 영향
 
