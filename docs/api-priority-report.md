@@ -98,7 +98,12 @@
 - **현재 우회와 비용 (MCP가 덮지만 한계 뚜렷)**:
   1. **예외 하드코딩** — `TOP_LEVEL_ONLY = {"금액":"price", "이름":"name", "파이프라인":"pipelineId", "파이프라인 단계":"pipelineStageId", "상태":"status"}` 맵을 손으로 유지. 필드가 늘면 계속 따라가야 하는 취약한 커버
   2. **파이프라인/단계는 커버 실패** — 담당자·팀은 `getUserMap`/`getTeamMap`으로 이름→ID 자동변환되는데 파이프라인/단계는 그런 맵이 없음. AI가 `"파이프라인": "국내영업"`(이름)을 넣으면 `"ID 형식이어야 합니다. salesmap-get-pipelines로 조회하세요"` 에러. 실사용 로그에 `[refine]: 파이프라인 값은 fieldList가 아닌 파라메터` 계열 실패 반복
-  3. **silent no-op** — top-level 전용 필드를 fieldList에 넣거나 스키마에 없는 키를 보내면 **200 OK인데 반영 안 됨**(원장 no-op 주의 참조). 실패가 에러로 안 드러나 AI가 "됐다"고 오판 → 사용자에게 틀린 완료 보고 위험
+  3. **silent no-op — 가장 위험** — 필드를 잘못된 위치·키로 보내면 API가 **거부하지 않고 `200 OK`를 반환하면서 값만 조용히 버림**. `updatedAt`은 갱신돼서 겉보기엔 성공. 실제 관찰된 no-op 케이스:
+     - top-level `ownerId`(담당자) — `200`인데 미반영. 담당자는 `fieldList`의 `userValueId`로만 변경됨
+     - 고객의 top-level `email`·`phone` — `200`인데 미저장. `fieldList`의 `이메일`/`전화`로만 저장됨
+     - 스키마에 없는 임의 파라미터(예: `foobar`, `amount`) — 에러 없이 조용히 무시
+     
+     → 에러가 안 나니 AI가 "수정 완료"로 판단하고 **사용자에게 틀린 완료 보고**. 재조회로 검증하지 않으면 데이터가 안 바뀐 걸 아무도 모름. 명시적 400 거부보다 훨씬 나쁜 실패 유형 (조용한 데이터 유실)
   4. **커버 로직 복잡** — 필드·관계·top-level이 얽혀 `resolveProperties()`가 무거워지고, 커스텀 연결만 우회되고 기본 연결(회사·고객)은 아직 미적용이라 AI가 여전히 top-level `organizationId`/`peopleId`를 써야 함
 - **부분 개선 여지 (뉴버전 전까지)**: `TOP_LEVEL_ONLY`에 objectType-스코프로 `"회사"→organizationId`·`"고객"→peopleId` 추가하면 기본 연결도 properties 단일 문법으로 흡수 (코드 십수 줄). 단 근본 해결은 백엔드 통일
 - **기대 효과**: 입력이 "이름-값 하나의 규칙"으로 통일 → AI 에러율·MCP 커버 복잡도 동시 감소. silent no-op 제거. ※top-level→fieldList 통합은 기존 연동을 깨는 breaking change라 뉴버전에서만
