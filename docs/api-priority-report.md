@@ -95,13 +95,13 @@ LLM이 타입을 모르면 잘못된 키를 씀. 실사용 실패: `{ "부가 �
 ```
 POST /v2/deal
 {
-  "name","price","pipelineId","pipelineStageId","status",  ← ① top-level 전용
-  "peopleId","organizationId",                             ← ② 기본연결 top-level
-  "fieldList": [ { "name":"담당자","userValueId":"uuid" } ]  ← ③ 나머지+커스텀연결
+  "name","price","pipelineId","pipelineStageId","status",  ← ① top-level 전용 필드
+  "peopleId","organizationId",                             ← ② top-level primary 관계
+  "fieldList": [ { "name":"담당자","userValueId":"uuid" } ]  ← ③ fieldlist 나머지 필드 + fieldlist custom 관계
 }
 ```
 세 종류 실패 실제 발생:
-1. **파이프라인/단계 이름→ID 미변환** — 담당자·팀은 자동변환되나 파이프라인은 안 됨. 이름 넣으면 "ID 형식이어야" 에러. 로그에 `[refine]: 파이프라인 값은 fieldList가 아닌 파라메터` 반복
+1. **유지보수 번거로움** — MCP 레이어에서 우회는 가능하나 불편함
 2. **silent no-op (가장 위험)** — 잘못된 위치·키로 보내면 API가 거부 없이 `200 OK` + 값만 조용히 버림(`updatedAt`만 갱신). 관찰된 케이스: top-level `ownerId`(담당자)·고객 `email`/`phone`·스키마 없는 임의 파라미터(`foobar`) 전부 미반영. → AI가 "완료"로 오판, 사용자에게 틀린 보고. 재조회 안 하면 아무도 모름. 400 거부보다 나쁜 조용한 데이터 유실
 
 **레퍼런스** — Salesforce: 기본 연결도 전부 필드. HubSpot: 전부 association 리소스. 어느 쪽이든 "같은 개념은 같은 문법". 세일즈맵만 혼합.
@@ -481,6 +481,20 @@ POST /v2/deal
 **현재 우회와 비용** — 없음. 발행이 GUI 전용.
 
 **API 개선안** — `POST /v2/quote/{id}/publish`(공유 링크 반환) 또는 생성 시 `publish:true`. → 견적 플로우(생성→발행→발송) API 완결.
+
+---
+
+## 30. ★ 필드 스키마의 선택지 목록이 select 타입에만 붙음 (관계 타입은 별도 API)
+
+**문제** — `GET /v2/field/{type}`이 `optionList`(선택 가능한 값 목록)를 singleSelect·multiSelect에만 붙임. pipeline·user 등 관계 타입도 값 목록이 필요한데 타입 이름만 주고, 목록은 `get-pipelines`·`list-users` 등 별도 API로 분리.
+
+**실제 영향** — 실측(2026-07, `/v2/field/deal`): singleSelect 18/18·multiSelect 5/5는 optionList 채워짐, **pipeline·pipelineStage·user·multiUser·people·organization 등 관계 타입은 전부 0**. 같은 "값 골라 넣는 필드"인데 select는 필드 조회 한 번에 끝나고, 관계 타입은 필드 조회 → 타입 확인 → 타입별 목록 API 재조회 2단계 강제. #16(description 없음)·#17(이름→ID)과 한 뿌리 — AI가 `"파이프라인":"국내영업"` 쓰려면 필드조회→get-pipelines→ID재작성 3스텝.
+
+**레퍼런스** — 추상화 일관성 관점: `singleSelect→optionList`(O)면 `user→optionList`·`pipeline→optionList`도 같아야. 현재는 저장 구조(파이프라인·유저가 별도 테이블) 기준으로 갈린 것으로 추정 — 추상화 기준이 아님.
+
+**현재 우회와 비용** — `list-users`·`list-teams`·`get-pipelines`·`list-sequences`·`list-webforms` 등 타입별 목록 도구를 각각 노출. AI가 필드 타입 보고 알맞은 도구 골라 재조회 — 도구 수 증가 + 왕복 추가.
+
+**API 개선안** — `GET /v2/field/{type}` 관계 타입 필드에도 `optionList`(또는 `referenceOptions`) 채우기. 선택지 유한한 타입(파이프라인·유저·팀)은 필드 조회 한 번에 값 목록까지. 매우 큰 타입은 별도 조회 유지하되 `optionsEndpoint` 힌트라도 제공.
 
 ---
 
