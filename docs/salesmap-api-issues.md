@@ -15,52 +15,33 @@ MCP는 API 위에 얇은 래퍼를 씌우는 구조인데, API 설계에 문제�
 
 ---
 
-## 1. Batch API 부재 (Create / Read / Update)
+## 1. Batch Create / Update API 부재
 
 ### 문제
 
-세일즈맵에는 다건 처리 API가 없습니다. 조회(`GET`), 생성(`POST`), 수정(`POST`) 모두 1건씩만 처리 가능합니다.
+생성(`POST /v2/{type}`)과 수정(`POST /v2/{type}/{id}`)은 1건씩만 처리 가능합니다. (조회는 `POST /v3/object/read`로 최대 500건 배치 가능 — 하단 해결 메모 참조)
 
 ### 실제 영향
 
-검색 API(`/v2/object/{type}/search`)는 `{ id, name }`만 반환합니다. 상세 필드를 보려면 검색 결과 N건에 대해 개별 GET을 N번 호출해야 합니다.
-
-```
-MCP 내부 동작 (batch-read 20건):
-  search → [id1, id2, ..., id20]
-  → GET /v2/deal/id1  (120ms 대기)
-  → GET /v2/deal/id2  (120ms 대기)
-  → ...
-  → GET /v2/deal/id20 (120ms 대기)
-  = 최소 2.4초 + API 응답 시간
-```
-
-다건 생성/수정도 마찬가지입니다. "이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요.
+"이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요. 텔레메트리 기준 `update-object → update-object` 연속 전이 1,074회, `create-object` 연속 181회 — 대량 임포트·일괄 수정 수요가 실사용에서 확인됨.
 
 ### HubSpot 비교
 
 ```
-HubSpot: 3종 batch API (최대 100건)
-
-POST /crm/v3/objects/deals/batch/read
-  → { inputs: [{id:"1"}, ...{id:"100"}], properties: ["name","amount"] }
-  → 1번의 API 콜로 최대 100건 조회
+HubSpot: batch/create·batch/update (최대 100건)
 
 POST /crm/v3/objects/deals/batch/create
   → { inputs: [{ properties: {"dealname":"딜1"} }, ...] }
-  → 1번의 API 콜로 최대 100건 생성
 
 POST /crm/v3/objects/deals/batch/update
   → { inputs: [{ id:"1", properties: {"amount":50000} }, ...] }
-  → 1번의 API 콜로 최대 100건 수정
 ```
 
-허브스팟 MCP는 이 3개를 `batch-read-objects`, `batch-create-objects`, `batch-update-objects` 도구로 직접 노출합니다. 단건 CRUD 도구가 아예 없이, 1건 조회도 `batch-read`에 ID 1개를 넣는 방식입니다.
+허브스팟 MCP는 이를 `batch-create-objects`·`batch-update-objects` 도구로 직접 노출합니다.
 
 ### MCP에서의 우회
 
-- **batch-read**: `salesmap-batch-read-objects` 도구를 만들었지만 내부적으로는 for-loop + rate limit 대기입니다.
-- **batch-create/update**: 미구현. 현재 단건 도구만 제공합니다. 다건 작업 시 LLM이 도구를 여러 번 호출해야 합니다.
+미구현. 단건 도구를 LLM이 반복 호출하거나 `run-script`로 순회합니다. v3 `object/create`가 전 오브젝트(딜·리드·커오)를 지원하게 되면 `salesmap-batch-create-objects` 신규 도구로 구현 예정 (association 동시 세팅 포함).
 
 ---
 
@@ -155,23 +136,6 @@ const TOP_LEVEL_ONLY = {
 검색 결과에 상세 필드가 없습니다. 사용자가 "금액 1억 이상인 딜"을 검색하면, 검색은 되지만 금액 값을 보려면 다시 개별 조회해야 합니다.
 
 **HubSpot**: search 응답에 `properties[]`로 지정한 필드가 포함됩니다.
-
-### 4-4. ✅ [해결] 입력 검증 — 값 파싱 실패 (2026-06)
-
-> **해결 (2026-06)**: 백엔드가 값 검증 단계를 추가 — 잘못된 값이 DB 쿼리까지 내려가기 전에 **400 + 명확한 메시지**로 반환. 기존엔 검증 없이 downstream(쿼리 빌더)에서 파싱이 터져 fallback 500이었음(`getResolvedValue.server.ts`가 값을 그대로 통과). **백엔드 확인: 값 형식 검증 완비**(엣지케이스 포함).
-
-이제 타입별로 명확한 400을 반환합니다:
-
-| 입력 | 응답 (400) |
-|------|-----------|
-| 숫자 필드에 비숫자 값 | `Operator "EQ" on field "amount" requires a numeric value.` |
-| 날짜 필드에 잘못된 날짜 | `Operator "DATE_ON_OR_AFTER" on field "closedAt" requires a valid ISO 8601 date string.` |
-| DATE_BETWEEN 형식 오류 | `DATE_BETWEEN requires valid ISO 8601 date strings for field "closedAt"` |
-| 상대일 연산자(DATE_AGO 등)에 비숫자 | `Operator "DATE_AGO" on field "closedAt" requires a numeric value.` |
-
-(추가로 `"0x10"`·`"1e3"` 같은 JS 특수표기는 `Number()`로 정규화해 500 재발 방지)
-
-**MCP 우회**: 불필요 — API가 명확한 400을 주므로 그대로 전달. (MCP에 임시로 뒀던 500 안전망 힌트는 *서버 장애 시 잘못된 힌트를 줄 수 있어* 제거함.)
 
 ### 4-5. custom-object 검색 미지원
 
@@ -342,7 +306,7 @@ HubSpot: GET /crm/v3/objects/deals/{id}?properties=dealname,amount,closedate
 
 ---
 
-## 12. 노트(메모) 생성 API 제한
+## 12. ★★★★★ 노트(메모) 생성 API 제한
 
 ### 문제
 
@@ -380,34 +344,6 @@ HubSpot: POST /crm/v3/objects/notes
 ### MCP에서의 우회
 
 `salesmap-create-note` 도구를 만들었지만 내부적으로는 레코드 update 호출입니다. 텍스트만 전달 가능하고 메타데이터 제어는 불가능합니다.
-
----
-
-## 13. ✅ [해결됨] 커스텀 오브젝트 Definition 목록 조회 API
-
-> **해결 (2026-06)**: `GET /v2/custom-object-definitions` 신설(`[{id, name}]` 반환). MCP `salesmap-list-objects`로 노출. 추가로 레코드 생성/조회(`POST`/`GET /v2/custom-object`)와 필드 생성(`POST /v2/field/custom-object`)이 **`customObjectDefinitionName`(이름)** 으로도 가능해짐 → 커스텀 오브젝트를 이름으로 다룰 수 있게 됨.
-
-### 문제 (해결 전)
-
-`GET /v2/custom-object-definition` API가 없었습니다. 워크스페이스에 어떤 커스텀 오브젝트 타입이 정의되어 있는지 프로그래밍적으로 파악할 수 없었습니다.
-
-### 실제 영향
-
-- **MCP 동적 대응 불가**: "커스텀 오브젝트 목록 보여줘" → 응답할 수 없음
-- **Definition ID를 미리 알아야 함**: 커스텀 오브젝트 레코드를 생성하려면 `customObjectDefinitionId`가 필수인데, 이걸 조회할 API가 없음
-- **사용자에게 ID를 물어봐야 함**: LLM이 "커스텀 오브젝트 Definition ID를 알려주세요"라고 물어야 하는 비정상적 흐름
-
-### HubSpot 비교
-
-```
-HubSpot: GET /crm/v3/schemas
-  → 워크스페이스의 모든 커스텀 오브젝트 스키마 반환 (이름, 필드, 연관관계 포함)
-  → MCP에서 hubspot-list-schemas 도구로 제공
-```
-
-### MCP에서의 대응 (해결 후)
-
-`salesmap-list-objects`로 빌트인+커스텀 오브젝트 목록을 이름과 함께 제공. `create-object`·`create-property`는 `customObjectDefinitionName`(이름) 또는 `customObjectDefinitionId`로 대상 지정. `batch-read-objects`는 커오 레코드에 definition 이름을 라벨링.
 
 ---
 
@@ -707,19 +643,16 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 ---
 
-## 19. ✅ [생성 해결] 필드(Property) 생성·수정 API
+## 19. 필드(Property) 수정 API 부재
 
-> **부분 해결 (2026-06)**: `POST /v2/field/{type}` 신설(필드 **생성**). MCP `salesmap-create-property`로 노출 (formula 계산 유형·custom-object 포함). ⚠️ **수정(update) API는 미확인** — 옵션 값 변경·필드 설정 변경은 아직 UI 전용일 수 있음.
+### 문제
 
-### 문제 (수정 부분 잔존)
-
-필드 **수정** API는 확인되지 않았습니다. 옵션 값 변경, 필드 설정 변경 등은 여전히 UI에서만 가능할 수 있습니다. (생성은 위 API로 해결)
+필드 **수정** API가 없습니다. 옵션 값 변경, 라벨 변경, 필드 설정 변경은 UI에서만 가능합니다. (생성은 `POST /v2/field/{type}`으로 가능 — 하단 해결 메모 참조)
 
 ### 실제 영향
 
-- **자동화 불가**: "딜에 '예상 매출' 숫자 필드를 추가해줘" → API로 불가, 관리자가 UI에서 직접 생성해야 함
-- **마이그레이션 제약**: 타 CRM에서 이관 시 필드 구조를 프로그래밍적으로 복제할 수 없음
-- **옵션 값 관리**: 선택형 필드의 옵션 추가/변경도 UI 전용
+- **옵션 값 관리 불가**: 선택형 필드에 옵션 추가/변경이 UI 전용 — "기능 카테고리에 '보안' 옵션 추가해줘" 불가
+- **마이그레이션 제약**: 타 CRM 이관 시 기존 필드의 설정 변경을 프로그래밍적으로 못 함
 
 ### HubSpot 비교
 
@@ -731,11 +664,11 @@ HubSpot: 4개 Property 도구
   hubspot-update-property — 필드 수정 (라벨, 옵션 등)
 ```
 
-참고: 허브스팟이 `list`와 `get`을 분리한 이유는 토큰 효율. `list`는 5개 필드만 반환하여 전체 목록을 가볍게 훑고, 특정 필드의 옵션이나 validation 규칙이 필요할 때만 `get`으로 상세 조회. 필드가 수십~수백 개인 워크스페이스에서 전부 풀 스키마로 반환하면 토큰이 폭발하기 때문.
+참고: 허브스팟이 `list`와 `get`을 분리한 이유는 토큰 효율. `list`는 5개 필드만 반환하여 전체 목록을 가볍게 훑고, 특정 필드의 옵션이나 validation 규칙이 필요할 때만 `get`으로 상세 조회.
 
-### MCP에서의 대응
+### MCP에서의 우회
 
-`salesmap-create-property`로 필드 **생성** 가능 (formula 포함, custom-object는 `customObjectDefinitionName`으로 대상 지정). 필드 **수정**은 여전히 불가 — `list-properties`로 조회만.
+없음 — `list-properties`로 조회만 가능. 수정이 필요하면 사용자를 UI로 안내.
 
 ---
 
@@ -1090,13 +1023,12 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
 |---|-----------|-------------|-----------|
-| 1 | Batch API 부재 (Create/Read/Update) | Read만 for-loop 우회, C/U 미구현 | ~30줄 |
+| 1 | Batch Create/Update 부재 | 미구현 — 단건 반복 또는 run-script | 우회 불가 |
 | 2 | fieldList 타입 키 패턴 | resolveProperties() 스키마 변환 | ~120줄 |
 | 3 | Top-level 파라미터 분리 | TOP_LEVEL_ONLY 자동 추출 | ~30줄 |
 | 4-1 | Search 정렬 미지원 | 클라이언트 정렬 (불완전) | ~10줄 |
 | 4-2 | Search 빈 필터 불가 | EXISTS 더미 필터 | ~5줄 |
 | 4-3 | Search 응답이 `{id, name}`만 반환 | batch-read 후속 호출 | N+1 패턴 |
-| 4-4 | Search 값 파싱 실패 → ✅ 해결(2026-06, 백엔드 타입별 400) | 불필요 (API 메시지 그대로 전달) | — |
 | 4-5 | custom-object 검색 미지원 | — | 우회 불가 |
 | 5 | Association에 engagement 없음 | activity API 별도 래핑 (list-engagements) | ~80줄 |
 | 6 | Rate limit 미문서화 | 120ms 강제 인터벌 + 429 retry | ~20줄 |
@@ -1105,15 +1037,14 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 | 9 | 이메일 본문 미제공 + 목록 API 부재 | list-engagements 제목 인라인 | 본문 우회 불가 |
 | 10 | 삭제 API 비표준 | 시퀀스 에러 힌트 수동 추가 | ~5줄 |
 | 11 | 조회 시 반환 필드 선택 불가 | DEFAULT_PROPERTIES(타입별 코어 필드 자동) + pickProperties() 후처리 | ~45줄 |
-| 12 | 노트 생성 API 제한 | 레코드 update의 memo 파라미터 우회 | 날짜/유형/담당자 지정 불가 |
-| 13 | ✅ **해결** — 커스텀 오브젝트 Definition 목록 (custom-object-definitions API + 레코드/필드 name-addressable) | list-objects 도구 | 해결됨 |
+| 12 | ★★★★★ 노트 생성 API 제한 | 레코드 update의 memo 파라미터 우회 | 날짜/유형/담당자 지정 불가 |
 | 13-b | 커스텀 오브젝트 이름 필드 식별 수단 부재 → 추론 + 다중 definition 오염 | properties 명시로 우회 (LLM 부담) | 미해결 |
 | 14 | Engagement 2급 구조 + API 대부분 부재 (통합 CRUD 없음) | list-engagements 인라인 + create-note + read-note | sms/meeting/알림톡 불가 |
 | 15 | 리드/딜 생성 시 연결 고객 활동 전파 제어 불가 (UI엔 있음·고객 한정) | — | 우회 불가 (API 파라미터 없음) |
 | 16 | 필드 스키마에 description 없음 | FIELD_HINTS 하드코딩 주입 (~44필드) | ~60줄 |
 | 17 | 참조 필드가 ID만 허용 (이름→ID) | 사용자/팀 이름→UUID 자동 변환 | ~60줄 (파이프라인 미구현) |
 | 18 | 에러 응답이 비구조화 문자열 | errWithSchemaHint() 패턴 매칭 | ~20줄 (문구 변경 시 깨짐) |
-| 19 | ✅ **생성 해결** — 필드 생성 API (POST /v2/field) / 수정 미확인 | create-property 도구 | 생성 해결 |
+| 19 | 필드 수정 API 부재 (옵션 값 변경 등 UI 전용) | — | 우회 불가 |
 | 20 | Association 생성 API 없음 | — | 우회 불가 (레코드 생성 시에만) |
 | 21 | 상품 단건 조회·수정·삭제 없음 + search 미지원 | create-quote에서 productId optional, 목록 조회만 | 우회 불가 (대규모 카탈로그) |
 | 22 | user/me와 user 목록 스키마 불일치 | user 목록에서 id 매칭으로 email 추출 | ~5줄 |
@@ -1134,11 +1065,9 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 1. 조회 API에 `properties[]` 파라미터 지원 → 필요한 필드만 반환
 2. Search 응답에도 `properties[]` 지원 → batch-read 후속 호출 제거
 3. Search `sorts` 파라미터 실제 작동
-4. Batch Read API 추가 (`POST /v2/object/{type}/batch-read`)
-5. Search 값 파싱 실패 시 500 대신 400 + 명확한 메시지 (#4-4)
-6. 에러 응답에 유효값 힌트 포함
-7. 관계 필드 검색에 LIST_CONTAIN/LIST_NOT_CONTAIN 지원 (또는 미지원 시 IN 권장 메시지) (#26)
-8. 조회·activity 응답에 `total`(또는 `hasMore`) 포함 + activity 정렬(`order`, 기본 최신순)·`size` 파라미터 → 페이지네이션 완전성 (#27)
+4. 에러 응답에 유효값 힌트 포함
+5. 관계 필드 검색에 LIST_CONTAIN/LIST_NOT_CONTAIN 지원 (또는 미지원 시 IN 권장 메시지) (#26)
+6. 조회·activity 응답에 `total`(또는 `hasMore`) 포함 + activity 정렬(`order`, 기본 최신순)·`size` 파라미터 → 페이지네이션 완전성 (#27)
 
 ### 단기 (설계 개선)
 
@@ -1166,3 +1095,17 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 12. 레코드 병합 API (`POST /v2/object/{type}/merge`)
 
 > Engagement 1급 오브젝트화 아키텍처 방향은 #14 "Engagement 종합" 섹션 참조.
+
+---
+
+## 해결됨 (메모)
+
+해결된 이슈는 본문에서 제거하고 여기 간단히만 남긴다.
+
+- **Batch Read** — `POST /v3/object/read` (최대 500건, fieldList·associationList 지원). MCP `batch-read-objects`가 사용 (2026-06)
+- **Search 값 파싱 실패 500** — 백엔드 타입별 검증 추가로 명확한 400 반환 (구 #4-4, 2026-06)
+- **커스텀 오브젝트 Definition 목록** — `GET /v2/custom-object-definitions` 신설 + 레코드/필드가 `customObjectDefinitionName`(이름)으로 지정 가능. MCP `list-objects` (구 #13, 2026-06)
+- **필드 생성** — `POST /v2/field/{type}` 신설 (formula·custom-object 포함). MCP `create-property` (구 #19 생성부, 2026-06)
+- **노트 목록·유형 조회** — `GET /v2/memo`(필터)·`GET /v2/memo/type-list` 신설. MCP `list-notes` (2026-06)
+- **Activity 유형별 조회** — `POST /v3/object/activity` (유형 필터·유형별 limit 1~50·독립 커서·이메일/녹음 인라인). MCP `list-engagements` (2026-06)
+- **커스텀 오브젝트 파이프라인 조회** — `POST /v3/pipeline/list`가 커오 지원. MCP `get-pipelines` (2026-06)
