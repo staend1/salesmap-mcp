@@ -46,7 +46,15 @@
   - 반복 업무 사례: 한 계정이 **7월에만 버스트 12회** (교육 프로그램 선발/참여 관리 — 매주 도는 정기 업무가 매번 수십 콜)
   - 임포트 사례: 회사 37건 연속 생성 4.6분, 실패 3건 (SK렌터카)
 - **현재 우회와 비용**: 단건 도구 반복 호출(사용자가 분 단위 대기 + LLM 왕복 토큰 낭비) 또는 run-script 순회(50초 상한·가드레일로 쓰기엔 소극적). 버스트 동안 우리 스로틀이 워크스페이스 rate limit(100/10초)의 **~83%를 지속 점유** → 같은 워크스페이스 동료의 AI 사용까지 밀림
-- **기대 효과**: batch 100 기준 **1,759콜 → 63콜 (28배)**, 121분 → 1~2분. 쿼타 점유 문제 동시 해소
+- **레퍼런스 — HubSpot 배치 스펙** (2026-07 공식 문서): create·update 모두 최대 100건, `{ inputs: [...] }` 형태. create는 **body에 `associations` 배열을 동봉해 "생성하면서 연결"** 가능. update는 속성만(연결 변경은 별도 association API). 세일즈맵은 연결이 관계 필드라 batch update가 관계 필드·top-level 연결 id를 수용하면 **HubSpot의 batch association까지 한 번에 커버** (별도 association API 불필요, 원장 #20 참조)
+  ```
+  POST /crm/v3/objects/deals/batch/create
+    { inputs: [{ properties: {...}, associations: [{ to:{id}, types:[...] }] }, ...] }
+  POST /crm/v3/objects/deals/batch/update
+    { inputs: [{ id, properties: {...} }, ...] }
+  ```
+- **구현 계획**: v3 `object/create`가 전 오브젝트(딜·리드·커오)를 지원하면 `salesmap-batch-create-objects` 신규 도구로 노출 (최대 100건 생성 + association 동시 세팅이 핵심). update도 동일 패턴
+- **기대 효과**: batch 100 기준 **1,759콜 → 63콜 (28배)**, 121분 → 1~2분. 쿼타 점유 문제 동시 해소. LLM 왕복 토큰(툴콜 598회 = 응답 598회 컨텍스트 누적)도 소멸
 
 ### [P0] Activity(타임라인) 배치 조회 — "레코드 N건의 활동을 한 번에"
 
@@ -65,14 +73,31 @@
 ### [P1] 쓰기 입력 위치 이중성 — top-level vs fieldList (+연결)
 
 - **원장**: #3
-- **요청**: 뉴버전 API에서 top-level 파라미터(price·pipelineId·status·peopleId 등)를 **전부 fieldList로 내려 통일**. 연결도 fieldList로
-- **문제**: 같은 "필드 값 쓰기"인데 위치가 갈림 — ① top-level 전용(금액·파이프라인·상태) ② 기본연결 top-level(`peopleId`·`organizationId`) ③ 커스텀연결·나머지는 fieldList. AI가 매번 "이 필드가 top-level인가 fieldList인가"를 판단해야 함
+- **요청**: 뉴버전 API에서 top-level 파라미터·기본연결·커스텀연결을 **전부 fieldList로 내려 통일**. 서버가 이름→타입을 스키마로 해석(#2와 한 묶음). 클라이언트는 위치·타입 구분 없이 이름-값만 전송
+- **문제 — 같은 "필드 값 쓰기"인데 위치가 3갈래**:
+  ```
+  POST /v2/deal
+  {
+    "name": "딜 이름",           ← ① top-level 전용
+    "price": 50000,              ← ① top-level 전용
+    "pipelineId": "uuid",        ← ① top-level 전용
+    "pipelineStageId": "uuid",   ← ① top-level 전용
+    "status": "In progress",     ← ① top-level 전용
+    "peopleId": "uuid",          ← ② 기본연결 top-level
+    "organizationId": "uuid",    ← ② 기본연결 top-level
+    "fieldList": [               ← ③ 나머지 + 커스텀연결
+      { "name": "담당자", "userValueId": "uuid" }
+    ]
+  }
+  ```
+  AI가 매 필드마다 "이건 어느 갈래인가"를 판단해야 함. **연결도 같은 이중성** — 기본 연결(회사·고객)은 top-level, 커스텀 연결(관계 필드)은 fieldList로 갈림. 타 CRM은 한 축 통일(Salesforce=전부 필드, HubSpot=전부 association 리소스), 세일즈맵만 혼합
 - **현재 우회와 비용 (MCP가 덮지만 한계 뚜렷)**:
-  1. **예외 하드코딩** — `TOP_LEVEL_ONLY` 맵 등 예외를 손으로 유지. 필드가 늘면 계속 따라가야 하는 취약한 커버
-  2. **파이프라인/단계는 커버 실패** — 담당자·팀은 이름→ID 자동변환되는데 파이프라인/단계는 안 됨. AI가 이름을 넣으면 "ID 형식이어야" 에러 빈발
-  3. **silent no-op** — top-level 전용 필드를 fieldList에 넣거나 스키마에 없는 키를 보내면 **200 OK인데 반영 안 됨**. 실패가 에러로 안 드러나 "됐다고 오판" 위험
-  4. **커버 로직 복잡** — 필드·관계·top-level이 얽혀 `resolveProperties()`가 무거워짐
-- **기대 효과**: 입력이 "이름-값 하나의 규칙"으로 통일 → AI 에러율·MCP 커버 복잡도 동시 감소. silent no-op 제거. ※breaking change라 뉴버전에서
+  1. **예외 하드코딩** — `TOP_LEVEL_ONLY = {"금액":"price", "이름":"name", "파이프라인":"pipelineId", "파이프라인 단계":"pipelineStageId", "상태":"status"}` 맵을 손으로 유지. 필드가 늘면 계속 따라가야 하는 취약한 커버
+  2. **파이프라인/단계는 커버 실패** — 담당자·팀은 `getUserMap`/`getTeamMap`으로 이름→ID 자동변환되는데 파이프라인/단계는 그런 맵이 없음. AI가 `"파이프라인": "국내영업"`(이름)을 넣으면 `"ID 형식이어야 합니다. salesmap-get-pipelines로 조회하세요"` 에러. 실사용 로그에 `[refine]: 파이프라인 값은 fieldList가 아닌 파라메터` 계열 실패 반복
+  3. **silent no-op** — top-level 전용 필드를 fieldList에 넣거나 스키마에 없는 키를 보내면 **200 OK인데 반영 안 됨**(원장 no-op 주의 참조). 실패가 에러로 안 드러나 AI가 "됐다"고 오판 → 사용자에게 틀린 완료 보고 위험
+  4. **커버 로직 복잡** — 필드·관계·top-level이 얽혀 `resolveProperties()`가 무거워지고, 커스텀 연결만 우회되고 기본 연결(회사·고객)은 아직 미적용이라 AI가 여전히 top-level `organizationId`/`peopleId`를 써야 함
+- **부분 개선 여지 (뉴버전 전까지)**: `TOP_LEVEL_ONLY`에 objectType-스코프로 `"회사"→organizationId`·`"고객"→peopleId` 추가하면 기본 연결도 properties 단일 문법으로 흡수 (코드 십수 줄). 단 근본 해결은 백엔드 통일
+- **기대 효과**: 입력이 "이름-값 하나의 규칙"으로 통일 → AI 에러율·MCP 커버 복잡도 동시 감소. silent no-op 제거. ※top-level→fieldList 통합은 기존 연동을 깨는 breaking change라 뉴버전에서만
 
 ### [P1] 견적서 발행 API — "생성까지만 되고 발송을 못 함"
 
@@ -113,9 +138,25 @@
 
 - **원장**: #2
 - **요청**: 프로퍼티 **이름-값만** 받고 서버가 스키마로 타입을 해석 (HubSpot식 평탄 name→value)
+- **문제 — 클라이언트가 15개+ 타입 키를 알아야 함**:
+  ```json
+  // 세일즈맵: 타입마다 다른 값 키
+  { "fieldList": [
+      { "name": "담당자",   "userValueId": "uuid" },
+      { "name": "금액",     "numberValue": 50000 },
+      { "name": "이메일",   "stringValue": "a@b.com" },
+      { "name": "참여자",   "userValueIdList": ["uuid1","uuid2"] },
+      { "name": "소속팀",   "teamValueIdList": ["team-uuid"] }
+  ]}
+  // HubSpot: 평탄한 name→value, 타입 키 없음
+  { "properties": { "dealname":"New deal", "amount":"1500.00",
+    "closedate":"2019-12-07T16:50:06.678Z", "hubspot_owner_id":"910901",
+    "hs_buying_role":";BUDGET_HOLDER;END_USER" } }
+  ```
+- **실사용 실패 사례**: 사용자가 `{ "부가 서비스": "A" }`로 요청 — '부가 서비스'가 **복수선택(multiSelect)**이라 `{ "name":"부가 서비스", "stringValueList":["A"] }`(배열)여야 함. AI는 필드가 multiSelect인지 모르니 단일 문자열로 보내고, API는 `"부가 서비스에 stringValueList가 없습니다"`로 **거부**. HubSpot이었다면 그냥 통과했을 입력
 - **근거 — API 주 소비자가 AI 에이전트가 된 시대엔 이 정도는 서버가 흡수하는 게 맞는 설계**: HubSpot은 타입별 부담이 "키 선택"이 아니라 **"값 표기 규칙"**(날짜=ISO 8601 또는 epoch ms, 복수선택=세미콜론 문자열)으로만 남고, 그마저 관대함 — **복수선택 필드에 단일 문자열을 보내도 400이 아니라 단일 값으로 수용**. 클라이언트(LLM)가 타입을 몰라도 대부분 통과하는 구조 (2026-07 공식 문서 재검증)
-- **현재 우회와 비용**: `resolveProperties()`가 `stringValue`/`userValueIdList` 등 15개+ 타입 키로 자동 변환. 다만 **매 쓰기마다 `/v2/field/{type}` 스키마 조회 콜 1회 추가**. 필드 조회로 커버 가능하고 지금 잘 동작 중이라 P2로 통과 — 급하진 않으나 공식 MCP·직접 API 사용자에겐 그대로 노출되는 부담
-- **기대 효과**: 쓰기 전 스키마 조회 제거, 타입 불일치 에러 소멸. 뉴버전 API의 기본 설계 원칙으로 삼을 것
+- **현재 우회와 비용**: `resolveProperties()`가 매번 `/v2/field/{type}`로 스키마(필드 타입)를 조회한 뒤 타입별 값 키로 변환 — `{ "부가 서비스":"A" }` → `{ "name":"부가 서비스", "stringValueList":["A"] }` (multiSelect→stringValueList 등 매핑 + 리스트 타입은 단일값을 배열로 자동 래핑). AI가 타입을 몰라도 자연값만 넘기게 흡수하는 게 핵심. 다만 **매 쓰기마다 스키마 조회 콜 1회 추가**되고, 이 흡수는 **MCP를 거칠 때만** — 공식 MCP·직접 API 사용자에겐 원래 부담이 그대로 노출. 필드 조회로 커버 가능하고 지금 잘 동작 중이라 P2
+- **기대 효과**: 쓰기 전 스키마 조회 제거, 타입 불일치 에러 소멸, 클라이언트 구현 단순화. 뉴버전 API의 기본 설계 원칙(#3 위치 통일과 한 묶음)으로 삼을 것
 
 ### 그 외 P2
 
