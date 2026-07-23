@@ -619,8 +619,8 @@ export function registerExtrasTools(server: McpServer) {
 
         // type: 이름으로 typeId 조회
         if (type) {
-          const typeData = await client.get<{ data: { typeList: Array<{ _id: string; value: string }> } }>("/v2/memo/type-list");
-          const typeList = typeData.data?.typeList ?? [];
+          const typeData = await client.get<{ typeList: Array<{ _id: string; value: string }> }>("/v2/memo/type-list");
+          const typeList = typeData.typeList ?? [];
           const found = typeList.find(t => t.value === type);
           if (!found) {
             const names = typeList.map(t => t.value).join(", ");
