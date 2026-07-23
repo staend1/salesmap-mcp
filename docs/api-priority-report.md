@@ -62,11 +62,11 @@
 
 ## P1 — 심각한 비효율 / 구조적 문제
 
-### [P1] 쓰기 입력 형식 이중성 — top-level·fieldList·타입키·연결이 제각각
+### [P1] 쓰기 입력 위치 이중성 — top-level vs fieldList (+연결)
 
-- **원장**: #2 · #3
-- **요청**: 뉴버전 API에서 top-level 파라미터(price·pipelineId·status·peopleId 등)를 **전부 fieldList로 내려 통일**. 연결도 fieldList로. 서버가 이름→타입을 스키마로 해석 (이슈 #2)
-- **문제**: 같은 "필드 값 쓰기"인데 위치·문법이 4갈래로 쪼개짐 — ① top-level 전용(금액·파이프라인·상태) ② fieldList 타입키(`stringValue`/`userValueId`…) ③ 기본연결 top-level(`peopleId`) ④ 커스텀연결 fieldList 관계키. AI가 매번 "이 필드가 어느 갈래인가"를 판단해야 함
+- **원장**: #3
+- **요청**: 뉴버전 API에서 top-level 파라미터(price·pipelineId·status·peopleId 등)를 **전부 fieldList로 내려 통일**. 연결도 fieldList로
+- **문제**: 같은 "필드 값 쓰기"인데 위치가 갈림 — ① top-level 전용(금액·파이프라인·상태) ② 기본연결 top-level(`peopleId`·`organizationId`) ③ 커스텀연결·나머지는 fieldList. AI가 매번 "이 필드가 top-level인가 fieldList인가"를 판단해야 함
 - **현재 우회와 비용 (MCP가 덮지만 한계 뚜렷)**:
   1. **예외 하드코딩** — `TOP_LEVEL_ONLY` 맵 등 예외를 손으로 유지. 필드가 늘면 계속 따라가야 하는 취약한 커버
   2. **파이프라인/단계는 커버 실패** — 담당자·팀은 이름→ID 자동변환되는데 파이프라인/단계는 안 됨. AI가 이름을 넣으면 "ID 형식이어야" 에러 빈발
@@ -109,9 +109,18 @@
 
 ## P2 — 우회되지만 내부 비효율 발생
 
+### [P2] fieldList 타입 키 패턴 — 값마다 타입별 키를 골라야 함
+
+- **원장**: #2
+- **요청**: 프로퍼티 **이름-값만** 받고 서버가 스키마로 타입을 해석 (HubSpot식 평탄 name→value)
+- **근거 — API 주 소비자가 AI 에이전트가 된 시대엔 이 정도는 서버가 흡수하는 게 맞는 설계**: HubSpot은 타입별 부담이 "키 선택"이 아니라 **"값 표기 규칙"**(날짜=ISO 8601 또는 epoch ms, 복수선택=세미콜론 문자열)으로만 남고, 그마저 관대함 — **복수선택 필드에 단일 문자열을 보내도 400이 아니라 단일 값으로 수용**. 클라이언트(LLM)가 타입을 몰라도 대부분 통과하는 구조 (2026-07 공식 문서 재검증)
+- **현재 우회와 비용**: `resolveProperties()`가 `stringValue`/`userValueIdList` 등 15개+ 타입 키로 자동 변환. 다만 **매 쓰기마다 `/v2/field/{type}` 스키마 조회 콜 1회 추가**. 필드 조회로 커버 가능하고 지금 잘 동작 중이라 P2로 통과 — 급하진 않으나 공식 MCP·직접 API 사용자에겐 그대로 노출되는 부담
+- **기대 효과**: 쓰기 전 스키마 조회 제거, 타입 불일치 에러 소멸. 뉴버전 API의 기본 설계 원칙으로 삼을 것
+
+### 그 외 P2
+
 | 항목 | 원장 | 요청 | 우회 비용 |
 |---|---|---|---|
-| properties 기반 쓰기 (타입 키 제거) | #2 | HubSpot식 평탄 name→value 수용 (2026-07 공식 문서 재검증) | `resolveProperties()`가 **매 쓰기마다 스키마 조회 API 콜 추가** (fieldList 타입 매칭). 공식 MCP·직접 API 사용자에겐 그대로 노출되는 부담 |
 | Search 응답 필드 선택 | #4-3 | search에 `properties[]` 지원 | search→batch-read **2단 호출(N+1 패턴)** 강제 |
 
 ## P3 — 우회되고 비효율도 거의 없음 (뉴버전 정리 대상)
