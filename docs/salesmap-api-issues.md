@@ -1029,6 +1029,51 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 
 ---
 
+## 30. 필드 스키마의 선택지 목록이 select 타입에만 붙음 — 관계 타입은 별도 API로 분리
+
+### 문제
+
+`GET /v2/field/{type}` 응답은 `optionList`(선택 가능한 값 목록)를 **singleSelect·multiSelect에만** 붙여줍니다. 그런데 `pipeline`·`pipelineStage`·`user`·`multiUser` 등 관계 타입도 "선택 가능한 값 목록"이 똑같이 필요한데, 필드 API는 **타입 이름만 반환하고 값 목록은 안 줍니다.** 그 목록은 각각 `GET /v2/{type}/pipeline`·`GET /v2/user` 등 **별도 API로 분리**돼 있습니다.
+
+### 실제 영향 (실측, 2026-07)
+
+`GET /v2/field/deal`의 타입별 `optionList` 채워짐 여부:
+
+| 타입 | 필드 수 | optionList 제공 |
+|---|:---:|:---:|
+| singleSelect | 18 | ✅ 18/18 |
+| multiSelect | 5 | ✅ 5/5 |
+| **pipeline** | 1 | ❌ 0 (별도 `/v2/deal/pipeline`) |
+| **pipelineStage** | 2 | ❌ 0 |
+| **user / multiUser** | 8 | ❌ 0 (별도 `/v2/user`) |
+| people·organization·team·sequence·webForm 등 관계 | 다수 | ❌ 0 |
+
+같은 "값을 골라 넣는 필드"인데 select는 필드 API 한 번에 옵션까지 나오고, 관계 타입은 **필드 조회 → 타입 확인 → 타입별 별도 목록 API 재조회**의 2단계가 강제됩니다.
+
+### 추상화 관점
+
+일관된 설계라면 optionList가 타입 무관하게 붙어야 합니다:
+```
+singleSelect  → optionList  (현재 O)
+user          → optionList  (현재 X, 별도 /v2/user)
+pipeline      → optionList  (현재 X, 별도 /v2/{type}/pipeline)
+```
+현재는 **구현 편의 기준**으로 쪼개진 것으로 추정됩니다 — 파이프라인·유저는 CustomField 테이블이 아닌 별도 테이블이라, 필드 API에서 조인하지 않고 별도 API를 만든 형태. 추상화 기준이 아니라 저장 구조 기준으로 갈린 것.
+
+### 실제 영향 — LLM 관점
+
+이슈 #16(필드에 description 없음)·#17(이름→ID 변환 없음)과 한 뿌리입니다. AI가 `"파이프라인": "국내영업"`을 쓰려면 ① 필드 조회로 타입이 pipeline임을 확인 → ② `get-pipelines`로 이름→ID 목록 재조회 → ③ ID로 재작성. select 필드였다면 ①에서 옵션까지 다 나와 한 번에 끝날 일.
+
+### MCP에서의 우회
+
+`salesmap-list-users`·`list-teams`·`get-pipelines`·`list-sequences`·`list-webforms` 등 타입별 목록 도구를 각각 노출. AI가 필드 타입을 보고 알맞은 목록 도구를 골라 재조회. 도구 수가 늘고 왕복이 추가됨.
+
+### API 개선안
+
+`GET /v2/field/{type}` 응답의 관계 타입 필드에도 `optionList`(또는 `referenceOptions`)를 채워주기 — 파이프라인·유저·팀 등 선택지가 유한한 타입은 필드 조회 한 번에 값 목록까지. (선택지가 매우 큰 타입은 별도 조회 유지하되 `optionsEndpoint` 힌트라도 제공)
+
+---
+
 ## 요약: MCP에서 우회한 API 갭 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
