@@ -109,19 +109,29 @@ POST /v2/deal
 
 LLM은 "모든 필드를 properties에 넣으면 됨"이라는 단일 규칙으로 동작해야 효율적입니다. top-level 예외가 있으면 매번 "이 필드는 top-level인가 fieldList인가"를 판단해야 하고, 에러율이 높아집니다.
 
+**연결(관계)도 같은 이중성을 겪습니다.** 세일즈맵은 연결을 위치에 따라 두 문법으로 나눕니다:
+- **기본(primary) 연결** — top-level 파라미터 (`peopleId`, `organizationId`)
+- **커스텀 연결** — `fieldList`의 관계 타입 키 (`peopleValueIdList`, `customObjectValueIdList` 등)
+
+같은 개념(레코드 연결)이 primary냐 custom이냐에 따라 문법이 갈리는 게 혼란원입니다. 참고로 타 CRM은 한 축으로 통일: Salesforce는 기본 연결도 **전부 필드**, HubSpot은 기본이든 커스텀이든 **전부 association 리소스**. 세일즈맵만 혼합.
+
 ### MCP에서의 우회
 
-`TOP_LEVEL_ONLY` 맵을 구현하여 properties에 `"금액": 50000`을 넣으면 자동으로 body의 `price: 50000`으로 추출합니다. 파이프라인/단계는 ID 형식 검증까지 추가했습니다.
+`TOP_LEVEL_ONLY` 맵으로 properties에 `"금액": 50000`을 넣으면 자동으로 body `price: 50000`으로 추출합니다.
 
 ```typescript
 const TOP_LEVEL_ONLY = {
-  "금액": "price",
-  "이름": "name",
-  "파이프라인": "pipelineId",
-  "파이프라인 단계": "pipelineStageId",
-  "상태": "status",
+  "금액": "price", "이름": "name",
+  "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId", "상태": "status",
 };
 ```
+
+- **커스텀 연결**은 `resolveProperties()`가 스키마 조회로 관계 타입 키를 자동 변환 → AI는 `properties: {"요청자": [id]}`처럼 관계명으로만 쓰면 됨 (관계명은 list-associations로 확인)
+- **기본 연결(회사·고객)만 아직 우회 미적용** — AI가 top-level `organizationId`/`peopleId`를 써야 함. `TOP_LEVEL_ONLY`에 objectType-스코프로 `"회사"→organizationId`·`"고객"→peopleId`를 추가하면 여기도 properties 단일 문법으로 흡수 가능 (미구현, 코드 십수 줄). 그러면 AI 멘탈 모델이 **"뭐든 properties에 이름으로"** 하나로 통일됨.
+
+### 백엔드 방향 (뉴버전 API 설계 시)
+
+top-level 파라미터·기본연결·커스텀연결을 **전부 `properties` 한 곳으로 통일**하는 게 맞습니다 (Salesforce 축 — 연결도 필드로 취급). 서버가 이름→타입을 스키마로 해석하면(이슈 #2 참조) 클라이언트는 위치·타입 구분 없이 이름-값만 보내면 됨. 단, top-level→properties 통합은 기존 연동을 깨는 breaking change라 뉴버전에서만. 그 전까진 위 MCP 우회로 체감 해소.
 
 ---
 
@@ -680,32 +690,24 @@ HubSpot: 4개 Property 도구
 
 ---
 
-## 20. Association(관계) 생성 API 부재
+## 20. Association 대량 처리 전용 API 부재
 
 ### 문제
 
-레코드 간 관계를 프로그래밍적으로 생성하는 API가 없습니다. 고객과 회사를 연결하거나, 딜에 고객을 추가하는 등의 관계 생성은 레코드 생성 시 `peopleId`/`organizationId`로만 가능합니다.
+레코드 연결 **자체는 update로 가능**합니다 (기본 연결 = top-level `peopleId`/`organizationId`, 커스텀 연결 = fieldList 관계 키). 세일즈맵은 연결을 별도 리소스가 아닌 **관계 필드**로 취급하기 때문입니다(이슈 #3 참조). 없는 것은 **연결만 대량으로 처리하는 전용 경로** — 현재는 단건 update를 반복해야 합니다.
 
 ### 실제 영향
 
-- **기존 레코드 간 관계 추가 불가**: 이미 존재하는 고객과 회사를 나중에 연결할 수 없음
-- **다대다 관계 관리 불가**: 하나의 딜에 여러 고객을 추가하는 등의 작업 불가
-- **관계 유형 정의 조회 불가**: 어떤 타입 간에 관계가 가능한지 프로그래밍적으로 파악 불가
+"고객 500명을 회사 A로 재연결" 같은 대량 연결 변경이 update 500회. 이는 별도 문제가 아니라 **배치 update 부재(#1)의 한 사례** — batch update가 관계 필드를 그대로 수용하면 함께 해소됩니다.
 
-### HubSpot 비교
+### 세일즈맵 vs HubSpot (모델 차이)
 
-```
-HubSpot: 3개 Association 도구
-  hubspot-list-associations           — 관계 조회
-  hubspot-batch-create-associations   — 다건 관계 생성 (최대 100)
-  hubspot-get-association-definitions — 유효한 관계 유형 조회
-```
-
-허브스팟은 관계 생성이 레코드 CRUD와 완전히 분리된 독립 API. 기존 레코드 간에도 자유롭게 관계를 추가/해제할 수 있습니다.
+- **HubSpot**: 연결이 독립 리소스 → 전용 association API(batch 최대 2,000쌍). update로는 연결 변경 불가
+- **세일즈맵**: 연결이 관계 필드 → update로 변경 가능. 대신 "연결만" 대량 처리하는 전용 API는 없음
 
 ### MCP에서의 우회
 
-우회 불가. `list-associations`로 조회만 가능합니다. 관계 생성은 레코드 생성 시에만 `peopleId`/`organizationId` 파라미터로 가능합니다.
+`list-associations`로 가능한 관계명 확인 → `update-object` properties에 관계명으로 연결 지정. 대량은 단건 반복 또는 run-script. **batch update(#1)가 생기면 별도 association API 없이 커버 가능.**
 
 ---
 
@@ -1053,7 +1055,7 @@ N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) �
 | 17 | 참조 필드가 ID만 허용 (이름→ID) | 사용자/팀 이름→UUID 자동 변환 | ~60줄 (파이프라인 미구현) |
 | 18 | 에러 응답이 비구조화 문자열 | errWithSchemaHint() 패턴 매칭 | ~20줄 (문구 변경 시 깨짐) |
 | 19 | 필드 수정 API 부재 (옵션 값 변경 등 UI 전용) | — | 우회 불가 |
-| 20 | Association 생성 API 없음 | — | 우회 불가 (레코드 생성 시에만) |
+| 20 | Association 대량 처리 전용 API 없음 (연결 변경 자체는 update로 가능) | update 관계 필드로 우회 | batch update(#1)로 커버 가능 |
 | 21 | 상품 단건 조회·수정·삭제 없음 + search 미지원 | create-quote에서 productId optional, 목록 조회만 | 우회 불가 (대규모 카탈로그) |
 | 22 | user/me와 user 목록 스키마 불일치 | user 목록에서 id 매칭으로 email 추출 | ~5줄 |
 | 23 | 시퀀스 `_id` vs `id` + 필드명 불일치 | `_id`→`id` 재매핑 | ~5줄 |
