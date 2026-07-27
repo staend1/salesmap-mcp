@@ -184,7 +184,7 @@ run-script(script: \`
   return results;
 \`)
 \`\`\`
-⚠️ 최대 50초. 쓰기(create·update·delete) API도 호출 가능하므로 신중하게.
+⚠️ 최대 120초. 쓰기(create·update·delete) API도 호출 가능하므로 신중하게.
 
 **run-script 필수 규칙**
 - \`salesmap.get/post\`는 응답의 \`success\`/\`data\` 래퍼를 **벗겨서** 반환 — \`r.dealList\`로 접근 (\`r.data.dealList\` 아님). api-ref의 응답 예시는 래핑 형태이므로 주의.
@@ -921,7 +921,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Run Script ───────────────────────────────────────────
   server.tool(
     "salesmap-run-script",
-    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n🚫 다른 전용 도구로 가능한 작업엔 사용 금지 — 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성·수정은 create-object·update-object, 필드 확인은 list-properties. 전용 도구는 경로·검증·에러 힌트가 내장돼 실패율이 훨씬 낮음.\n💡 전용 도구 조합으로 불가능한 경우에만: N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 50초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
+    "🎯 여러 API를 순회·집계하는 멀티홉 작업을 단일 호출로 처리. 중간 데이터가 컨텍스트에 쌓이지 않음.\n🚫 다른 전용 도구로 가능한 작업엔 사용 금지 — 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성·수정은 create-object·update-object, 필드 확인은 list-properties. 전용 도구는 경로·검증·에러 힌트가 내장돼 실패율이 훨씬 낮음.\n💡 전용 도구 조합으로 불가능한 경우에만: N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 120초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
     {
       script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)·salesmap.getAll(path, query?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.getAll('/v2/deal'); return dealList.map(d => d.dealId);\n※ 응답은 data 언랩 상태 — r.dealList로 접근 (r.data.dealList 아님)"),
     },
@@ -964,11 +964,11 @@ export function registerExtrasTools(server: McpServer) {
       const context = createContext({ salesmap, Promise });
       const wrapped = `(async () => {\n${script}\n})()`;
 
-      // 안내는 50초, 실제 컷은 55초 — AI가 상한에 딱 맞춰 짠 스크립트의 오차를 흡수하는 그레이스 5초.
-      // Vercel maxDuration(60초)보다 먼저 끊어야 힌트 있는 에러로 반환됨.
-      const timeoutMs = 55_000;
+      // 안내는 120초, 실제 컷은 125초 — AI가 상한에 딱 맞춰 짠 스크립트의 오차를 흡수하는 그레이스 5초.
+      // Vercel maxDuration(130초)보다 먼저 끊어야 힌트 있는 에러로 반환됨.
+      const timeoutMs = 125_000;
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("스크립트 실행 제한 시간(50초) 초과")), timeoutMs)
+        setTimeout(() => reject(new Error("스크립트 실행 제한 시간(120초) 초과")), timeoutMs)
       );
 
       try {
