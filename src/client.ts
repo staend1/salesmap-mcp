@@ -10,6 +10,11 @@ const BASE_URL = "https://salesmap.kr/api";
 const MIN_INTERVAL_MS = 120; // 100req/10s = 100ms + safety margin
 const MAX_RETRIES = 3;
 
+// 개별 API 호출 상한. 실측 단일 호출 최대가 29.7초(list-engagements)라 1.5배 여유를 둔다.
+// 계층: Vercel 함수 130초 > run-script 스크립트 컷 125초 > 개별 호출 45초.
+// 멀티홉 스크립트가 여러 번 호출하며 오래 도는 건 그대로 두고, 멈춘 호출 하나만 끊는다.
+const FETCH_TIMEOUT_MS = 45_000;
+
 // 읽기 목적의 POST — 실패해도 상태가 바뀌지 않는다.
 const READ_POST_RE = /\/search$|\/v3\/object\/(read|activity)$|\/v3\/(association|pipeline)\/list$/;
 const isMutating = (method: string, path: string) => method === "POST" && !READ_POST_RE.test(path);
@@ -67,11 +72,24 @@ export class SalesMapClient {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const res = await fetch(url.toString(), {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let res: Response;
+      try {
+        res = await fetch(url.toString(), {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+      } catch (e: unknown) {
+        // 타임아웃이 없으면 Vercel 함수 한계(130초)까지 매달리다 함수째 죽는다.
+        // 그러면 에러 메시지도 텔레메트리도 남지 않아 AI가 애매한 실패를 받고 재호출한다.
+        const cause = e as Error;
+        const timedOut = cause.name === "TimeoutError" || cause.name === "AbortError";
+        const head = timedOut
+          ? `세일즈맵이 ${FETCH_TIMEOUT_MS / 1000}초 내에 응답하지 않았습니다 — ${method} ${path}.`
+          : `세일즈맵 연결 실패 — ${method} ${path}: ${cause.message}`;
+        throw new Error(head + (isMutating(method, path) ? AMBIGUOUS_WRITE_WARNING : " 잠시 후 재시도하세요."));
+      }
 
       // 본문을 먼저 텍스트로 받고 파싱은 실패해도 되게 한다.
       // res.json()을 바로 부르면 백엔드가 HTML(라우트 없는 경로의 Remix 404, 핸들러 바깥
