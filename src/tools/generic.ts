@@ -25,14 +25,19 @@ const V3_TYPE_MAP: Record<string, string> = {
 // 리터럴을 그대로 보내면 400 "오브젝트 유형을 찾을 수 없습니다".
 const V3_CREATE_TYPE_MAP: Record<string, string> = {
   deal: "딜", lead: "리드", people: "고객", organization: "회사",
-  quote: "견적서", product: "상품",
+};
+
+// 모델 식별은 되지만 생성 dispatcher에 case가 없어 필드 검증을 통과한 뒤 400으로 떨어진다
+// (백엔드 확인 2026-07-28). 사전 차단해 전용 도구로 안내한다.
+const CREATE_UNSUPPORTED: Record<string, string> = {
+  "견적서": "salesmap-create-quote",
+  quote: "salesmap-create-quote",
+  "상품": "REST API POST /v2/product (전용 도구 없음)",
+  product: "REST API POST /v2/product (전용 도구 없음)",
 };
 
 // objectType 자리에 오면 안 되는 커오 리터럴 — 정의 이름으로 안내한다
 const CUSTOM_OBJECT_LITERALS = new Set(["custom-object", "customObject", "커스텀 오브젝트", "커스텀오브젝트"]);
-
-// v3 create에서 "이름" 필수 + 파이프라인/메인관계 규칙이 적용되는 빌트인 타입
-const V3_CREATE_BUILTIN = new Set(["딜", "리드", "고객", "회사", "견적서", "상품"]);
 
 // 딜·리드는 메인 고객/메인 회사 중 하나 필수, 메인 견적서는 생성 시 지정 불가
 const PRIMARY_RELATION_REQUIRED = new Set(["딜", "리드"]);
@@ -49,8 +54,6 @@ type V3CreateValue = z.infer<typeof V3_CREATE_PROPERTY_VALUE>;
 type V3CreateInput = {
   properties: Record<string, V3CreateValue>;
   associations?: Record<string, string[]>;
-  peopleId?: string;
-  organizationId?: string;
 };
 
 function validateIdParams(params: Record<string, unknown>): string | null {
@@ -135,8 +138,6 @@ function normalizeV3CreateInput(inputList: V3CreateInput[]): { inputList?: V3Cre
     normalized.push({
       properties: data.record ?? {},
       ...(associations.record ? { associations: associations.record } : {}),
-      ...(input.peopleId ? { peopleId: input.peopleId } : {}),
-      ...(input.organizationId ? { organizationId: input.organizationId } : {}),
     });
   }
 
@@ -152,7 +153,6 @@ async function canonicalizeV3CreateProperties(
   // 별칭을 `이름`으로 보정하면 존재하지 않는 필드를 만들게 되므로 보정 자체를 건너뛴다.
   const V3_TO_V2_SCHEMA: Record<string, string> = {
     "고객": "people", "회사": "organization", "딜": "deal", "리드": "lead",
-    "견적서": "quote", "상품": "product",
   };
   const schemaType = V3_TO_V2_SCHEMA[objectType] ?? (V3_CREATE_TYPE_MAP[objectType] ? objectType : null);
   if (!schemaType) return { inputList, warnings: [] };
@@ -185,38 +185,6 @@ async function canonicalizeV3CreateProperties(
     fixed.push({ ...input, properties });
   }
   return { inputList: fixed, warnings };
-}
-
-function applyLegacyPrimaryAssociations(inputList: V3CreateInput[]): { inputList?: V3CreateInput[]; warnings: string[]; error?: string } {
-  const warnings: string[] = [];
-  const normalized = inputList.map((input, index) => {
-    const associations: Record<string, string[]> = { ...(input.associations ?? {}) };
-    for (const [field, relationName] of [["peopleId", "메인 고객"], ["organizationId", "메인 회사"]] as const) {
-      const id = input[field];
-      if (!id) continue;
-      if (!UUID_RE.test(id) && !HEX_ID_RE.test(id)) {
-        return { error: `inputList[${index}].${field}는 ID 형식이어야 합니다. salesmap-search-objects로 레코드 ID를 확인하세요.` };
-      }
-      if (!associations[relationName]?.length) {
-        associations[relationName] = [id];
-        warnings.push(`inputList[${index}].${field} → associations["${relationName}"]`);
-      }
-    }
-    return {
-      value: {
-        properties: input.properties,
-        ...(Object.keys(associations).length ? { associations } : {}),
-      } satisfies V3CreateInput,
-    };
-  });
-
-  const error = normalized.find((item): item is { error: string } => "error" in item);
-  if (error) return { warnings, error: error.error };
-
-  return {
-    inputList: normalized.map(item => ("value" in item ? item.value : item) as V3CreateInput),
-    warnings,
-  };
 }
 
 function validateV3BatchCreate(objectType: string, apiType: string, inputList: V3CreateInput[]): string | null {
@@ -368,20 +336,12 @@ export function registerGenericTools(server: McpServer) {
         properties: z.record(V3_CREATE_PROPERTY_VALUE)
           .describe("생성할 필드 key-value. text=string, number=number/string, singleSelect=option string, multiSelect=string[], checkbox=boolean, date=ISO string, user=활성 사용자 이름, 빈 값=null."),
         associations: z.record(z.array(z.string())).optional()
-          .describe("관계명 → 레코드 ID 배열. 예: { \"메인 회사\": [\"organization-id\"] }. 이름 문자열은 불가, ID만 가능."),
-        peopleId: z.string().optional()
-          .describe("기존 단건 생성 호환 편의값. 지정 시 associations[\"메인 고객\"]으로 자동 변환."),
-        organizationId: z.string().optional()
-          .describe("기존 단건 생성 호환 편의값. 지정 시 associations[\"메인 회사\"]로 자동 변환."),
+          .describe("관계명 → 레코드 ID(UUID) 배열. 예: { \"메인 고객\": [\"people-id\"], \"메인 회사\": [\"organization-id\"] }. 이름 문자열은 불가. 워크스페이스에 정의한 커스텀 관계도 생성 시점에 지정 가능."),
       })).min(1).max(100)
         .describe("생성할 레코드 목록. v3 API 제한: 1~100건."),
-      customObjectDefinitionName: z.string().optional()
-        .describe("objectType이 custom-object인 경우 대상 커스텀 오브젝트 종류 이름. API 호환을 위해 top-level로 함께 전달."),
-      customObjectDefinitionId: z.string().optional()
-        .describe("objectType이 custom-object인 경우 대상 커스텀 오브젝트 종류 ID. API 호환을 위해 top-level로 함께 전달."),
     },
     WRITE,
-    async ({ objectType, inputList, customObjectDefinitionName, customObjectDefinitionId }, extra) => {
+    async ({ objectType, inputList }, extra) => {
       try {
         const client = getClient(extra);
 
@@ -395,15 +355,18 @@ export function registerGenericTools(server: McpServer) {
           return err(`objectType에 "${objectType}"은(는) 쓸 수 없습니다. 커스텀 오브젝트는 정의 이름을 그대로 넣으세요 (예: objectType: "티켓(CRM)").\n\n[힌트] ${hint}`);
         }
 
+        // 견적서·상품은 모델 식별만 되고 생성 dispatcher에 없어 결국 400이 된다 → 사전 차단
+        const unsupported = CREATE_UNSUPPORTED[objectType];
+        if (unsupported) {
+          return err(`"${objectType}"은(는) 이 도구로 생성할 수 없습니다 (v3 create 미지원).\n\n[힌트] ${unsupported}를 사용하세요.`);
+        }
+
         const normalized = normalizeV3CreateInput(inputList);
         if (normalized.error) return err(normalized.error);
 
         const apiType = V3_CREATE_TYPE_MAP[objectType] ?? objectType;
-        const canonicalized = await canonicalizeV3CreateProperties(client, objectType, normalized.inputList ?? []);
-        const withLegacyAssociations = applyLegacyPrimaryAssociations(canonicalized.inputList);
-        if (withLegacyAssociations.error) return err(withLegacyAssociations.error);
-
-        const records = withLegacyAssociations.inputList ?? [];
+        const canonicalized = await canonicalizeV3CreateProperties(client, apiType, normalized.inputList ?? []);
+        const records = canonicalized.inputList;
         const validationError = validateV3BatchCreate(objectType, apiType, records);
         if (validationError) return err(validationError);
 
@@ -414,11 +377,8 @@ export function registerGenericTools(server: McpServer) {
             ...(input.associations ? { association: input.associations } : {}),
           })),
         };
-        if (customObjectDefinitionName !== undefined) body.customObjectDefinitionName = customObjectDefinitionName;
-        if (customObjectDefinitionId !== undefined) body.customObjectDefinitionId = customObjectDefinitionId;
-
         const result = await client.post("/v3/object/create", body);
-        const allWarnings = [...normalized.warnings, ...canonicalized.warnings, ...withLegacyAssociations.warnings];
+        const allWarnings = [...normalized.warnings, ...canonicalized.warnings];
         const warnings = allWarnings.length ? { normalizedInput: allWarnings } : {};
         return ok({ ...warnings, result });
       } catch (e: unknown) {
