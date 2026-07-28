@@ -20,7 +20,6 @@
 * 딜 (Deal)
 * 리드 (Lead)
 * 커스텀 오브젝트 (Custom Object)
-* 액티비티 (Activity)
 * 견적서 · 상품 · 파이프라인 (Quote / Product / Pipeline)
 * 통합 검색 · 연결관계 (Search & Association)
 * 필드 · 파일 · 이메일 (Field / File / Email)
@@ -72,7 +71,7 @@
 | 견적서 생성 / 딜·리드 견적 조회         | `POST /v2/quote` / \`GET /v2/{deal                                                            |
 | 노트(메모) 생성                   | 레코드 생성·수정 시 body `memo` (전용 생성 API 없음. "노트 / 메모" 섹션 참조)                                       |
 | 노트 조회 / 유형 목록               | `GET /v2/memo` (필터 가능) / `GET /v2/memo/type-list`                                             |
-| 변경 이력 / 활동(타임라인) 조회         | `GET /v2/{type}/history` / `GET /v2/{type}/activity` (MCP는 `POST /v3/object/activity` — "액티비티 (Activity)" 섹션) |
+| 변경 이력 / 활동(타임라인) 조회         | `GET /v2/{type}/history` / `GET /v2/{type}/activity`                                          |
 | 삭제                          | "부록 > 삭제 API 요약" 참조 (딜·리드만 API 삭제 가능)                                                         |
 
 > **생성 순서 (연결된 상태로 만들 때):** 연결 대상 ID(`organizationId`·`peopleId`)는 생성 시 검증되어 **이미 존재해야** 하며, 없으면 `400`(`organizationId의 대상을 찾을 수 없습니다.` 등)을 반환합니다. 따라서 처음부터 연결된 상태로 만들려면 **회사 → 고객 → 딜·리드** 순으로 생성하세요(부모를 먼저 만들고, 반환된 `id`를 자식 생성 body의 `organizationId`·`peopleId`로 전달). 순서를 지키지 않아도 각 오브젝트를 독립적으로 만든 뒤 수정 API(`POST /v2/{type}/{id}`)로 나중에 연결할 수 있습니다.
@@ -617,8 +616,6 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 
 #### GET /v2/people/activity — 고객 액티비티 조회
 
-> **MCP 사용 시:** `salesmap-list-engagements`는 `POST /v3/object/activity`를 사용합니다 — 유형 필터·유형별 limit이 가능하고 응답 형태가 다릅니다. "액티비티 (Activity)" 섹션 참조.
-
 고객의 이메일·웹폼·노트·TODO 등 영업 활동(engagement)을 조회합니다.
 
 **요청 파라미터**
@@ -847,8 +844,6 @@ id, RecordId, 이름, 주소, 웹 주소, 전화, 업종, 직원수, 프로필 �
 ***
 
 #### GET /v2/organization/activity — 회사 액티비티(활동 타임라인)
-
-> **MCP 사용 시:** `salesmap-list-engagements`는 `POST /v3/object/activity`를 사용합니다 — 유형 필터·유형별 limit이 가능하고 응답 형태가 다릅니다. "액티비티 (Activity)" 섹션 참조.
 
 회사와 관련된 모든 활동(이메일·미팅·웹폼·메모·TODO·생성 등)을 시계열로 조회합니다.
 
@@ -1164,8 +1159,6 @@ Base `https://salesmap.kr/api` · 버전 **v2** · 인증 `Authorization: Bearer
 ***
 
 #### GET /v2/deal/activity — 딜 액티비티 조회
-
-> **MCP 사용 시:** `salesmap-list-engagements`는 `POST /v3/object/activity`를 사용합니다 — 유형 필터·유형별 limit이 가능하고 응답 형태가 다릅니다. "액티비티 (Activity)" 섹션 참조.
 
 딜에서 발생한 활동을 조회합니다.
 
@@ -1524,8 +1517,6 @@ Base `https://salesmap.kr/api` · 버전 **v2** · 인증 `Authorization: Bearer
 ***
 
 #### GET /v2/lead/activity — 리드 액티비티 조회
-
-> **MCP 사용 시:** `salesmap-list-engagements`는 `POST /v3/object/activity`를 사용합니다 — 유형 필터·유형별 limit이 가능하고 응답 형태가 다릅니다. "액티비티 (Activity)" 섹션 참조.
 
 리드의 액티비티 이력을 조회합니다.
 
@@ -2104,8 +2095,6 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 
 #### GET /v2/custom-object/activity — 커스텀 오브젝트 액티비티 조회
 
-> **MCP 사용 시:** `salesmap-list-engagements`는 `POST /v3/object/activity`를 사용합니다 — 유형 필터·유형별 limit이 가능하고 응답 형태가 다릅니다. "액티비티 (Activity)" 섹션 참조.
-
 레코드의 활동 타임라인(생성·메모·이메일 등)을 조회합니다.
 
 **요청 파라미터**
@@ -2193,68 +2182,6 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 | 401 | Unauthorized          | 토큰 무효/누락                                                                                 |
 | 429 | Too Many Requests     | 레이트리밋 초과                                                                                 |
 | 500 | Internal Server Error | 서버 오류                                                                                    |
-
-***
-
-### 액티비티 (Activity)
-
-모든 오브젝트(고객·회사·딜·리드·커스텀 오브젝트)의 활동 타임라인을 단일 엔드포인트로 조회합니다. 세일즈맵 GUI의 **"타임라인"**에 해당합니다.
-
-#### POST /v3/object/activity — 액티비티(타임라인) 조회
-
-투두·노트·녹음·미팅·이메일·알림톡·문자 활동을 유형별로 조회합니다.
-
-**요청 파라미터** (body, `application/json`)
-
-| 이름 | 타입 | 필수 | 설명 |
-| --- | --- | :-: | --- |
-| `objectType` | string | 필수 | `"고객"` \| `"회사"` \| `"딜"` \| `"리드"` 또는 커스텀 오브젝트 이름. **한글 이름**을 사용합니다. |
-| `objectId` | string(UUID) | 필수 | 조회할 레코드 ID |
-| `todo` / `note` / `recording` / `meeting` / `email` / `alimtalk` / `sms` | object | 선택 | 조회할 활동 유형. 원하는 유형의 키를 body에 포함하며, 값은 `{}`(기본 5건) 또는 `{ "limit": 1~50, "cursor": "<이전 응답의 해당 유형 cursor>" }`. 최소 1개 이상 포함합니다. |
-
-* `limit`: 유형별 반환 건수 (1~50, 기본 5). `cursor` 없이도 한 번에 최대 50건.
-* `cursor`: 유형별 독립 페이지네이션 커서. 첫 페이지는 생략.
-
-**요청 예시**
-
-```json
-{
-  "objectType": "딜",
-  "objectId": "<dealId>",
-  "email": { "limit": 10 },
-  "note": {}
-}
-```
-
-**응답** `200 OK`
-
-v2와 달리 `success`/`data` 래퍼 없이 본문을 직접 반환합니다. 요청한 유형별로 독립된 `data` 배열과 `cursor`를 반환합니다.
-
-```json
-{
-  "email": { "data": [ /* email 항목 */ ], "cursor": "..." },
-  "note": { "data": [ /* note 항목 */ ], "cursor": null }
-}
-```
-
-* 유형별 `cursor`가 `null`이 아니면 다음 페이지가 있습니다. 해당 유형만 `{ "cursor": ... }`로 담아 재호출합니다.
-* 에러는 v2와 동일하게 `{ "success": false, "message", "reason" }` 형태로 반환됩니다.
-
-**유형별 응답 필드**
-
-공통: `_id`, `createdAt`.
-
-| 유형 | 주요 필드 |
-| --- | --- |
-| `todo` | `title`, `type`, `content`, `startDate`, `endDate`, `isAllDay`, `done`, `doneDate` |
-| `note` | `text`(순수 텍스트), `pinned`. ※API 원응답의 `htmlBody`(렌더링용 HTML)는 `text`와 내용이 중복되어 MCP에서 제거함 |
-| `recording` | `title`, `status`, `duration`(초), `source`, `coreSummary`(AI 통화 요약). ※녹음 파일 URL·STT 전문은 없음 |
-| `meeting` | `title`, `status`, `content`, `startDate`, `endDate` |
-| `email` | `subject`, `fromName`, `fromAddress`, `toName`, `toAddress`, `status`, `date`, `openCount`, `clickCount`. ※본문(html/text)은 없음 |
-| `alimtalk` | `content`, `recipientNo`, `resultCode`, `resultCodeName`, `createDate`, `receiveDate` |
-| `sms` | `subject`, `text`, `sendStatus`, `resultCode`, `toPhoneNumber`, `sendType`, `imageUrl`, `imageFileName` |
-
-> 응답 크기 팁: `recording.coreSummary`(AI 요약)가 응답을 키울 수 있습니다. 요약·집계만 필요하면 해당 유형을 빼거나 `limit`을 낮추세요.
 
 ***
 
