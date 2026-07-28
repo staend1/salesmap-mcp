@@ -13,5 +13,6 @@ dist/
 .conductor/
 CLAUDE.md
 docs/_internal/
-scripts/
+scripts/*
+!scripts/build-api-ref.mjs
 docs/*.txt
