@@ -198,6 +198,27 @@ const TYPE_TO_VALUE_KEY: Record<string, string> = {
 // Read-only types that cannot be set via fieldList
 const READONLY_TYPES = new Set(["formula", "multiAttachment", "multiPeopleGroup", "multiLeadGroup"]);
 
+// 빌트인 오브젝트는 회사·딜·리드·고객 모두 이름 필드가 `이름` 하나뿐인데,
+// LLM은 오브젝트명을 앞에 붙여 `회사명`·`딜 이름` 등으로 지어낸다.
+// (텔레메트리 2026-06~07: 필드명 실패 105건 중 50건이 이 유형, 7개 워크스페이스 공통)
+const NAME_FIELD_ALIASES = new Set([
+  "회사명", "회사 이름", "기업명", "업체명", "조직명", "조직 이름",
+  "딜 이름", "딜명", "리드 이름", "리드명",
+  "고객명", "고객 이름", "사람 이름", "담당자명",
+  "name", "Name", "title", "Title",
+]);
+
+/**
+ * 이름 필드 별칭을 `이름`으로 교정한다.
+ * 스키마에 실제로 존재하는 이름이면 절대 건드리지 않는다 —
+ * 워크스페이스가 `회사명` 같은 동명 커스텀 필드를 가진 경우를 보호하기 위함.
+ */
+export function canonicalFieldName(name: string, hasField: (n: string) => boolean): string {
+  if (hasField(name)) return name;
+  if (NAME_FIELD_ALIASES.has(name.trim()) && hasField("이름")) return "이름";
+  return name;
+}
+
 interface SchemaField {
   name: string;
   type: string;
@@ -339,8 +360,12 @@ export async function resolveProperties(
     "상태": "status",
   };
 
-  for (const [name, value] of Object.entries(properties)) {
+  // `이름`은 TOP_LEVEL_ONLY로 따로 처리되므로 스키마 유무와 무관하게 항상 유효한 대상
+  const hasField = (n: string) => n === "이름" || fieldMap.has(n);
+
+  for (const [rawName, value] of Object.entries(properties)) {
     if (value === undefined || value === null) continue;
+    const name = canonicalFieldName(rawName, hasField);
 
     if (TOP_LEVEL_ONLY[name]) {
       const topKey = TOP_LEVEL_ONLY[name];

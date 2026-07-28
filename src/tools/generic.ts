@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties, getDefinitionMap } from "../client";
+import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties, getDefinitionMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -102,6 +102,18 @@ export function registerGenericTools(server: McpServer) {
             // (v3는 관계형 필드를 field가 아닌 association으로 취급 — list-properties엔 필드로 보여서 이름 재확인만으론 못 벗어남)
             if (msg.includes("필드를 찾을 수 없습니다")) {
               const missing = msg.match(/필드를 찾을 수 없습니다:\s*(.+)/)?.[1]?.trim();
+              // 이름 필드 별칭(회사명·딜 이름 등)이면 `이름`으로 교정해 1회 재시도.
+              // 정상 경로엔 스키마 조회를 넣지 않으려고 실패했을 때만 확인한다.
+              if (missing && fieldList?.length) {
+                try {
+                  const schema = await getFieldSchema(client, objectType);
+                  const names = new Set(schema.fieldList.map(f => f.name));
+                  const fixed = fieldList.map(n => canonicalFieldName(n, x => names.has(x)));
+                  if (fixed.some((n, i) => n !== fieldList[i])) {
+                    return ok(await client.post("/v3/object/read", { ...body, fieldList: fixed }));
+                  }
+                } catch { /* 교정 실패 시 아래 기본 힌트로 */ }
+              }
               if (missing) {
                 try {
                   const schema = await client.post<{ associationList: Array<{ name: string }> }>("/v3/association/list", { objectType: apiType });

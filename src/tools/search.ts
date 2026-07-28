@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema } from "../client";
+import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
 import type { SalesMapClient } from "../client";
 
@@ -12,7 +12,7 @@ const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 
 function isValidId(v: string): boolean { return UUID_RE.test(v) || HEX_ID_RE.test(v); }
 
-type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | string[] }> };
+type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | boolean | string[] }> };
 
 
 // Auto-resolve types: accept name strings, auto-resolve to UUIDs
@@ -63,6 +63,15 @@ async function resolveFilterIds(
   const fieldTypeMap = new Map<string, string>();
   for (const f of schemaData.fieldList) {
     fieldTypeMap.set(f.name, f.type);
+  }
+
+  // 이름 필드 별칭(회사명·딜 이름 등)을 `이름`으로 교정 — 스키마에 없는 이름일 때만.
+  // 이후 로직·API 전송이 모두 propertyName을 그대로 쓰므로 여기서 한 번만 정규화한다.
+  const hasField = (n: string) => fieldTypeMap.has(n);
+  for (const group of groups) {
+    for (const f of group.filters) {
+      f.propertyName = canonicalFieldName(f.propertyName, hasField);
+    }
   }
 
   // Identify user-type and team-type fields used in filters
@@ -117,6 +126,17 @@ async function resolveFilterIds(
       if (!fieldType) {
         filters.push(f);
         continue;
+      }
+
+      // boolean 필드에 문자열 "true"/"false"가 오면 실제 boolean으로 교정.
+      // (백엔드는 boolean만 받는데 LLM이 습관적으로 따옴표를 붙인다 —
+      //  이걸 못 넘겨서 AI가 조건 자체를 버리고 엉뚱한 답을 내던 원인)
+      if (fieldType === "boolean" && typeof f.value === "string") {
+        const v = f.value.trim().toLowerCase();
+        if (v === "true" || v === "false") {
+          filters.push({ ...f, value: v === "true" });
+          continue;
+        }
       }
 
       // User type → auto-resolve names to UUIDs
@@ -202,8 +222,8 @@ const filterSchema = z.object({
     "DATE_LESS_THAN_DAYS_LATER", "DATE_MORE_THAN_DAYS_LATER",
     "DATE_AGO", "DATE_LATER",
   ]),
-  value: z.union([z.string(), z.number(), z.array(z.string())]).optional()
-    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. DATE_BETWEEN은 ['시작','끝'] 배열. 빈 문자열 불가"),
+  value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional()
+    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. boolean(체크박스) 필드는 따옴표 없는 true/false. DATE_BETWEEN은 ['시작','끝'] 배열. 빈 문자열 불가"),
 });
 
 const filterGroupSchema = z.object({
