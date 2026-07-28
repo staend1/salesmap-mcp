@@ -62,21 +62,37 @@ export class SalesMapClient {
         body: body ? JSON.stringify(body) : undefined,
       });
 
+      // 본문을 먼저 텍스트로 받고 파싱은 실패해도 되게 한다.
+      // res.json()을 바로 부르면 백엔드가 HTML(라우트 없는 경로의 Remix 404, 핸들러 바깥
+      // 예외의 5xx)을 줄 때 SyntaxError가 그대로 튀어나가, 손에 쥔 상태 코드를 못 쓰고
+      // "Unexpected token '<'"(JS 문법 오류처럼 보이는 문구)가 AI에게 전달됐다.
+      const raw = await res.text();
+      let json: SalesMapResponse<T> | null = null;
+      try {
+        json = raw ? (JSON.parse(raw) as SalesMapResponse<T>) : null;
+      } catch { /* 비-JSON 응답 → 아래에서 상태 코드로 처리 */ }
+
       if (res.status === 429) {
         // 429 body의 "N초 후 재시도해주세요."를 파싱해 그만큼 대기 (백엔드가 잔여 시간을 정확히 알려줌).
         // 파싱 실패 시에만 지수 백오프로 폴백.
         let waitMs = Math.pow(2, attempt) * 1000;
-        try {
-          const body = (await res.json()) as { reason?: string; message?: string };
-          const m = (body.reason || body.message || "").match(/([\d.]+)\s*초/);
-          if (m) waitMs = Math.ceil(parseFloat(m[1]) * 1000) + 200; // +200ms 여유
-        } catch { /* body 파싱 실패 → 지수 백오프 유지 */ }
+        const m = (json?.reason || json?.message || "").match(/([\d.]+)\s*초/);
+        if (m) waitMs = Math.ceil(parseFloat(m[1]) * 1000) + 200; // +200ms 여유
         await new Promise((r) => setTimeout(r, waitMs));
         lastError = new Error("Rate limit exceeded (429)");
         continue;
       }
 
-      const json = (await res.json()) as SalesMapResponse<T>;
+      // 비-JSON 응답: 상태 코드로 원인을 특정해 전달 (본문엔 쓸 메시지가 없다)
+      if (json === null) {
+        if (res.status === 404) {
+          throw new Error(`경로를 찾을 수 없습니다: ${method} ${path} (HTTP 404). 존재하지 않는 엔드포인트입니다.`);
+        }
+        if (res.status >= 500) {
+          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}. 잠시 후 재시도하세요.`);
+        }
+        throw new Error(`응답을 해석할 수 없습니다 (HTTP ${res.status}) — ${method} ${path}: ${raw.slice(0, 120)}`);
+      }
 
       if (!res.ok || json.success === false) {
         let msg = json.reason || json.message || `HTTP ${res.status}`;
