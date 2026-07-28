@@ -94,8 +94,29 @@ export class SalesMapClient {
         throw new Error(`응답을 해석할 수 없습니다 (HTTP ${res.status}) — ${method} ${path}: ${raw.slice(0, 120)}`);
       }
 
+      // 207 Multi-Status — 레코드는 생성됐고 일부 관계 연결만 실패한 경우.
+      // 에러로 던지면 생성된 레코드 id가 소실돼 호출자가 재시도 → 중복 생성으로 이어진다.
+      // 성공 데이터와 실패 목록을 함께 돌려주고 판단은 호출자에게 맡긴다.
+      if (res.status === 207) {
+        const { data, errors, ...rest } = json as unknown as Record<string, unknown>;
+        return {
+          partialSuccess: true,
+          ...(data !== undefined ? (data as Record<string, unknown>) : rest),
+          errors,
+          hint: "레코드는 생성됐으나 일부 관계 연결에 실패했습니다. 재생성하지 말고 실패한 연결만 salesmap-update-object로 처리하세요.",
+        } as unknown as T;
+      }
+
       if (!res.ok || json.success === false) {
         let msg = json.reason || json.message || `HTTP ${res.status}`;
+        const errors = (json as unknown as { errors?: unknown }).errors;
+        if (Array.isArray(errors) && errors.length > 0) {
+          msg = errors.map((item) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item === "object") return JSON.stringify(item);
+            return String(item);
+          }).join("\n");
+        }
         if (res.status === 404) {
           throw new Error(`레코드를 찾을 수 없습니다 (${path}). ID를 확인하세요.`);
         }
