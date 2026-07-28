@@ -27,14 +27,51 @@ const V3_CREATE_TYPE_MAP: Record<string, string> = {
   deal: "딜", lead: "리드", people: "고객", organization: "회사",
 };
 
-// 모델 식별은 되지만 생성 dispatcher에 case가 없어 필드 검증을 통과한 뒤 400으로 떨어진다
-// (백엔드 확인 2026-07-28). 사전 차단해 전용 도구로 안내한다.
+// 상품·견적서는 v3 create dispatcher에 case가 없어 필드 검증을 통과한 뒤
+// 400 "지원하지 않는 오브젝트 유형"이 된다 (백엔드 확인 2026-07-28).
+//
+// 상품: 스키마가 단순(name·price·description)해 이 도구의 properties로 표현 가능 →
+//       v2 POST /v2/product 루프로 내부 처리. 호출자는 v2/v3를 몰라도 된다.
+// 견적서: quoteProductList(라인아이템 배열)·dealId XOR leadId 등 전용 스키마가 필요해
+//        이 도구의 properties(scalar만 허용)로 표현할 수 없다 → 전용 도구로 안내.
+const PRODUCT_TYPES = new Set(["상품", "product"]);
 const CREATE_UNSUPPORTED: Record<string, string> = {
   "견적서": "salesmap-create-quote",
   quote: "salesmap-create-quote",
-  "상품": "REST API POST /v2/product (전용 도구 없음)",
-  product: "REST API POST /v2/product (전용 도구 없음)",
 };
+
+/** 상품 생성 — v3 미지원이라 v2 단건 API를 순회한다. */
+async function createProducts(
+  client: ReturnType<typeof getClient>,
+  inputList: V3CreateInput[],
+): Promise<{ objectList: Array<{ id: string; name: string }>; errors: unknown[] }> {
+  const objectList: Array<{ id: string; name: string }> = [];
+  const errors: unknown[] = [];
+
+  for (const [index, input] of inputList.entries()) {
+    const p = input.properties;
+    const name = p["이름"] ?? p["name"] ?? p["상품명"];
+    const price = p["가격"] ?? p["price"] ?? p["단가"];
+    if (typeof name !== "string" || !name) {
+      errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "이름", message: "상품 이름은 필수입니다" });
+      continue;
+    }
+    if (typeof price !== "number") {
+      errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "가격", message: "상품 가격은 숫자로 필수입니다" });
+      continue;
+    }
+    const description = p["설명"] ?? p["description"];
+    try {
+      const r = await client.post<{ product?: { id: string; name: string } }>("/v2/product", {
+        name, price, ...(typeof description === "string" ? { description } : {}),
+      });
+      if (r.product) objectList.push({ id: r.product.id, name: r.product.name });
+    } catch (e) {
+      errors.push({ code: "CREATE_FAILED", inputIndex: index, message: (e as Error).message });
+    }
+  }
+  return { objectList, errors };
+}
 
 // objectType 자리에 오면 안 되는 커오 리터럴 — 정의 이름으로 안내한다
 const CUSTOM_OBJECT_LITERALS = new Set(["custom-object", "customObject", "커스텀 오브젝트", "커스텀오브젝트"]);
@@ -328,10 +365,10 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Create ──────────────────────────────────────
   server.tool(
     "salesmap-batch-create-objects",
-    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.",
+    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'가격'(숫자, 필수)·'설명'. associations 미지원.",
     {
       objectType: z.string()
-        .describe("오브젝트 타입. 한글 '고객'|'회사'|'딜'|'리드'|'견적서'|'상품' 또는 영문 별칭 'people'|'organization'|'deal'|'lead'|'quote'|'product'. 커스텀 오브젝트는 정의 이름을 그대로 (salesmap-list-objects로 확인). 'custom-object'·'커스텀 오브젝트' 리터럴은 사용 불가."),
+        .describe("오브젝트 타입. 한글 '고객'|'회사'|'딜'|'리드'|'상품' 또는 영문 별칭 'people'|'organization'|'deal'|'lead'|'product'. 커스텀 오브젝트는 정의 이름을 그대로 (salesmap-list-objects로 확인). 'custom-object'·'커스텀 오브젝트' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
       inputList: z.array(z.object({
         properties: z.record(V3_CREATE_PROPERTY_VALUE)
           .describe("생성할 필드 key-value. text=string, number=number/string, singleSelect=option string, multiSelect=string[], checkbox=boolean, date=ISO string, user=활성 사용자 이름, 빈 값=null."),
@@ -355,14 +392,24 @@ export function registerGenericTools(server: McpServer) {
           return err(`objectType에 "${objectType}"은(는) 쓸 수 없습니다. 커스텀 오브젝트는 정의 이름을 그대로 넣으세요 (예: objectType: "티켓(CRM)").\n\n[힌트] ${hint}`);
         }
 
-        // 견적서·상품은 모델 식별만 되고 생성 dispatcher에 없어 결국 400이 된다 → 사전 차단
+        // 견적서는 전용 스키마(quoteProductList 등)가 필요해 이 도구로 표현 불가
         const unsupported = CREATE_UNSUPPORTED[objectType];
         if (unsupported) {
-          return err(`"${objectType}"은(는) 이 도구로 생성할 수 없습니다 (v3 create 미지원).\n\n[힌트] ${unsupported}를 사용하세요.`);
+          return err(`"${objectType}"은(는) 이 도구로 생성할 수 없습니다. 견적서는 상품 라인아이템·딜/리드 연결 등 전용 입력이 필요합니다.\n\n[힌트] ${unsupported}를 사용하세요.`);
         }
 
         const normalized = normalizeV3CreateInput(inputList);
         if (normalized.error) return err(normalized.error);
+
+        // 상품은 v3 create 미지원 → v2 단건 API 순회로 처리 (호출자에겐 동일하게 보인다)
+        if (PRODUCT_TYPES.has(objectType)) {
+          const r = await createProducts(client, normalized.inputList ?? []);
+          const warn = normalized.warnings.length ? { normalizedInput: normalized.warnings } : {};
+          if (r.errors.length && !r.objectList.length) {
+            return err(r.errors.map((e) => JSON.stringify(e)).join("\n"));
+          }
+          return ok({ ...warn, result: { objectList: r.objectList, ...(r.errors.length ? { errors: r.errors } : {}) } });
+        }
 
         const apiType = V3_CREATE_TYPE_MAP[objectType] ?? objectType;
         const canonicalized = await canonicalizeV3CreateProperties(client, apiType, normalized.inputList ?? []);
