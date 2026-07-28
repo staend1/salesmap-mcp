@@ -15,33 +15,30 @@ MCP는 API 위에 얇은 래퍼를 씌우는 구조인데, API 설계에 문제�
 
 ---
 
-## 1. Batch Create / Update API 부재
+## 1. Batch Update API 부재
 
 ### 문제
 
-생성(`POST /v2/{type}`)과 수정(`POST /v2/{type}/{id}`)은 1건씩만 처리 가능합니다. (조회는 `POST /v3/object/read`로 최대 500건 배치 가능 — 하단 해결 메모 참조)
+수정(`POST /v2/{type}/{id}`)은 1건씩만 처리 가능합니다. (조회는 `POST /v3/object/read`로 최대 500건, 생성은 `POST /v3/object/create`로 최대 100건 배치 가능 — 하단 해결 메모 참조)
 
 ### 실제 영향
 
-"이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요. 텔레메트리 기준 `update-object → update-object` 연속 전이 1,074회, `create-object` 연속 181회 — 대량 임포트·일괄 수정 수요가 실사용에서 확인됨.
+"이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요. 텔레메트리 기준 `update-object → update-object` 연속 전이 1,074회 — 일괄 수정 수요가 실사용에서 확인됨.
 
 ### HubSpot 비교
 
 ```
-HubSpot: batch/create·batch/update (최대 100건)
-
-POST /crm/v3/objects/deals/batch/create
-  → { inputs: [{ properties: {"dealname":"딜1"} }, ...] }
+HubSpot: batch/update (최대 100건)
 
 POST /crm/v3/objects/deals/batch/update
   → { inputs: [{ id:"1", properties: {"amount":50000} }, ...] }
 ```
 
-허브스팟 MCP는 이를 `batch-create-objects`·`batch-update-objects` 도구로 직접 노출합니다.
+허브스팟 MCP는 이를 `batch-update-objects` 도구로 직접 노출합니다.
 
 ### MCP에서의 우회
 
-미구현. 단건 도구를 LLM이 반복 호출하거나 `run-script`로 순회합니다. v3 `object/create`가 전 오브젝트(딜·리드·커오)를 지원하게 되면 `salesmap-batch-create-objects` 신규 도구로 구현 예정 (association 동시 세팅 포함).
+미구현. 단건 도구를 LLM이 반복 호출하거나 `run-script`로 순회합니다. 생성은 `salesmap-batch-create-objects`로 우회 없이 처리합니다.
 
 ---
 
@@ -781,7 +778,7 @@ HubSpot은 Product(Line Item)도 다른 오브젝트와 동일하게 `batch-read
 
 ### MCP에서의 우회
 
-`salesmap-create-object`에서 product 생성은 가능하지만, 생성 후 상세 조회·수정·삭제가 불가능합니다. 목록 조회(`GET /v2/product`)에서 전체 상품을 볼 수는 있습니다.
+MCP에는 상품 생성 전용 도구가 없습니다. 목록 조회(`GET /v2/product`)에서 전체 상품을 볼 수는 있지만, 생성 후 상세 조회·수정·삭제가 불가능한 API 구조라 생성까지 도구로 노출하면 운영 실수가 복구하기 어렵습니다.
 
 `create-quote`의 `quoteProductList`에서 `productId`는 선택 필드 — 카탈로그 연동 없이 `name` + `price`만으로도 견적 항목 생성 가능. 카탈로그 연동이 필요하면 CRM UI에서 상품 ID를 직접 확인해야 합니다.
 
@@ -1117,7 +1114,7 @@ pipeline      → optionList  (현재 X, 별도 /v2/{type}/pipeline)
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
 |---|-----------|-------------|-----------|
-| 1 | Batch Create/Update 부재 | 미구현 — 단건 반복 또는 run-script | 우회 불가 |
+| 1 | Batch Update 부재 | 미구현 — 단건 반복 또는 run-script | 우회 불가 |
 | 2 | fieldList 타입 키 패턴 | resolveProperties() 스키마 변환 | ~120줄 |
 | 3 | Top-level 파라미터 분리 | TOP_LEVEL_ONLY 자동 추출 | ~30줄 |
 | 4-1 | Search 정렬 미지원 | 클라이언트 정렬 (불완전) | ~10줄 |
@@ -1197,6 +1194,7 @@ pipeline      → optionList  (현재 X, 별도 /v2/{type}/pipeline)
 해결된 이슈는 본문에서 제거하고 여기 간단히만 남긴다.
 
 - **Batch Read** — `POST /v3/object/read` (최대 500건, fieldList·associationList 지원). MCP `batch-read-objects`가 사용 (2026-06)
+- **Batch Create** — `POST /v3/object/create` (최대 100건, data·association 지원). MCP `batch-create-objects`가 사용 (2026-07)
 - **Search 값 파싱 실패 500** — 백엔드 타입별 검증 추가로 명확한 400 반환 (구 #4-4, 2026-06)
 - **커스텀 오브젝트 Definition 목록** — `GET /v2/custom-object-definitions` 신설 + 레코드/필드가 `customObjectDefinitionName`(이름)으로 지정 가능. MCP `list-objects` (구 #13, 2026-06)
 - **필드 생성** — `POST /v2/field/{type}` 신설 (formula·custom-object 포함). MCP `create-property` (구 #19 생성부, 2026-06)

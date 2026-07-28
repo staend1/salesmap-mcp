@@ -101,7 +101,7 @@ const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 | 관계 탐색 | \`list-associations\` |
 | 타임라인·노트 | \`list-engagements\`, \`list-notes\`, \`read-note\` |
 | 이력·변경 | \`list-changelog\`, \`get-lead-time\` |
-| 레코드 생성·수정·삭제 | \`create-object\`, \`update-object\`, \`delete-object\` |
+| 레코드 생성·수정·삭제 | \`batch-create-objects\`, \`update-object\`, \`delete-object\` |
 | 노트 생성 | \`create-note\` |
 | 필드 관리 | \`list-properties\`, \`create-property\` |
 | 파이프라인·견적 | \`get-pipelines\`, \`list-products\`, \`create-quote\`, \`get-quotes\`, \`get-link\` |
@@ -129,9 +129,9 @@ list-associations(objectType)                     # 사용 가능한 관계명 �
 ### 레코드 생성 (연결된 상태로)
 생성 순서 엄수: **회사 → 고객 → 딜/리드** (부모 ID가 먼저 존재해야 함)
 \`\`\`
-create-object(objectType: "organization", properties)
-  → create-object(objectType: "people", properties + organizationId)
-  → create-object(objectType: "deal" | "lead", properties + peopleId + organizationId)
+batch-create-objects(objectType: "organization", inputList)
+  → batch-create-objects(objectType: "people", inputList + organizationId)
+  → batch-create-objects(objectType: "deal" | "lead", inputList + peopleId + organizationId)
 \`\`\`
 ⚠️ 리드 생성 시 \`peopleId\` 또는 \`organizationId\` 중 하나 **필수**.
 순서를 지키지 않아도 각각 독립 생성 후 update-object로 나중에 연결 가능.
@@ -170,7 +170,7 @@ N건 루프·집계처럼 도구를 여러 번 연달아 호출해야 할 때만
 중간 데이터가 컨텍스트에 쌓이지 않고 결과만 반환됨.
 
 **🚫 전용 도구로 가능하면 run-script를 쓰지 말 것.** 단건·소수 검색 → \`search-objects\`,
-레코드 조회 → \`batch-read-objects\`, 생성·수정 → \`create-object\`·\`update-object\`,
+레코드 조회 → \`batch-read-objects\`, 생성·수정 → \`batch-create-objects\`·\`update-object\`,
 필드 확인 → \`list-properties\`. 전용 도구는 경로·입력 검증·에러 힌트가 내장돼 있어
 raw API 경로를 직접 다루는 run-script보다 실패율이 훨씬 낮음.
 run-script는 **루프·집계·전체 페이지 수집** 등 전용 도구 조합으로 불가능할 때만.
@@ -198,7 +198,7 @@ run-script(script: \`
 
 ## fieldList 핵심 규칙
 
-\`create-object\`·\`update-object\`에서 커스텀 필드 값은 \`fieldList\` 배열로 지정.
+\`update-object\`에서 커스텀 필드 값은 \`fieldList\` 배열로 지정. \`batch-create-objects\`는 v3 create API라 \`properties\`에 필드명→값 형태로 지정.
 \`name\`은 세일즈맵 UI의 **한글 필드명과 정확히 일치**해야 함 (\`list-properties\`로 확인).
 
 ### 값 키 (필드 타입별)
@@ -900,7 +900,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Guide ─────────────────────────────────────────────────
   server.tool(
     "salesmap-get-guide",
-    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, create-object·update-object·create-property 전에 참조.",
+    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, batch-create-objects·update-object·create-property 전에 참조.",
     {},
     READ,
     async (_params, _extra) => {
@@ -922,7 +922,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Run Script ───────────────────────────────────────────
   server.tool(
     "salesmap-run-script",
-    "🚫 최후수단: 다른 전용 도구로 가능한 작업엔 사용 금지. 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성·수정은 create-object·update-object, 필드 확인은 list-properties를 먼저 사용. 전용 도구로 되는 일을 이 도구로 하면 실패율이 오히려 몇 배 높고, API 경로·파라미터를 헛짚으며 헤매는 시간만 늘어남.\n🎯 반드시 멀티홉 복잡 작업에만: 전용 도구 조합으로 불가능한 대량 조회·분석 — N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 120초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
+    "🚫 최후수단: 다른 전용 도구로 가능한 작업엔 사용 금지. 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성은 batch-create-objects, 수정은 update-object, 필드 확인은 list-properties를 먼저 사용. 전용 도구로 되는 일을 이 도구로 하면 실패율이 오히려 몇 배 높고, API 경로·파라미터를 헛짚으며 헤매는 시간만 늘어남.\n🎯 반드시 멀티홉 복잡 작업에만: 전용 도구 조합으로 불가능한 대량 조회·분석 — N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 120초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
     {
       script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)·salesmap.getAll(path, query?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.getAll('/v2/deal'); return dealList.map(d => d.dealId);\n※ 응답은 data 언랩 상태 — r.dealList로 접근 (r.data.dealList 아님)"),
     },
