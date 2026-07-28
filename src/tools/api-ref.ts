@@ -1,8 +1,8 @@
 // AI용 세일즈맵 REST API 레퍼런스 — salesmap-get-api-ref 도구용
 // 생성물입니다. 직접 수정하지 마세요.
-//   원장:     docs/internal/api-ref-upstream.md  (그대로 보관 — 수정 금지)
-//   오버레이: docs/internal/api-ref-overlay.md   (우리 지식 — 여기에 씀)
-//   병합본:   docs/internal/api-ref-merged.md                          (LLM 병합 결과)
+//   원장:     docs/salesmap-api-reference-2026-07-28.md  (그대로 보관 — 수정 금지)
+//   오버레이: docs/internal/api-ref-overlay.md                (우리 지식 — 여기에 씀)
+//   병합본:   docs/internal/api-ref-merged-2026-07-28.md
 //   빌드:     node scripts/build-api-ref.mjs
 export const SALESMAP_API_REF = `# AI용 문서
 
