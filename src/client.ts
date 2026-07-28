@@ -10,6 +10,17 @@ const BASE_URL = "https://salesmap.kr/api";
 const MIN_INTERVAL_MS = 120; // 100req/10s = 100ms + safety margin
 const MAX_RETRIES = 3;
 
+// 읽기 목적의 POST — 실패해도 상태가 바뀌지 않는다.
+const READ_POST_RE = /\/search$|\/v3\/object\/(read|activity)$|\/v3\/(association|pipeline)\/list$/;
+const isMutating = (method: string, path: string) => method === "POST" && !READ_POST_RE.test(path);
+
+// 쓰기 요청이 애매하게 실패했을 때 붙이는 경고.
+// "잠시 후 재시도하세요" 류의 문구는 AI에게 재호출을 부추겨 중복 생성을 유발한다.
+// 서버에 요청이 도달했는지 알 수 없는 상황이므로, 재시도 대신 확인을 먼저 시킨다.
+const AMBIGUOUS_WRITE_WARNING =
+  "\n\n⚠️ 이 요청은 서버에 도달해 **이미 반영됐을 수 있습니다.** 같은 작업을 다시 실행하지 마세요."
+  + "\n[다음 단계] salesmap-search-objects로 결과가 반영됐는지 먼저 확인한 뒤, 없을 때만 재시도하세요.";
+
 let lastRequestTime = 0;
 
 async function rateLimit(): Promise<void> {
@@ -89,7 +100,8 @@ export class SalesMapClient {
           throw new Error(`경로를 찾을 수 없습니다: ${method} ${path} (HTTP 404). 존재하지 않는 엔드포인트입니다.`);
         }
         if (res.status >= 500) {
-          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}. 잠시 후 재시도하세요.`);
+          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}.`
+            + (isMutating(method, path) ? AMBIGUOUS_WRITE_WARNING : " 잠시 후 재시도하세요."));
         }
         throw new Error(`응답을 해석할 수 없습니다 (HTTP ${res.status}) — ${method} ${path}: ${raw.slice(0, 120)}`);
       }
@@ -125,6 +137,8 @@ export class SalesMapClient {
           const dup = json.data as { id?: string; name?: string };
           if (dup.id) msg += ` (기존 레코드 — id: ${dup.id}${dup.name ? `, 이름: "${dup.name}"` : ""})`;
         }
+        // 5xx는 처리 도중 끊긴 것일 수 있어 반영 여부가 불확실하다 (4xx는 처리 전 거절이라 안전)
+        if (res.status >= 500 && isMutating(method, path)) msg += AMBIGUOUS_WRITE_WARNING;
         throw new Error(msg);
       }
 
