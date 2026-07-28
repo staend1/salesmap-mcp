@@ -156,23 +156,34 @@ AI는 대화 맥락에 따라 적절한 도구를 자동으로 선택합니다. 
 고객·회사 연결 같은 관계형 필드는 `fieldList`가 아닌 `associationList`로 조회합니다.
 {% endhint %}
 
-#### salesmap-create-object
+#### salesmap-batch-create-objects
 
-새 레코드를 생성합니다.
+레코드를 생성합니다. 1건부터 최대 100건까지 한 번에 생성합니다. v3 create API를 사용하므로 필드 값은 `fieldList` 타입 키가 아니라 필드명→값 형태로 전달합니다.
 
-| 파라미터                         | 타입     | 필수     | 설명                                                                  |
-| ---------------------------- | ------ | ------ | ------------------------------------------------------------------- |
-| `objectType`                 | enum   | ✅      | `people` `organization` `deal` `lead` `custom-object` `product`     |
-| `properties`                 | object |        | <p>필드 key-value<br>예: <code>{ "이름": "홍길동", "금액": 50000 }</code></p> |
-| `note`                       | string |        | 초기 메모                                                               |
-| `peopleId`                   | string | 조건부 필수 | 연결할 고객 ID                                                           |
-| `organizationId`             | string | 조건부 필수 | 연결할 회사 ID                                                           |
-| `customObjectDefinitionName` | string | 조건부 필수 | 커스텀 오브젝트 이름 (custom-object일 때, ID 대신 사용 가능)                          |
-| `customObjectDefinitionId`   | string | 조건부 필수 | 커스텀 오브젝트 Definition ID (custom-object일 때, 이름과 둘 중 하나만)               |
+{% hint style="warning" %}
+견적서는 이 도구로 생성할 수 없습니다. 상품 라인아이템·딜/리드 연결 등 전용 입력이 필요하므로 `salesmap-create-quote`를 사용하세요.
+
+상품은 `properties`에 `이름`(필수)·`가격`(숫자, 필수)·`설명`을 넣습니다. 상품은 `associations`를 지원하지 않습니다.
+
+딜·리드는 `associations`에 `메인 고객` 또는 `메인 회사` 중 하나가 반드시 있어야 합니다. 딜은 `properties["파이프라인 단계"]`(단계 이름)도 필수입니다.
+{% endhint %}
+
+| 파라미터                         | 타입     | 필수     | 설명                                                                                         |
+| ---------------------------- | ------ | ------ | ------------------------------------------------------------------------------------------ |
+| `objectType` | string | ✅ | `people` `organization` `deal` `lead` `product` (또는 한글 `고객` `회사` `딜` `리드` `상품`). 커스텀 오브젝트는 **정의 이름을 그대로** 입력 (예: `티켓(CRM)`) |
+| `inputList`  | array  | ✅ | 생성할 레코드 목록(1~100건). 각 항목은 `properties`와 선택 `associations`를 가짐 |
+
+`inputList` 항목 구조:
+
+| 필드             | 타입     | 설명                                                                                       |
+| -------------- | ------ | ---------------------------------------------------------------------------------------- |
+| `properties`   | object | 필드 표시명 → 값. text=string, number=number/string, multiSelect=string[], checkbox=boolean, 빈 값=null |
+| `associations` | object | 관계명 → 레코드 ID 배열. 예: `{ "메인 회사": ["organization-id"] }`                                  |
+| `peopleId` | string | 기존 단건 생성 호환 편의값. `associations["메인 고객"]`으로 자동 변환 |
+| `organizationId` | string | 기존 단건 생성 호환 편의값. `associations["메인 회사"]`로 자동 변환 |
 
 {% hint style="info" %}
-딜/리드 생성 시 `peopleId` 또는 `organizationId` 중 하나 이상 필요합니다.\
-딜 생성 시 `pipelineId`, `pipelineStageId`는 `salesmap-get-pipelines`로 확인하세요.
+딜 생성 시 `properties["파이프라인 단계"]`는 단계 이름으로 넣고, 같은 단계명이 여러 파이프라인에 있으면 `properties["파이프라인"]`도 파이프라인 이름으로 함께 넣습니다. 딜은 `associations["메인 고객"]` 또는 `associations["메인 회사"]`가 필요합니다.
 {% endhint %}
 
 #### salesmap-update-object
@@ -311,7 +322,7 @@ AI는 대화 맥락에 따라 적절한 도구를 자동으로 선택합니다. 
 
 #### salesmap-run-script
 
-AI가 작성한 JavaScript를 세일즈맵 서버에서 직접 실행합니다. 수백 건 레코드를 순회·집계하는 대량 작업을 도구 여러 번 호출 없이 단일 호출로 처리합니다 (최대 50초).
+전용 도구로 답을 못 내는 대량 조회·분석의 최후수단입니다. AI가 작성한 JavaScript를 세일즈맵 서버에서 직접 실행하며, 수백 건 레코드를 순회·집계하는 작업을 도구 여러 번 호출 없이 단일 호출로 처리합니다 (최대 120초).
 
 | 파라미터     | 타입     | 필수 | 설명                                                        |
 | -------- | ------ | -- | --------------------------------------------------------- |
@@ -379,7 +390,7 @@ CRM 사용자 목록을 조회합니다. 담당자 지정·변경 시 필요합�
 | 구분     | 도구 수 | 해당 도구                                                                                                                                                                                                                                                                                                       |
 | ------ | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **읽기** | 21개  | list-objects, list-properties, list-associations, search-objects, batch-read-objects, list-engagements, list-changelog, list-notes, read-note, get-quotes, get-pipelines, get-lead-time, get-link, list-users, list-teams, get-user-details, get-guide, get-api-ref, list-products, list-sequences, list-webforms |
-| **쓰기** | 7개   | create-property, create-object, update-object, create-note, create-quote, run-script, report-feedback                                                                                                                                                                                                        |
+| **쓰기** | 7개   | create-property, batch-create-objects, update-object, create-note, create-quote, run-script, report-feedback                                                                                                                                                                                                        |
 | **삭제** | 1개   | delete-object                                                                                                                                                                                                                                                                                                |
 
 {% hint style="info" %}

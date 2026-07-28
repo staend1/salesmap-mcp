@@ -57,8 +57,8 @@ claude mcp add salesmap-mcp \
 | **스키마** | `salesmap-list-properties` | 오브젝트의 필드 이름·타입·옵션 조회 | **objectType** |
 | | `salesmap-create-property` | 오브젝트에 커스텀 필드 생성 (formula 계산 유형 포함) | **objectType** · **name** · **type** · description? · showInCreateForm? · required? · options? · preventDuplicates? · formula? |
 | **검색** | `salesmap-search-objects` | OR/AND 조합 필터 기반 검색. id·name만 반환 | **objectType** · **filterGroups** · after? |
-| **CRUD** | `salesmap-batch-read-objects` | 최대 20개 레코드 일괄 조회. properties 생략 시 코어 필드만 반환 | **objectType** · **objectIds** · properties? |
-| | `salesmap-create-object` | 레코드 생성 | **objectType** · properties? · note? · peopleId? · organizationId? · customObjectDefinitionId? |
+| **CRUD** | `salesmap-batch-read-objects` | 최대 500개 레코드 일괄 조회. fieldList·associationList 지원 | **objectType** · **objectIds** · fieldList? · associationList? |
+| | `salesmap-batch-create-objects` | 최대 100개 레코드 일괄 생성 | **objectType** · **inputList** · customObjectDefinitionName? · customObjectDefinitionId? |
 | | `salesmap-update-object` | 레코드 수정 | **objectType** · **objectId** · properties? · peopleId? · organizationId? |
 | | `salesmap-delete-object` | 딜/리드 삭제 (confirmed=false 미리보기 → true 실행) | **objectType** · **objectId** · confirmed? |
 | **관계** | `salesmap-list-associations` | 연관 레코드 조회 | **objectType** · **objectId** · **toObjectType** |

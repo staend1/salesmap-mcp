@@ -62,24 +62,61 @@ export class SalesMapClient {
         body: body ? JSON.stringify(body) : undefined,
       });
 
+      // 본문을 먼저 텍스트로 받고 파싱은 실패해도 되게 한다.
+      // res.json()을 바로 부르면 백엔드가 HTML(라우트 없는 경로의 Remix 404, 핸들러 바깥
+      // 예외의 5xx)을 줄 때 SyntaxError가 그대로 튀어나가, 손에 쥔 상태 코드를 못 쓰고
+      // "Unexpected token '<'"(JS 문법 오류처럼 보이는 문구)가 AI에게 전달됐다.
+      const raw = await res.text();
+      let json: SalesMapResponse<T> | null = null;
+      try {
+        json = raw ? (JSON.parse(raw) as SalesMapResponse<T>) : null;
+      } catch { /* 비-JSON 응답 → 아래에서 상태 코드로 처리 */ }
+
       if (res.status === 429) {
         // 429 body의 "N초 후 재시도해주세요."를 파싱해 그만큼 대기 (백엔드가 잔여 시간을 정확히 알려줌).
         // 파싱 실패 시에만 지수 백오프로 폴백.
         let waitMs = Math.pow(2, attempt) * 1000;
-        try {
-          const body = (await res.json()) as { reason?: string; message?: string };
-          const m = (body.reason || body.message || "").match(/([\d.]+)\s*초/);
-          if (m) waitMs = Math.ceil(parseFloat(m[1]) * 1000) + 200; // +200ms 여유
-        } catch { /* body 파싱 실패 → 지수 백오프 유지 */ }
+        const m = (json?.reason || json?.message || "").match(/([\d.]+)\s*초/);
+        if (m) waitMs = Math.ceil(parseFloat(m[1]) * 1000) + 200; // +200ms 여유
         await new Promise((r) => setTimeout(r, waitMs));
         lastError = new Error("Rate limit exceeded (429)");
         continue;
       }
 
-      const json = (await res.json()) as SalesMapResponse<T>;
+      // 비-JSON 응답: 상태 코드로 원인을 특정해 전달 (본문엔 쓸 메시지가 없다)
+      if (json === null) {
+        if (res.status === 404) {
+          throw new Error(`경로를 찾을 수 없습니다: ${method} ${path} (HTTP 404). 존재하지 않는 엔드포인트입니다.`);
+        }
+        if (res.status >= 500) {
+          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}. 잠시 후 재시도하세요.`);
+        }
+        throw new Error(`응답을 해석할 수 없습니다 (HTTP ${res.status}) — ${method} ${path}: ${raw.slice(0, 120)}`);
+      }
+
+      // 207 Multi-Status — 레코드는 생성됐고 일부 관계 연결만 실패한 경우.
+      // 에러로 던지면 생성된 레코드 id가 소실돼 호출자가 재시도 → 중복 생성으로 이어진다.
+      // 성공 데이터와 실패 목록을 함께 돌려주고 판단은 호출자에게 맡긴다.
+      if (res.status === 207) {
+        const { data, errors, ...rest } = json as unknown as Record<string, unknown>;
+        return {
+          partialSuccess: true,
+          ...(data !== undefined ? (data as Record<string, unknown>) : rest),
+          errors,
+          hint: "레코드는 생성됐으나 일부 관계 연결에 실패했습니다. 재생성하지 말고 실패한 연결만 salesmap-update-object로 처리하세요.",
+        } as unknown as T;
+      }
 
       if (!res.ok || json.success === false) {
         let msg = json.reason || json.message || `HTTP ${res.status}`;
+        const errors = (json as unknown as { errors?: unknown }).errors;
+        if (Array.isArray(errors) && errors.length > 0) {
+          msg = errors.map((item) => {
+            if (typeof item === "string") return item;
+            if (item && typeof item === "object") return JSON.stringify(item);
+            return String(item);
+          }).join("\n");
+        }
         if (res.status === 404) {
           throw new Error(`레코드를 찾을 수 없습니다 (${path}). ID를 확인하세요.`);
         }
@@ -197,6 +234,27 @@ const TYPE_TO_VALUE_KEY: Record<string, string> = {
 
 // Read-only types that cannot be set via fieldList
 const READONLY_TYPES = new Set(["formula", "multiAttachment", "multiPeopleGroup", "multiLeadGroup"]);
+
+// 빌트인 오브젝트는 회사·딜·리드·고객 모두 이름 필드가 `이름` 하나뿐인데,
+// LLM은 오브젝트명을 앞에 붙여 `회사명`·`딜 이름` 등으로 지어낸다.
+// (텔레메트리 2026-06~07: 필드명 실패 105건 중 50건이 이 유형, 7개 워크스페이스 공통)
+const NAME_FIELD_ALIASES = new Set([
+  "회사명", "회사 이름", "기업명", "업체명", "조직명", "조직 이름",
+  "딜 이름", "딜명", "리드 이름", "리드명",
+  "고객명", "고객 이름", "사람 이름", "담당자명",
+  "name", "Name", "title", "Title",
+]);
+
+/**
+ * 이름 필드 별칭을 `이름`으로 교정한다.
+ * 스키마에 실제로 존재하는 이름이면 절대 건드리지 않는다 —
+ * 워크스페이스가 `회사명` 같은 동명 커스텀 필드를 가진 경우를 보호하기 위함.
+ */
+export function canonicalFieldName(name: string, hasField: (n: string) => boolean): string {
+  if (hasField(name)) return name;
+  if (NAME_FIELD_ALIASES.has(name.trim()) && hasField("이름")) return "이름";
+  return name;
+}
 
 interface SchemaField {
   name: string;
@@ -339,8 +397,12 @@ export async function resolveProperties(
     "상태": "status",
   };
 
-  for (const [name, value] of Object.entries(properties)) {
+  // `이름`은 TOP_LEVEL_ONLY로 따로 처리되므로 스키마 유무와 무관하게 항상 유효한 대상
+  const hasField = (n: string) => n === "이름" || fieldMap.has(n);
+
+  for (const [rawName, value] of Object.entries(properties)) {
     if (value === undefined || value === null) continue;
+    const name = canonicalFieldName(rawName, hasField);
 
     if (TOP_LEVEL_ONLY[name]) {
       const topKey = TOP_LEVEL_ONLY[name];
