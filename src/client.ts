@@ -10,6 +10,22 @@ const BASE_URL = "https://salesmap.kr/api";
 const MIN_INTERVAL_MS = 120; // 100req/10s = 100ms + safety margin
 const MAX_RETRIES = 3;
 
+// 개별 API 호출 상한. 실측 단일 호출 최대가 29.7초(list-engagements)라 1.5배 여유를 둔다.
+// 계층: Vercel 함수 130초 > run-script 스크립트 컷 125초 > 개별 호출 45초.
+// 멀티홉 스크립트가 여러 번 호출하며 오래 도는 건 그대로 두고, 멈춘 호출 하나만 끊는다.
+const FETCH_TIMEOUT_MS = 45_000;
+
+// 읽기 목적의 POST — 실패해도 상태가 바뀌지 않는다.
+const READ_POST_RE = /\/search$|\/v3\/object\/(read|activity)$|\/v3\/(association|pipeline)\/list$/;
+const isMutating = (method: string, path: string) => method === "POST" && !READ_POST_RE.test(path);
+
+// 쓰기 요청이 애매하게 실패했을 때 붙이는 경고.
+// "잠시 후 재시도하세요" 류의 문구는 AI에게 재호출을 부추겨 중복 생성을 유발한다.
+// 서버에 요청이 도달했는지 알 수 없는 상황이므로, 재시도 대신 확인을 먼저 시킨다.
+const AMBIGUOUS_WRITE_WARNING =
+  "\n\n⚠️ 이 요청은 서버에 도달해 **이미 반영됐을 수 있습니다.** 같은 작업을 다시 실행하지 마세요."
+  + "\n[다음 단계] salesmap-search-objects로 결과가 반영됐는지 먼저 확인한 뒤, 없을 때만 재시도하세요.";
+
 let lastRequestTime = 0;
 
 async function rateLimit(): Promise<void> {
@@ -56,11 +72,24 @@ export class SalesMapClient {
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-      const res = await fetch(url.toString(), {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let res: Response;
+      try {
+        res = await fetch(url.toString(), {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+      } catch (e: unknown) {
+        // 타임아웃이 없으면 Vercel 함수 한계(130초)까지 매달리다 함수째 죽는다.
+        // 그러면 에러 메시지도 텔레메트리도 남지 않아 AI가 애매한 실패를 받고 재호출한다.
+        const cause = e as Error;
+        const timedOut = cause.name === "TimeoutError" || cause.name === "AbortError";
+        const head = timedOut
+          ? `세일즈맵이 ${FETCH_TIMEOUT_MS / 1000}초 내에 응답하지 않았습니다 — ${method} ${path}.`
+          : `세일즈맵 연결 실패 — ${method} ${path}: ${cause.message}`;
+        throw new Error(head + (isMutating(method, path) ? AMBIGUOUS_WRITE_WARNING : " 잠시 후 재시도하세요."));
+      }
 
       // 본문을 먼저 텍스트로 받고 파싱은 실패해도 되게 한다.
       // res.json()을 바로 부르면 백엔드가 HTML(라우트 없는 경로의 Remix 404, 핸들러 바깥
@@ -89,7 +118,8 @@ export class SalesMapClient {
           throw new Error(`경로를 찾을 수 없습니다: ${method} ${path} (HTTP 404). 존재하지 않는 엔드포인트입니다.`);
         }
         if (res.status >= 500) {
-          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}. 잠시 후 재시도하세요.`);
+          throw new Error(`세일즈맵 서버 오류 (HTTP ${res.status}) — ${method} ${path}.`
+            + (isMutating(method, path) ? AMBIGUOUS_WRITE_WARNING : " 잠시 후 재시도하세요."));
         }
         throw new Error(`응답을 해석할 수 없습니다 (HTTP ${res.status}) — ${method} ${path}: ${raw.slice(0, 120)}`);
       }
@@ -125,6 +155,8 @@ export class SalesMapClient {
           const dup = json.data as { id?: string; name?: string };
           if (dup.id) msg += ` (기존 레코드 — id: ${dup.id}${dup.name ? `, 이름: "${dup.name}"` : ""})`;
         }
+        // 5xx는 처리 도중 끊긴 것일 수 있어 반영 여부가 불확실하다 (4xx는 처리 전 거절이라 안전)
+        if (res.status >= 500 && isMutating(method, path)) msg += AMBIGUOUS_WRITE_WARNING;
         throw new Error(msg);
       }
 
