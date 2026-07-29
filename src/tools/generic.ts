@@ -265,7 +265,7 @@ async function canonicalizeV3CreateProperties(
   for (const [index, input] of inputList.entries()) {
     const properties: Record<string, V3CreateValue> = {};
     for (const [rawName, value] of Object.entries(input.properties)) {
-      const name = canonicalFieldName(rawName, n => n === "이름" || names.has(n));
+      const name = canonicalFieldName(rawName, n => n === "이름" || names.has(n), names);
       if (Object.prototype.hasOwnProperty.call(properties, name)) {
         throw new Error(
           `inputList[${index}].properties에 중복 필드명이 있습니다: "${name}"`
@@ -324,7 +324,7 @@ export function registerGenericTools(server: McpServer) {
     "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연결 레코드를 인라인으로 포함 가능.\n🔗 다른 레코드를 참조하는 관계형 필드(고객·회사·딜 연결 등)는 fieldList가 아닌 associationList에 지정.",
     {
       objectType: z.string()
-        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'quote' | 'product' (한글 '고객'·'회사'·'딜'·'리드'·'견적서'·'상품'도 동일하게 동작). 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가."),
+        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'quote' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가."),
       objectIds: z.array(z.string()).min(1).max(500).describe("레코드 ID 배열 (최대 500개)"),
       fieldList: z.array(z.string()).optional()
         .describe("반환할 필드명 목록 (한글). 생략 시 전체 필드 반환."),
@@ -358,7 +358,7 @@ export function registerGenericTools(server: McpServer) {
                 try {
                   const schema = await getFieldSchema(client, objectType);
                   const names = new Set(schema.fieldList.map(f => f.name));
-                  const fixed = fieldList.map(n => canonicalFieldName(n, x => names.has(x)));
+                  const fixed = fieldList.map(n => canonicalFieldName(n, x => names.has(x), names));
                   if (fixed.some((n, i) => n !== fieldList[i])) {
                     return ok(await client.post("/v3/object/read", { ...body, fieldList: fixed }));
                   }
@@ -426,7 +426,7 @@ export function registerGenericTools(server: McpServer) {
     "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. associations 미지원.",
     {
       objectType: z.string()
-        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'product' (한글 '고객'·'회사'·'딜'·'리드'·'상품'도 동일하게 동작). 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
+        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
       inputList: z.array(z.object({
         properties: z.record(V3_CREATE_PROPERTY_VALUE)
           .describe("생성할 필드 key-value. text=string, number=number/string, singleSelect=option string, multiSelect=string[], checkbox=boolean, date=ISO string, user=활성 사용자 이름, 빈 값=null."),

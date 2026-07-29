@@ -70,7 +70,7 @@ async function resolveFilterIds(
   const hasField = (n: string) => fieldTypeMap.has(n);
   for (const group of groups) {
     for (const f of group.filters) {
-      f.propertyName = canonicalFieldName(f.propertyName, hasField);
+      f.propertyName = canonicalFieldName(f.propertyName, hasField, fieldTypeMap.keys());
     }
   }
 
