@@ -35,7 +35,8 @@ async function customObjectLiteralError(client: ReturnType<typeof getClient>, ob
 
 /**
  * 상품 생성 — v3 create 미지원이라 v2 단건 API를 순회한다.
- * `유형`·`상태`·`담당자`·`코드`·`단위` 등은 fieldList로 전달해야 저장된다
+ * `유형`·`상태`·`담당자`·`코드`·`단위` 등은 fieldList로 전달해야 저장된다.
+ * 상품 생성 메모는 top-level `memo`이며, 커스텀 필드 `설명`과 섞지 않는다.
  * (top-level name/price만 보내면 나머지가 조용히 사라진다).
  */
 async function createProducts(
@@ -59,6 +60,10 @@ async function createProducts(
         code: "REQUIRED_FIELD", inputIndex: index, fieldName: "금액",
         message: "상품 금액은 숫자로 필수입니다 (필드명은 '가격'이 아니라 '금액')",
       });
+      continue;
+    }
+    if (props["메모"] !== undefined && typeof props["메모"] !== "string") {
+      errors.push({ code: "INVALID_FIELD", inputIndex: index, fieldName: "메모", message: "상품 메모는 문자열이어야 합니다" });
       continue;
     }
 
@@ -375,7 +380,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Create ──────────────────────────────────────
   server.tool(
     "salesmap-batch-create-objects",
-    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. associations 미지원.",
+    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '메모'(생성 시 작성할 메모) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. '설명'은 실제 상품 커스텀 필드가 있을 때만 사용. associations 미지원.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
@@ -448,7 +453,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Update ────────────────────────────────────────────
   server.tool(
     "salesmap-update-object",
-    "🎯 레코드 수정. properties에 변경할 필드만 전달.\n📋 salesmap-list-properties로 필드 확인.",
+    "🎯 레코드 수정. properties에 변경할 필드만 전달 (보낸 것만 바뀌고 나머지는 유지).\n🔗 메인 고객·메인 회사 연결만 peopleId·organizationId로 — 필드가 아니라 관계라 properties에 없습니다.\n📋 salesmap-list-properties로 필드 확인.",
     {
       objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
         .describe("오브젝트 타입"),
@@ -456,8 +461,13 @@ export function registerGenericTools(server: McpServer) {
       properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
         .optional()
         .describe("변경할 필드 key-value. 예: { \"담당자\": \"홍길동\", \"상태\": \"Won\" }"),
-      peopleId: z.string().optional(),
-      organizationId: z.string().optional(),
+      // 관계는 properties로 표현할 수 없다 — '메인 고객'·'메인 회사'가 v2 필드 스키마에
+      // 아예 없다(딜·리드·고객·회사 4종 실측 확인). v3 update가 나오면 생성 도구처럼
+      // associations 문법으로 합쳐질 자리라, 그때까지 v2식 파라미터를 유지한다.
+      peopleId: z.string().optional()
+        .describe("메인 고객으로 연결할 고객 레코드 ID(UUID). 필드가 아닌 관계라 properties로는 지정할 수 없습니다. ID는 salesmap-search-objects(objectType: 'people')로 확인. 딜·리드·회사에 사용."),
+      organizationId: z.string().optional()
+        .describe("메인 회사로 연결할 회사 레코드 ID(UUID). 필드가 아닌 관계라 properties로는 지정할 수 없습니다. ID는 salesmap-search-objects(objectType: 'organization')로 확인. 딜·리드·고객에 사용."),
     },
     WRITE,
     async ({ objectType, objectId, properties, ...rest }, extra) => {

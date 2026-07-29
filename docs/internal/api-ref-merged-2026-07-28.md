@@ -2278,7 +2278,8 @@ Content-Type: application/json   # 쓰기(POST)에만
 | ------------- | ------ | :-: | ----------------------------------------------------- |
 | `name`        | string |  필수 | 상품명. 누락 시 `[name]: 필수 입력 사항입니다.`                      |
 | `price`       | number |  필수 | 단가. 숫자로 입력해야 합니다. 누락/비숫자 시 `[price]: 유효한 숫자를 입력해주세요.` |
-| `description` | string |     | 설명                                                    |
+| `memo`        | string |      | 상품 생성 시 작성할 메모                                           |
+| `fieldList`   | array  |      | 생성할 상품의 데이터 필드. 상태를 생략하면 활성화, 유형을 생략하면 일반 상품으로 생성됩니다. |
 
 > **참고:** `name`과 `price`는 모두 필수입니다. `name`만 보내면 `400 Bad Request`와 `[price]: 유효한 숫자를 입력해주세요.`를 반환합니다.
 
@@ -2288,14 +2289,17 @@ Content-Type: application/json   # 쓰기(POST)에만
 {
   "name": "서버1",
   "price": 100000,
-  "description": "1U 랙 서버"
+  "memo": "초기 등록 메모",
+  "fieldList": [
+    { "name": "코드", "stringValue": "SERVER-001" }
+  ]
 }
 ```
 
-**응답 — 200 OK**
+**응답 — 201 Created**
 
 ```json
-{ "success": true, "data": { "product": { "id": "string", "name": "string", "price": 0, "createdAt": "string" } } }
+{ "success": true, "data": { "product": { "id": "string", "name": "string", "createdAt": "string" } } }
 ```
 
 **에러**

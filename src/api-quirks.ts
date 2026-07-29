@@ -167,7 +167,7 @@ export const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
   lead: { "이름": "name", "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId" },
   people: { "이름": "name" },
   organization: { "이름": "name" },
-  product: { "이름": "name", "금액": "price" },
+  product: { "이름": "name", "금액": "price", "메모": "memo" },
   // 실측 2026-07-29 — 둘 다 fieldList 거부: 이름은 `[name]: 필수 입력 사항입니다`,
   // 메인 견적서 여부는 `[refine]: 설정할 수 없는 Quote 필드 값이 존재합니다`.
   // (`금액`은 반대로 fieldList로 들어간다)
@@ -289,6 +289,7 @@ export const PRODUCT_TYPES = new Set(["상품", "product"]);
 export const PRODUCT_ALIAS: Record<string, string> = {
   "가격": "금액", "단가": "금액", price: "금액", amount: "금액",
   name: "이름", "상품명": "이름", "제품명": "이름",
+  memo: "메모", "상품 메모": "메모",
   code: "코드", type: "유형", status: "상태", owner: "담당자", unit: "단위",
 };
 

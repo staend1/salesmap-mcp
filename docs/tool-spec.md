@@ -110,7 +110,7 @@
 📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.
 ⚠️ 딜·리드: associations["메인 고객"] 또는 ["메인 회사"] 필수. 딜은 properties["파이프라인 단계"](단계 이름) 필수, 리드는 선택. "메인 견적서"는 생성 시 지정 불가.
 🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.
-📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. associations 미지원.
+📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '메모'(생성 시 작성할 메모) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. '설명'은 실제 상품 커스텀 필드가 있을 때만 사용. associations 미지원.
 ```
 
 | 파라미터 | 타입 | 필수 | 설명 |
@@ -125,7 +125,8 @@
 - 성격: **쓰기** · 정의: `src/tools/generic.ts`
 
 ```
-🎯 레코드 수정. properties에 변경할 필드만 전달.
+🎯 레코드 수정. properties에 변경할 필드만 전달 (보낸 것만 바뀌고 나머지는 유지).
+🔗 메인 고객·메인 회사 연결만 peopleId·organizationId로 — 필드가 아니라 관계라 properties에 없습니다.
 📋 salesmap-list-properties로 필드 확인.
 ```
 
@@ -134,8 +135,8 @@
 | `objectType` | `enum(people|organization|deal|lead|custom-object)` | ✅ | 오브젝트 타입 |
 | `objectId` | `string` | ✅ | 레코드 ID |
 | `properties` | `record<string|number|boolean|string[]>` |  | 변경할 필드 key-value. 예: { "담당자": "홍길동", "상태": "Won" } |
-| `peopleId` | `string` |  |  |
-| `organizationId` | `string` |  |  |
+| `peopleId` | `string` |  | 메인 고객으로 연결할 고객 레코드 ID(UUID). 필드가 아닌 관계라 properties로는 지정할 수 없습니다. ID는 salesmap-search-objects(objectType: 'people')로 확인. 딜·리드·회사에 사용. |
+| `organizationId` | `string` |  | 메인 회사로 연결할 회사 레코드 ID(UUID). 필드가 아닌 관계라 properties로는 지정할 수 없습니다. ID는 salesmap-search-objects(objectType: 'organization')로 확인. 딜·리드·고객에 사용. |
 
 ### `salesmap-delete-object`
 

@@ -755,7 +755,7 @@ HubSpot: 4개 Property 도구
 
 ```
 GET  /v2/product           → ✅ 목록 조회 (cursor 페이지네이션만 지원)
-POST /v2/product           → ✅ 생성 (작동, name + price 필수)
+POST /v2/product           → ✅ 생성 (name + price 필수, memo + fieldList 선택)
 GET  /v2/product/{id}      → ❌ 404 (HTML 반환)
 POST /v2/product/{id}      → ❌ 404 (HTML 반환)
 POST /v2/product/{id}/delete → ❌ 404 (HTML 반환)
@@ -778,7 +778,7 @@ HubSpot은 Product(Line Item)도 다른 오브젝트와 동일하게 `batch-read
 
 ### MCP에서의 우회
 
-MCP에는 상품 생성 전용 도구가 없습니다. 목록 조회(`GET /v2/product`)에서 전체 상품을 볼 수는 있지만, 생성 후 상세 조회·수정·삭제가 불가능한 API 구조라 생성까지 도구로 노출하면 운영 실수가 복구하기 어렵습니다.
+MCP는 `salesmap-batch-create-objects`에서 상품 생성만 v2 `POST /v2/product` 루프로 우회합니다. 평탄한 `properties` 입력을 받아 `이름`·`금액`·`메모`는 top-level로, `유형`·`상태`·`코드`·`단위` 등 데이터 필드는 `fieldList`로 분리합니다. 다만 생성 후 상세 조회·수정·삭제는 여전히 API 한계로 불가합니다.
 
 `create-quote`의 `quoteProductList`에서 `productId`는 선택 필드 — 카탈로그 연동 없이 `name` + `price`만으로도 견적 항목 생성 가능. 카탈로그 연동이 필요하면 CRM UI에서 상품 ID를 직접 확인해야 합니다.
 
