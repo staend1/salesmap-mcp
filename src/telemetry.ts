@@ -37,6 +37,34 @@ export function fingerprint(token: string | undefined): string {
   return createHash("sha256").update(token).digest("hex").slice(0, 16);
 }
 
+type ExtraCtx = {
+  authInfo?: { token?: string };
+  requestInfo?: { headers?: Record<string, string | string[] | undefined> };
+  _meta?: Record<string, unknown>;
+};
+
+/**
+ * 어떤 MCP 클라이언트가 호출했는지 식별한다 (Claude / ChatGPT / Cursor / mcp-remote …).
+ *
+ * `server.getClientVersion()`은 못 쓴다 — 우리는 stateless(`sessionIdGenerator: undefined`)라
+ * `tools/call`마다 서버가 새로 생성되고, `initialize`를 본 인스턴스가 아니다. 실측으로 null 확인.
+ *
+ * 그래서 두 경로를 본다:
+ *  1) `_meta["io.modelcontextprotocol/clientInfo"]` — 2026-07-28 스펙이 매 요청에 싣는 값. 있으면 가장 정확
+ *  2) HTTP `User-Agent` — 현행 클라이언트가 매 요청에 보내는 값
+ *
+ * 모델명은 알 수 없다(클라이언트만 식별). PII 아님.
+ */
+function clientOf(extra: ExtraCtx | undefined): string | null {
+  const info = extra?._meta?.["io.modelcontextprotocol/clientInfo"] as
+    { name?: string; version?: string } | undefined;
+  if (info?.name) return info.version ? `${info.name}/${info.version}` : info.name;
+
+  const ua = extra?.requestInfo?.headers?.["user-agent"];
+  const s = Array.isArray(ua) ? ua[0] : ua;
+  return s ? s.slice(0, 120) : null;
+}
+
 async function send(payload: Record<string, unknown>): Promise<void> {
   if (!ENDPOINT) return;
   try {
@@ -89,8 +117,9 @@ export function instrument(server: McpServer): void {
 
     const wrapped: ToolHandler = async (...callArgs: unknown[]) => {
       const toolArgs = callArgs[0];
-      const extra = callArgs[1] as { authInfo?: { token?: string } } | undefined;
+      const extra = callArgs[1] as ExtraCtx | undefined;
       const workspaceId = fingerprint(extra?.authInfo?.token);
+      const client = clientOf(extra);
       const t0 = Date.now();
       let success = true;
       let error: string | undefined;
@@ -116,6 +145,7 @@ export function instrument(server: McpServer): void {
           error: error ?? null,
           duration_ms: Date.now() - t0,
           arguments: VERBOSE ? safeStringify(toolArgs) : null,
+          client,
         });
       }
     };
