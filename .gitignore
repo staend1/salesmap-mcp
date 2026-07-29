@@ -16,4 +16,5 @@ docs/_internal/
 scripts/*
 !scripts/build-api-ref.mjs
 !scripts/quirks.mjs
+!scripts/tool-spec.mts
 docs/*.txt
