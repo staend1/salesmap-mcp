@@ -64,11 +64,29 @@ export const QUIRKS: readonly Quirk[] = [
   },
   {
     id: "objecttype-v2-v3-duality",
-    summary: "v2는 영문 경로(deal), v3는 한글(딜)을 받는다",
+    summary: "v2는 영문 경로(deal), v3는 한글(딜)을 받는다. 입력은 영문으로 통일하고 v3 전송 직전에 변환",
     evidence: "v3가 표시명을 채택. 백엔드 확인 2026-07-29 — 영문 별칭 미지원",
     removeWhen: "v3 getObjectModel이 영문 별칭(deal→딜)을 허용하면",
     affects: ["batch-read-objects", "batch-create-objects", "list-engagements", "list-associations", "get-pipelines"],
-    location: "api-quirks.ts › V3_TYPE_MAP / V3_CREATE_TYPE_MAP",
+    location: "api-quirks.ts › V3_CORE_TYPE_MAP / V3_TYPE_MAP / V3_CREATE_TYPE_MAP",
+  },
+  {
+    id: "quoteproduct-flat-input",
+    summary: "견적서 상품의 이름·금액·수량·결제 횟수·시작 결제일은 top-level 전용. 평탄 입력을 받아 우리가 분리한다",
+    evidence: "실측 2026-07-29. fieldList에 넣으면 400. 단독 입력 시 필수검증이 먼저 걸려 '유효한 숫자를 입력해주세요'로 원인이 가려짐",
+    removeWhen: "견적서 상품이 fieldList로 전 필드를 수용하면 (top-level-split과 함께 제거)",
+    affects: ["create-quote"],
+    location: "api-quirks.ts › QUOTE_PRODUCT_TOP_LEVEL / QUOTE_PRODUCT_ALIAS",
+    ledger: "#3, #31",
+  },
+  {
+    id: "quoteproduct-type-name-split",
+    summary: "견적서 상품의 타입 이름이 표면마다 다르다 — 필드 API는 quote-product, 에러 메시지는 QuoteProduct",
+    evidence: "실측 2026-07-29. GET /v2/field/quote-product 200, /v2/field/quoteProduct 404. 에러는 'QuoteProduct에 정의되있지 않은…'",
+    removeWhen: "타입 표기가 하나로 통일되면",
+    affects: ["create-quote"],
+    location: "api-quirks.ts › QUOTE_PRODUCT_SCHEMA_TYPE",
+    ledger: "#31",
   },
   {
     id: "custom-object-definition-name",
@@ -164,6 +182,11 @@ export const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
  * ⚠️ 커스텀 select는 해당 없음 — 조회값 = 입력값.
  * ⚠️ `quoteProduct.할인 유형`은 **대상이 아니다** — 같은 이름이지만 원값(percentage)을 받는다.
  *    isQuoteDefaultField가 model === "quote"만 보기 때문. 헷갈리기 쉬우니 주의.
+ *
+ *    실측 2026-07-29 — 부모와 자식이 정확히 교차한다:
+ *      quote        "%"          200  /  "percentage"  400
+ *      quoteProduct "percentage" 200  /  "%"           400
+ *    질의 발송: docs/_internal/query-discount-type-inversion.md
  */
 export const SYSTEM_SELECT_INPUT: Record<string, Record<string, Record<string, string>>> = {
   product: { "상태": { active: "활성", inactive: "비활성" } },
@@ -212,15 +235,35 @@ export const TYPE_TO_VALUE_KEY: Record<string, string> = {
  * v2 영문 → v3 한글. read·create 모두 같은 getObjectModel을 쓰므로 규칙은 동일하다.
  * 커스텀 오브젝트는 정의 이름을 그대로 넘기므로 여기 두지 않는다.
  */
-export const V3_TYPE_MAP: Record<string, string> = {
+/**
+ * @quirk objecttype-v2-v3-duality
+ *
+ * ── 정책: 입력은 영문, 전송 직전에 한글로 변환 ──
+ *
+ * v2는 영문 경로(`/v2/deal`), v3는 한글 objectType(`"딜"`)을 받는다.
+ * 사용자·AI가 보는 입력면은 **영문 하나로 통일**하고, 한글은 v3 요청을 만드는
+ * 마지막 순간에만 만든다. 한글이 도구 스키마·문서·에러 메시지에 새어나가면
+ * "여긴 product, 저긴 상품"이 되어 AI가 매번 헷갈린다.
+ *
+ * 앞으로 추가될 v3 엔드포인트도 한글 objectType일 가능성이 높다.
+ * **새 v3 도구를 붙일 때 이 맵을 재사용하고, 인라인으로 다시 적지 말 것.**
+ * (실제로 list-associations·list-engagements에 사본이 생겼다가 여기로 합쳤다.)
+ *
+ * 한글 입력도 계속 받아준다 — 거부할 이유가 없고, 사용자가 직접 한글을 쓰는 경우가 있다.
+ * 어디까지나 "우리가 광고하는 입력값"을 영문으로 통일한다는 뜻이다.
+ */
+export const V3_CORE_TYPE_MAP: Record<string, string> = {
   deal: "딜", lead: "리드", people: "고객", organization: "회사",
+};
+
+/** @quirk objecttype-v2-v3-duality — 조회 계열은 견적서·상품도 인식 */
+export const V3_TYPE_MAP: Record<string, string> = {
+  ...V3_CORE_TYPE_MAP,
   quote: "견적서", product: "상품",
 };
 
-/** @quirk objecttype-v2-v3-duality — create는 견적서·상품 미지원이라 더 좁다 */
-export const V3_CREATE_TYPE_MAP: Record<string, string> = {
-  deal: "딜", lead: "리드", people: "고객", organization: "회사",
-};
+/** @quirk objecttype-v2-v3-duality — create dispatcher는 견적서·상품 미지원이라 코어 4종뿐 */
+export const V3_CREATE_TYPE_MAP: Record<string, string> = V3_CORE_TYPE_MAP;
 
 /** @quirk custom-object-definition-name — objectType 자리에 오면 안 되는 리터럴 */
 export const CUSTOM_OBJECT_LITERALS = new Set([
@@ -244,6 +287,50 @@ export const PRODUCT_ALIAS: Record<string, string> = {
   "가격": "금액", "단가": "금액", price: "금액", amount: "금액",
   name: "이름", "상품명": "이름", "제품명": "이름",
   code: "코드", type: "유형", status: "상태", owner: "담당자", unit: "단위",
+};
+
+/**
+ * @quirk quoteproduct-type-name-split
+ *
+ * 견적서 상품을 가리키는 타입 이름이 표면마다 다르다:
+ *   필드 스키마 조회  `quote-product`   (kebab, OpenAPI enum에 이렇게 등재)
+ *   에러 메시지       `QuoteProduct`    ("QuoteProduct에 정의되있지 않은 데이터 필드…")
+ *   요청 본문 키      `quoteProductList`
+ *
+ * `GET /v2/field/quoteProduct`는 404다. 스키마를 조회할 땐 반드시 이 상수를 쓸 것.
+ */
+export const QUOTE_PRODUCT_SCHEMA_TYPE = "quote-product";
+
+/**
+ * @quirk quoteproduct-flat-input
+ *
+ * 견적서 상품의 top-level 전용 필드. fieldList에 넣으면 400이다.
+ * (`이름`은 스키마에 아예 없다 — 순수 top-level `name`이다.)
+ *
+ * 에러 메시지가 원인을 가린다:
+ *   fieldList에만 넣음        → "[quoteProductList,0,amount]: 유효한 숫자를 입력해주세요"
+ *   top-level·fieldList 양쪽  → "[refine]: 수량 값은 fieldList가 아닌 파라메터 입니다"
+ * 앞의 것을 받으면 AI는 값 형식을 고치려 들지만 실제 원인은 **넣은 자리**다.
+ * 그래서 평탄한 properties로 받아 우리가 분리한다.
+ */
+export const QUOTE_PRODUCT_TOP_LEVEL: Record<string, string> = {
+  "이름": "name",
+  "금액": "price",
+  "수량": "amount",
+  "결제 횟수": "paymentCount",
+  "시작 결제일": "paymentStartAt",
+};
+
+/**
+ * @quirk quoteproduct-flat-input
+ * `결제 시작일`은 백엔드 안내 문구에서 쓰인 표현이고, 스키마의 실제 이름은 `시작 결제일`이다.
+ */
+export const QUOTE_PRODUCT_ALIAS: Record<string, string> = {
+  "상품명": "이름", "제품명": "이름", name: "이름",
+  "단가": "금액", "가격": "금액", price: "금액",
+  "개수": "수량", "수량(개)": "수량", amount: "수량", quantity: "수량",
+  "결제횟수": "결제 횟수", paymentCount: "결제 횟수",
+  "결제 시작일": "시작 결제일", "결제시작일": "시작 결제일", paymentStartAt: "시작 결제일",
 };
 
 /** @quirk relation-list-operator — 관계 필드에서 리스트 연산자를 동등한 IN/NOT_IN으로 */

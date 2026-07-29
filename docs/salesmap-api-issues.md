@@ -1110,6 +1110,61 @@ pipeline      → optionList  (현재 X, 별도 /v2/{type}/pipeline)
 
 ---
 
+## 31. 견적서 상품 — 타입 표기 3중화 + 필드 API 개선의 사각지대
+
+### 문제
+
+견적서 상품은 **필드를 생성·수정할 수 있는 대상인데**(`POST /v2/field/{type}`의 enum에 `quote-product`가 있음),
+그 타입을 가리키는 이름이 표면마다 다릅니다.
+
+| 쓰이는 곳 | 표기 |
+|---|---|
+| 필드 스키마 조회·생성 (`/v2/field/{type}`) | `quote-product` |
+| 에러 메시지 | `QuoteProduct` |
+| 요청 본문 키 | `quoteProductList` |
+
+```
+GET /v2/field/quote-product   → 200 (할인 유형·결제 횟수·시작 결제일·마지막 결제일·할인·금액·전체 금액·수량)
+GET /v2/field/quoteProduct    → 404 Not Found / Invalid Parameters
+```
+
+### 실제 영향 (실측 2026-07-29)
+
+`QuoteProduct에 정의되있지 않은 데이터 필드를 입력했습니다` 에러를 받은 클라이언트가
+**에러에 적힌 이름으로 스키마를 조회하면 404**입니다.
+MCP 개발 중 실제로 이 경로를 밟아 "견적서 상품은 필드 조회 자체가 불가능하다"고 잘못 결론냈습니다.
+AI 클라이언트도 같은 경로를 밟습니다 — 에러에서 타입 이름을 읽어 조회 → 404 → 필드가 없다고 판단 → 엉뚱한 우회 시도.
+
+`deal`·`people` 등 다른 타입은 표기가 일치해 이 문제가 없습니다. 견적서 상품만 예외입니다.
+
+### 연관 — 필드 생성 API 개선건과 한 묶음
+
+`POST /v2/field/{type}` 신설(2026-06, 아래 「해결됨」)로 필드를 코드에서 만들 수 있게 됐지만,
+`quote-product`는 **enum에는 있는데 그 이름이 어디에도 노출되지 않아** 사실상 도달할 수 없습니다.
+필드 API를 손볼 때 이 타입도 함께 정리하는 게 맞습니다.
+
+같은 성격의 나머지 항목:
+- 견적서 상품의 `이름`은 필드 스키마에 없는 **순수 top-level**입니다. 다른 오브젝트와 다릅니다 (#3)
+- `이름·금액·수량·결제 횟수·시작 결제일`을 fieldList에 넣으면 400인데 **단독 입력 시 에러가 원인을 가립니다**
+  (`[quoteProductList,0,amount]: 유효한 숫자를 입력해주세요` — 실제 원인은 값이 아니라 넣은 자리).
+  top-level과 양쪽에 넣으면 정확한 메시지(`수량 값은 fieldList가 아닌 파라메터 입니다`)가 나옵니다 (#18)
+- 스키마의 실제 이름은 `시작 결제일`인데 백엔드 안내 문구·저희 문서에 `결제 시작일`도 섞여 있었습니다
+- `할인 유형`은 quote와 값 규칙이 다릅니다 — quote-product는 조회값(`percentage`) 그대로, quote는 `%`. quote 쪽이 이상 (#2 계열)
+
+### MCP에서의 우회
+
+`create-quote`가 견적서 상품을 평탄한 `properties`로 받고, `quote-product` 스키마를 조회해
+top-level 5종과 fieldList로 분리합니다. fieldList에 금지 필드가 와도 400을 내지 않고 제자리로 옮깁니다.
+타입 이름은 `QUOTE_PRODUCT_SCHEMA_TYPE` 상수 하나로 고정했습니다.
+
+### API 개선안
+
+1. **(근본) 타입 표기 통일** — 에러 메시지의 타입 이름을 `/v2/field/{type}`에 그대로 넣을 수 있는 값으로. 되면 2번은 불필요
+2. **(차선) 별칭 허용** — `/v2/field/{type}`이 `quoteProduct` 표기도 수용
+3. fieldList에 top-level 전용 필드가 오면 필수값 검증보다 **먼저** refine 메시지 (#18과 동일 성격)
+
+---
+
 ## 요약: MCP에서 우회한 API 갭 목록
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
@@ -1144,6 +1199,7 @@ pipeline      → optionList  (현재 X, 별도 /v2/{type}/pipeline)
 | 25 | IP 화이트리스트 + 프록시 충돌 (고객 IP제한 시 MCP 기각) | — | 우회 불가 (고정 egress IP 필요) |
 | 26 | 관계 필드 검색에 LIST_CONTAIN 미지원 (IN/NOT_IN만) + 힌트 오발동 | LIST_CONTAIN→IN 자동 변환 + operator 힌트 분리 | ~6줄 |
 | 27 | 페이지네이션 `nextCursor` 신호를 LLM이 무시 (1페이지를 전부로 단정) | `ok()`에서 nextCursor 존재 시 "더 있음 + `after=`" 힌트 자동 주입 | ~12줄 |
+| 31 | 견적서 상품 타입 표기 3중화 (`quote-product`/`QuoteProduct`/`quoteProductList`) + top-level 전용 필드 에러가 원인을 가림 | 평탄 properties 수용 후 스키마 기반 분리, 타입명 상수 고정 | ~40줄 |
 
 **총 우회 코드: ~527줄** (전체 MCP 서버 코드의 약 30%)
 

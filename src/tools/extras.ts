@@ -4,6 +4,7 @@ import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 import { SALESMAP_API_REF } from "./api-ref";
+import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -41,7 +42,7 @@ function isNoiseField(fieldName: string): boolean {
 }
 
 const quoteProductSchema = z.object({
-  name: z.string().describe("상품 이름"),
+  name: z.string().optional().describe("상품 이름 (properties['이름']으로 넣어도 됩니다)"),
   productId: z.string().optional().describe("상품 ID"),
   price: z.number().optional().describe("단가"),
   amount: z.number().optional().describe("수량"),
@@ -49,8 +50,61 @@ const quoteProductSchema = z.object({
     .describe("결제 횟수. ⚠️ 상품 유형이 '구독 (월간)'·'구독 (연간)'이면 **필수** (누락 시 400 '구독형 상품은 결제 횟수와 시작 결제일이 필수 항목입니다'). 유형은 salesmap-list-products로 확인."),
   paymentStartAt: z.string().optional()
     .describe("시작 결제일 (YYYY-MM-DD). ⚠️ 구독형 상품이면 **필수** — paymentCount와 함께 전달."),
-  fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
+  properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
+    .optional()
+    .describe("견적서 상품 필드를 평탄하게 { 필드명: 값 }으로. '이름'·'금액'(단가)·'수량'·'결제 횟수'·'결제 시작일'은 자동으로 올바른 자리로 보냅니다. 그 외는 커스텀 필드로 전달."),
+  fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional()
+    .describe("(비권장) 원시 fieldList. properties를 쓰세요."),
 });
+type QuoteProductInput = z.infer<typeof quoteProductSchema>;
+
+/**
+ * @quirk quoteproduct-flat-input
+ *
+ * 평탄한 properties를 견적서 상품의 top-level 파라미터 + fieldList로 분리한다.
+ * 원시 fieldList에 top-level 전용 필드가 들어와도 400을 내지 않고 옮겨준다 —
+ * 백엔드 에러가 원인을 가리는 자리라(위 quirk 주석), 막기보다 고쳐 보내는 게 낫다.
+ *
+ * 커스텀 필드는 `quote-product` 스키마를 조회해 타입별 값 키로 변환한다
+ * (@quirk quoteproduct-type-name-split — `quoteProduct`로 조회하면 404).
+ */
+async function resolveQuoteProduct(
+  client: ReturnType<typeof getClient>,
+  input: QuoteProductInput,
+  index: number,
+): Promise<{ body: Record<string, unknown>; errors: string[] }> {
+  const errors: string[] = [];
+  const body: Record<string, unknown> = {};
+
+  // 명시 파라미터가 우선 — properties보다 구체적인 의도로 본다.
+  for (const [k, v] of Object.entries(input)) {
+    if (v !== undefined && k !== "properties" && k !== "fieldList") body[k] = v;
+  }
+
+  // 평탄 입력 + 원시 fieldList를 하나의 properties로 합친다.
+  // fieldList에 top-level 전용 필드가 와도 400을 내지 않고 제자리로 옮겨준다 —
+  // 백엔드 에러가 원인을 가리는 자리라(위 quirk 주석), 막기보다 고쳐 보내는 게 낫다.
+  const merged: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input.properties ?? {})) {
+    merged[QUOTE_PRODUCT_ALIAS[k] ?? k] = v;
+  }
+  for (const entry of input.fieldList ?? []) {
+    const { name, ...rest } = entry as { name: string } & Record<string, unknown>;
+    merged[QUOTE_PRODUCT_ALIAS[name] ?? name] = Object.values(rest)[0];
+  }
+
+  if (Object.keys(merged).length > 0) {
+    const r = await resolveProperties(client, QUOTE_PRODUCT_SCHEMA_TYPE, merged, QUOTE_PRODUCT_TOP_LEVEL);
+    errors.push(...r.errors.map(e => `quoteProductList[${index}] ${e}`));
+    for (const [k, v] of Object.entries(r.extractedTopLevel)) {
+      if (!(k in body)) body[k] = v;  // 명시 파라미터 우선
+    }
+    if (r.fieldList.length > 0) body.fieldList = r.fieldList;
+  }
+
+  if (!body.name) errors.push(`quoteProductList[${index}] 상품 이름이 필요합니다 (name 또는 properties['이름']).`);
+  return { body, errors };
+}
 
 // ── salesmap-get-guide content (MCP 사용 가이드) ──────────────────
 const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
@@ -480,10 +534,7 @@ export function registerExtrasTools(server: McpServer) {
         const client = getClient(extra);
 
         // v3: association schema (마이그레이션: 2026-06-30)
-        const V3_TYPE_MAP: Record<string, string> = {
-          deal: "딜", lead: "리드", people: "고객", organization: "회사",
-        };
-        const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+        const apiType = V3_CORE_TYPE_MAP[objectType] ?? objectType;
         return ok(await client.post("/v3/association/list", { objectType: apiType }));
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -558,6 +609,14 @@ export function registerExtrasTools(server: McpServer) {
         if (note !== undefined) body.memo = note;
         for (const [k, v] of Object.entries(rest)) {
           if (v !== undefined) body[k] = v;
+        }
+
+        // @quirk quoteproduct-flat-input — 평탄 입력을 top-level + fieldList로 분리
+        if (rest.quoteProductList) {
+          const resolved = await Promise.all(rest.quoteProductList.map((p, i) => resolveQuoteProduct(client, p, i)));
+          const qpErrors = resolved.flatMap(r => r.errors);
+          if (qpErrors.length > 0) return err(qpErrors.join("\n"));
+          body.quoteProductList = resolved.map(r => r.body);
         }
 
         // Convert properties → fieldList
@@ -1047,10 +1106,7 @@ export function registerExtrasTools(server: McpServer) {
 
         if (V3_ACTIVITY) {
           // ── v3: 유형별 분리 응답, 이메일/레코딩 데이터 인라인 포함 (마이그레이션: 2026-06-30) ──
-          const V3_TYPE_MAP: Record<string, string> = {
-            deal: "딜", lead: "리드", people: "고객", organization: "회사",
-          };
-          const apiType = V3_TYPE_MAP[objectType] ?? objectType;
+          const apiType = V3_CORE_TYPE_MAP[objectType] ?? objectType;
           const activeTypes: ActivityType[] = (types as ActivityType[]) ?? [...ALL_ACTIVITY_TYPES];
           const body: Record<string, unknown> = { objectType: apiType, objectId };
           for (const t of activeTypes) {
