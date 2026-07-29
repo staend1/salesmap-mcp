@@ -17,4 +17,5 @@ scripts/*
 !scripts/build-api-ref.mjs
 !scripts/quirks.mjs
 !scripts/tool-spec.mts
+!scripts/telemetry-pull.mjs
 docs/*.txt
