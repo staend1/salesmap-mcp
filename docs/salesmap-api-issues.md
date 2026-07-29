@@ -1249,6 +1249,19 @@ top-level 5종과 fieldList로 분리합니다. fieldList에 금지 필드가 �
 
 해결된 이슈는 본문에서 제거하고 여기 간단히만 남긴다.
 
+### 반영 예정 — 2026-07-29 회신 (배포 후 확인할 것)
+
+- **association 응답 규약 통일** — `POST /v3/association/list`·`read`가 `type`(영문) → `유형`(한글, `field_list`와 동일 규약), `_id` → `id`로 변경. **2026-07-29 메인 배포.**
+  → 우리 영향 **없음**: `associationList`에서 `name`만 읽는다 (`generic.ts`의 batch-read 힌트 2곳, `list-associations`는 응답을 그대로 전달).
+  배포 후 `list-associations`·`batch-read-objects(associationList)`를 한 번씩 돌려볼 것.
+- **#31 타입 표기** — `/v2/field/{type}`가 `quoteProduct`·`quote-product` 양쪽 수용 예정.
+  → 우리는 이미 `canonicalFieldSchemaType()`으로 정규화 중. 반영돼도 유지한다 (`견적서 상품`·`quote_product` 같은 표기까지 흡수하므로).
+- **#31 검증 순서** — `fieldList` 위치 오류 시 사용자가 바로 고칠 수 있는 문구가 먼저 나가게 정리 예정.
+- **시스템 select 값 (#2 계열)** — 변환 대상은 **제품 상태 / 딜 구독 시작 유형 / 딜 구독 종료 유형 / 견적서 할인 유형 4개가 전부**이고, 값은 **워크스페이스 언어 설정과 무관한 한국어·기호 고정값**임을 확인. 다국어 우려 해소.
+  조회값을 POST도 그대로 받게 통일하는 방향이나, **하위호환 때문에 MCP 내부 예외처리로 남길 가능성**도 함께 제기됨 → 변환표는 당분간 유지.
+
+### 완료
+
 - **Batch Read** — `POST /v3/object/read` (최대 500건, fieldList·associationList 지원). MCP `batch-read-objects`가 사용 (2026-06)
 - **Batch Create** — `POST /v3/object/create` (최대 100건, data·association 지원). MCP `batch-create-objects`가 사용 (2026-07)
 - **Search 값 파싱 실패 500** — 백엔드 타입별 검증 추가로 명확한 400 반환 (구 #4-4, 2026-06)

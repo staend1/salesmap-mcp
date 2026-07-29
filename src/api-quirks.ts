@@ -47,9 +47,9 @@ export const QUIRKS: readonly Quirk[] = [
   },
   {
     id: "system-select-input-value",
-    summary: "시스템 select 4종은 조회값(영문)과 입력값(한글)이 다르다",
-    evidence: "백엔드 전수 확인 2026-07-29. validateAPIV2FieldList가 표시값으로 변환해 비교하므로 조회값 그대로 넣으면 400",
-    removeWhen: "v2 입력이 저장값(active·newBusiness…)을 그대로 받도록 통일되면",
+    summary: "시스템 select 4종은 조회값(영문)과 입력값(한글)이 다르다. 이 4종이 전부다",
+    evidence: "백엔드 전수 확인 2026-07-29 — 대상은 제품 상태·딜 구독 시작/종료 유형·견적서 할인 유형 4개가 전부이고, 값은 워크스페이스 언어 설정을 타지 않는 한국어/기호 고정값이다 (다국어 걱정 불필요). validateAPIV2FieldList가 표시값으로 변환해 비교하므로 조회값 그대로 넣으면 400",
+    removeWhen: "v2 입력이 조회값(active·newBusiness…)을 그대로 받으면. ⚠️ 다만 백엔드가 하위호환 때문에 안 고치고 우리 변환에 맡기는 쪽으로 기울어 있다(2026-07-29) — 장기 존속 가능성이 높으니 지울 준비보다 정확도 유지가 우선",
     affects: ["update-object", "batch-create-objects(상품)", "create-quote"],
     location: "api-quirks.ts › SYSTEM_SELECT_INPUT",
   },
@@ -83,7 +83,7 @@ export const QUIRKS: readonly Quirk[] = [
     id: "quoteproduct-type-name-split",
     summary: "견적서 상품의 타입 이름이 표면마다 다르다 — 필드 API는 quote-product, 에러 메시지는 QuoteProduct",
     evidence: "실측 2026-07-29. GET /v2/field/quote-product 200, /v2/field/quoteProduct 404. 에러는 'QuoteProduct에 정의되있지 않은…'",
-    removeWhen: "타입 표기가 하나로 통일되면",
+    removeWhen: "백엔드가 /v2/field/{type}에서 quoteProduct·quote-product 양쪽을 받으면 (2026-07-29 수정 예정으로 회신). 그래도 정규화는 남겨두는 편이 낫다 — 견적서 상품(한글)·quote_product 같은 표기까지 흡수하므로",
     affects: ["create-quote"],
     location: "api-quirks.ts › QUOTE_PRODUCT_SCHEMA_TYPE",
     ledger: "#31",
@@ -181,6 +181,9 @@ export const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
  * 조회 API가 주는 값 ≠ 쓰기 API가 받는 값인 시스템 select.
  * `GET /v2/field/{type}`의 optionList는 DB 저장값(영문)을 주는데,
  * `validateAPIV2FieldList`가 표시값(한글)으로 변환해 비교하므로 조회값 그대로 넣으면 400.
+ *
+ * ✅ 백엔드 확인 2026-07-29 — **이 4종이 전부**이고, 값은 워크스페이스 언어 설정과 무관한
+ *    한국어/기호 고정값이다. 영어 워크스페이스에서 Active를 요구할 걱정은 없다.
  *
  * ⚠️ 커스텀 select는 해당 없음 — 조회값 = 입력값.
  * ⚠️ `quoteProduct.할인 유형`은 **대상이 아니다** — 같은 이름이지만 원값(percentage)을 받는다.
