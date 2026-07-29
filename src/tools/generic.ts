@@ -14,18 +14,30 @@ const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 // false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
 const V3_OBJECT_READ = true;
 
-// v2 영문 → v3 한글 objectType 매핑 (read 전용 — read API는 "커스텀 오브젝트"를 받는다)
+// v2 영문 → v3 한글 objectType 매핑.
+// read·create 모두 같은 getObjectModel을 쓰므로 규칙이 동일하다(백엔드 확인 2026-07-29).
+// 커스텀 오브젝트는 **정의 이름**을 그대로 넣는다 — `커스텀 오브젝트` 리터럴은
+// 그 이름의 정의가 실제로 있을 때만 우연히 동작하므로 매핑에 두지 않는다.
+// (`상품변형`도 v3가 인식하지 못해 제거. 실측 2026-07-29)
 const V3_TYPE_MAP: Record<string, string> = {
   deal: "딜", lead: "리드", people: "고객", organization: "회사",
-  "custom-object": "커스텀 오브젝트", quote: "견적서", product: "상품", "quote-product": "상품변형",
+  quote: "견적서", product: "상품",
 };
 
-// create 전용 매핑 — read와 달리 커스텀 오브젝트는 "커스텀 오브젝트"가 아니라
-// 워크스페이스에 정의된 **커오 이름**을 objectType으로 받는다 (백엔드 확인 2026-07-28).
-// 리터럴을 그대로 보내면 400 "오브젝트 유형을 찾을 수 없습니다".
+// create는 상품·견적서를 지원하지 않아(dispatcher에 case 없음) 별도로 좁힌다.
 const V3_CREATE_TYPE_MAP: Record<string, string> = {
   deal: "딜", lead: "리드", people: "고객", organization: "회사",
 };
+
+/** 커오 리터럴이 objectType에 온 경우, 워크스페이스의 실제 정의 이름을 붙여 안내한다. */
+async function customObjectLiteralError(client: ReturnType<typeof getClient>, objectType: string) {
+  let hint = "salesmap-list-objects로 확인하세요.";
+  try {
+    const defs = [...(await getDefinitionMap(client)).values()];
+    if (defs.length) hint = `이 워크스페이스의 커스텀 오브젝트: ${defs.join(", ")}`;
+  } catch { /* 조회 실패 시 기본 안내 */ }
+  return err(`objectType에 "${objectType}"은(는) 쓸 수 없습니다. 커스텀 오브젝트는 정의 이름을 그대로 넣으세요 (예: objectType: "티켓(CRM)").\n\n[힌트] ${hint}`);
+}
 
 // 상품·견적서는 v3 create dispatcher에 case가 없어 필드 검증을 통과한 뒤
 // 400 "지원하지 않는 오브젝트 유형"이 된다 (백엔드 확인 2026-07-28).
@@ -312,7 +324,7 @@ export function registerGenericTools(server: McpServer) {
     "🎯 레코드 일괄 조회(최대 500).\n📦 fieldList로 원하는 필드만, associationList로 연결 레코드를 인라인으로 포함 가능.\n🔗 다른 레코드를 참조하는 관계형 필드(고객·회사·딜 연결 등)는 fieldList가 아닌 associationList에 지정.",
     {
       objectType: z.string()
-        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
+        .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'quote' | 'product' (한글 '고객'·'회사'·'딜'·'리드'·'견적서'·'상품'도 동일하게 동작). 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가."),
       objectIds: z.array(z.string()).min(1).max(500).describe("레코드 ID 배열 (최대 500개)"),
       fieldList: z.array(z.string()).optional()
         .describe("반환할 필드명 목록 (한글). 생략 시 전체 필드 반환."),
@@ -326,6 +338,8 @@ export function registerGenericTools(server: McpServer) {
 
         if (V3_OBJECT_READ) {
           // ── v3: 단일 배치 호출 (마이그레이션: 2026-06-30) ──
+          // read도 create와 같은 규칙 — 커오는 정의 이름을 받는다 (백엔드 확인 2026-07-29)
+          if (CUSTOM_OBJECT_LITERALS.has(objectType)) return customObjectLiteralError(client, objectType);
           const apiType = V3_TYPE_MAP[objectType] ?? objectType;
           const body: Record<string, unknown> = { objectType: apiType, idList: objectIds };
           if (fieldList?.length) body.fieldList = fieldList;
@@ -427,14 +441,7 @@ export function registerGenericTools(server: McpServer) {
         const client = getClient(extra);
 
         // 커오는 리터럴이 아니라 정의 이름을 받는다 — 리터럴이 오면 사용 가능한 이름을 붙여 안내
-        if (CUSTOM_OBJECT_LITERALS.has(objectType)) {
-          let hint = "salesmap-list-objects로 확인하세요.";
-          try {
-            const defs = [...(await getDefinitionMap(client)).values()];
-            if (defs.length) hint = `이 워크스페이스의 커스텀 오브젝트: ${defs.join(", ")}`;
-          } catch { /* 조회 실패 시 기본 안내 */ }
-          return err(`objectType에 "${objectType}"은(는) 쓸 수 없습니다. 커스텀 오브젝트는 정의 이름을 그대로 넣으세요 (예: objectType: "티켓(CRM)").\n\n[힌트] ${hint}`);
-        }
+        if (CUSTOM_OBJECT_LITERALS.has(objectType)) return customObjectLiteralError(client, objectType);
 
         // 견적서는 전용 스키마(quoteProductList 등)가 필요해 이 도구로 표현 불가
         const unsupported = CREATE_UNSUPPORTED[objectType];
