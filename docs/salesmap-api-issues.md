@@ -778,7 +778,7 @@ HubSpot은 Product(Line Item)도 다른 오브젝트와 동일하게 `batch-read
 
 ### MCP에서의 우회
 
-MCP는 `salesmap-batch-create-objects`에서 상품 생성만 v2 `POST /v2/product` 루프로 우회합니다. 평탄한 `properties` 입력을 받아 `이름`·`금액`·`메모`는 top-level로, `유형`·`상태`·`코드`·`단위` 등 데이터 필드는 `fieldList`로 분리합니다. 다만 생성 후 상세 조회·수정·삭제는 여전히 API 한계로 불가합니다.
+MCP는 `salesmap-batch-create-objects`에서 상품 생성만 v2 `POST /v2/product` 루프로 우회합니다. 평탄한 `properties` 입력을 받아 `이름`·`금액`은 top-level로, `유형`·`상태`·`코드`·`단위` 등 데이터 필드는 `fieldList`로 분리합니다. 생성 메모/노트(memo)는 create 도구 표면에서 지원하지 않습니다. 생성 후 상세 조회·수정·삭제는 여전히 API 한계로 불가합니다.
 
 `create-quote`의 `quoteProductList`에서 `productId`는 선택 필드 — 카탈로그 연동 없이 `name` + `price`만으로도 견적 항목 생성 가능. 카탈로그 연동이 필요하면 CRM UI에서 상품 ID를 직접 확인해야 합니다.
 
