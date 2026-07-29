@@ -58,14 +58,7 @@ const PRODUCT_ALIAS: Record<string, string> = {
   name: "이름", "상품명": "이름", "제품명": "이름",
   code: "코드", type: "유형", status: "상태", owner: "담당자", unit: "단위",
 };
-// 상품은 `상태`가 top-level이 아니라 실제 singleSelect 필드다 → 기본 맵을 쓰면 안 된다.
-const PRODUCT_TOP_LEVEL: Record<string, string> = { "이름": "name", "금액": "price" };
 
-// `상태` 입력값 정규화 — 조회 API가 주는 값(active/inactive)과 생성 API가 받는 값(활성/비활성)이
-// 다르다(백엔드 확인 2026-07-29). 어느 쪽으로 오든 생성 API가 받는 표기로 맞춘다.
-const PRODUCT_STATUS_INPUT: Record<string, string> = {
-  active: "활성", inactive: "비활성", "활성": "활성", "비활성": "비활성",
-};
 
 /**
  * 상품 생성 — v3 create 미지원이라 v2 단건 API를 순회한다.
@@ -84,18 +77,6 @@ async function createProducts(
     const props: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(input.properties)) props[PRODUCT_ALIAS[k] ?? k] = v;
 
-    // ⚠️ 백엔드 버그 우회 (2026-07-29 확인, 수정되면 이 블록 삭제할 것)
-    // GET /v2/field/product의 optionList는 `active`/`inactive`를 주는데,
-    // POST /v2/product의 fieldList 검증은 표시값 `활성`/`비활성`을 기대한다
-    // (validateAPIV2FieldList가 transformFilterStringValueToFilterValueText로 변환 후 비교).
-    // 조회값 그대로 보내면 400 "정의 되지 않은 값". 실측: `활성` 전송 → `active`로 저장됨.
-    // top-level `status`는 스키마에 없어 조용히 무시되므로(silent no-op) 쓰지 않는다.
-    const st = props["상태"];
-    if (typeof st === "string") {
-      const mapped = PRODUCT_STATUS_INPUT[st.trim().toLowerCase()] ?? PRODUCT_STATUS_INPUT[st.trim()];
-      if (mapped) props["상태"] = mapped;
-    }
-
     if (typeof props["이름"] !== "string" || !props["이름"]) {
       errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "이름", message: "상품 이름은 필수입니다" });
       continue;
@@ -110,7 +91,7 @@ async function createProducts(
 
     // 나머지 필드는 스키마를 보고 타입별 값 키로 변환해 fieldList에 싣는다
     const { fieldList, errors: resolveErrors, extractedTopLevel } =
-      await resolveProperties(client, "product", props, PRODUCT_TOP_LEVEL);
+      await resolveProperties(client, "product", props);
     if (resolveErrors.length) {
       errors.push({ code: "INVALID_FIELD", inputIndex: index, message: resolveErrors.join(" / ") });
       continue;

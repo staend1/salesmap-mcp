@@ -269,6 +269,43 @@ const TYPE_TO_VALUE_KEY: Record<string, string> = {
 // Read-only types that cannot be set via fieldList
 const READONLY_TYPES = new Set(["formula", "multiAttachment", "multiPeopleGroup", "multiLeadGroup"]);
 
+/**
+ * 오브젝트별 top-level 파라미터 (백엔드 전수 확인 2026-07-29).
+ *
+ * 여기 없는 필드를 top-level로 빼면 API가 **200을 주면서 조용히 무시**한다.
+ * 실측: 리드에 top-level `price`를 보내면 200이지만 `금액`은 null로 남는다.
+ * 전에는 오브젝트 구분 없이 단일 맵을 써서 리드·고객·회사에도 금액/상태를 빼내고 있었다.
+ *
+ * ⚠️ 커스텀 오브젝트는 `이름`이 top-level이 **아니다** — 대표 필드는 fieldList로 들어간다.
+ */
+const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
+  deal: { "이름": "name", "금액": "price", "상태": "status", "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId" },
+  lead: { "이름": "name", "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId" },
+  people: { "이름": "name" },
+  organization: { "이름": "name" },
+  product: { "이름": "name", "금액": "price" },
+  quote: { "이름": "name" },
+  "custom-object": { "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId" },
+};
+
+/**
+ * 조회 API가 주는 값 ≠ 쓰기 API가 받는 값인 시스템 select 필드 (백엔드 전수 확인 2026-07-29).
+ *
+ * `GET /v2/field/{type}`의 optionList는 DB 저장값(영문)을 주는데,
+ * `validateAPIV2FieldList`가 표시값(한글)으로 변환해 비교하므로 조회값 그대로 넣으면 400이 난다.
+ * 커스텀 select는 해당 없음 — 조회값 = 입력값.
+ *
+ * ⚠️ 백엔드가 입력을 저장값으로 통일하면(1안) 이 표는 삭제 대상이다.
+ */
+const SYSTEM_SELECT_INPUT: Record<string, Record<string, Record<string, string>>> = {
+  product: { "상태": { active: "활성", inactive: "비활성" } },
+  deal: {
+    "구독 시작 유형": { newBusiness: "신규", upgrade: "업그레이드", downgrade: "다운그레이드", renewal: "갱신" },
+    "구독 종료 유형": { churned: "이탈", upgrade: "업그레이드", downgrade: "다운그레이드", renewal: "갱신" },
+  },
+  quote: { "할인 유형": { percentage: "%", fixed: "원" } },
+};
+
 interface SchemaField {
   name: string;
   type: string;
@@ -406,21 +443,27 @@ export async function resolveProperties(
   const errors: string[] = [];
   const extractedTopLevel: Record<string, unknown> = {};
 
-  // Fields that SalesMap API requires as top-level body params — auto-extracted from properties
-  const TOP_LEVEL_ONLY: Record<string, string> = topLevelOverride ?? {
-    "금액": "price",
-    "이름": "name",
-    "파이프라인": "pipelineId",
-    "파이프라인 단계": "pipelineStageId",
-    "상태": "status",
-  };
+  // top-level로 빼낼 필드 — 오브젝트마다 다르다. 목록에 없는 걸 빼면 조용히 무시된다.
+  // 알 수 없는 타입(커오 정의 이름 등)은 아무것도 빼지 않는 쪽이 안전하다.
+  const TOP_LEVEL_ONLY: Record<string, string> =
+    topLevelOverride ?? TOP_LEVEL_BY_TYPE[objectType] ?? {};
 
-  // `이름`은 TOP_LEVEL_ONLY로 따로 처리되므로 스키마 유무와 무관하게 항상 유효한 대상
-  const hasField = (n: string) => n === "이름" || fieldMap.has(n);
+  // 조회값(영문) → 입력값(한글) 변환이 필요한 시스템 select
+  const selectInput = SYSTEM_SELECT_INPUT[objectType];
 
-  for (const [rawName, value] of Object.entries(properties)) {
-    if (value === undefined || value === null) continue;
+  // top-level로 빠지는 필드는 스키마에 없어도 유효한 대상으로 취급
+  const hasField = (n: string) => n in TOP_LEVEL_ONLY || fieldMap.has(n);
+
+  for (const [rawName, rawValue] of Object.entries(properties)) {
+    if (rawValue === undefined || rawValue === null) continue;
     const name = canonicalFieldName(rawName, hasField, fieldMap.keys());
+
+    // 조회 API가 준 값(active·newBusiness…)을 그대로 넣으면 400 → 입력용 표기로 교정.
+    // 이미 입력용 표기(활성 등)로 왔으면 그대로 둔다.
+    const inputMap = selectInput?.[name];
+    const value = (inputMap && typeof rawValue === "string")
+      ? (inputMap[rawValue.trim()] ?? rawValue)
+      : rawValue;
 
     if (TOP_LEVEL_ONLY[name]) {
       const topKey = TOP_LEVEL_ONLY[name];
