@@ -924,7 +924,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Run Script ───────────────────────────────────────────
   server.tool(
     "salesmap-run-script",
-    "🚫 최후수단: 다른 전용 도구로 가능한 작업엔 사용 금지. 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성은 batch-create-objects, 수정은 update-object, 필드 확인은 list-properties를 먼저 사용. 전용 도구로 되는 일을 이 도구로 하면 실패율이 오히려 몇 배 높고, API 경로·파라미터를 헛짚으며 헤매는 시간만 늘어남.\n🎯 반드시 멀티홉 복잡 작업에만: 전용 도구 조합으로 불가능한 대량 조회·분석 — N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⚠️ 최대 120초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
+    "🚫 최후수단: 다른 전용 도구로 가능한 작업엔 사용 금지. 단건·소수 검색은 search-objects, 레코드 조회는 batch-read-objects, 생성은 batch-create-objects, 수정은 update-object, 필드 확인은 list-properties를 먼저 사용. 전용 도구로 되는 일을 이 도구로 하면 실패율이 오히려 몇 배 높고, API 경로·파라미터를 헛짚으며 헤매는 시간만 늘어남.\n🎯 반드시 멀티홉 복잡 작업에만: 전용 도구 조합으로 불가능한 대량 조회·분석 — N건 루프 순회, 집계·변환, 페이지네이션 전체 수집 등. 중간 데이터가 컨텍스트에 쌓이지 않음.\n💡 salesmap.get(path, query?)·salesmap.post(path, body?)로 세일즈맵 API 직접 호출.\n🔑 응답은 success/data 래퍼가 벗겨진 상태로 반환 — r.data.dealList가 아니라 r.dealList로 접근.\n📄 목록 전체가 필요하면 salesmap.getAll(path, query?) — nextCursor를 자동 순회해 전 페이지를 합쳐 반환.\n⏱️ 대기 필요 시 await sleep(ms) 또는 setTimeout 사용 가능.\n⚠️ 최대 120초. create·update·delete도 가능하므로 신중하게.\n📌 에러는 첫 번째 발생 시 즉시 중단. 루프에서 다중 에러를 수집하려면 스크립트 내에서 try/catch로 직접 처리 후 return.",
     {
       script: z.string().describe("실행할 JavaScript 코드 (async 지원). salesmap.get(path, query?)·salesmap.post(path, body?)·salesmap.getAll(path, query?)로 API 호출. return 값이 결과로 반환됨.\n예: const { dealList } = await salesmap.getAll('/v2/deal'); return dealList.map(d => d.dealId);\n※ 응답은 data 언랩 상태 — r.dealList로 접근 (r.data.dealList 아님)"),
     },
@@ -963,8 +963,9 @@ export function registerExtrasTools(server: McpServer) {
         },
       };
 
+      const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
       const { createContext, runInContext } = await import("node:vm");
-      const context = createContext({ salesmap, Promise });
+      const context = createContext({ salesmap, Promise, setTimeout, clearTimeout, sleep });
       const wrapped = `(async () => {\n${script}\n})()`;
 
       // 안내는 120초, 실제 컷은 125초 — AI가 상한에 딱 맞춰 짠 스크립트의 오차를 흡수하는 그레이스 5초.
