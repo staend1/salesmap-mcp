@@ -45,8 +45,10 @@ const quoteProductSchema = z.object({
   productId: z.string().optional().describe("상품 ID"),
   price: z.number().optional().describe("단가"),
   amount: z.number().optional().describe("수량"),
-  paymentCount: z.number().optional().describe("결제 횟수 (구독)"),
-  paymentStartAt: z.string().optional().describe("시작 결제일 (구독)"),
+  paymentCount: z.number().optional()
+    .describe("결제 횟수. ⚠️ 상품 유형이 '구독 (월간)'·'구독 (연간)'이면 **필수** (누락 시 400 '구독형 상품은 결제 횟수와 시작 결제일이 필수 항목입니다'). 유형은 salesmap-list-products로 확인."),
+  paymentStartAt: z.string().optional()
+    .describe("시작 결제일 (YYYY-MM-DD). ⚠️ 구독형 상품이면 **필수** — paymentCount와 함께 전달."),
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional(),
 });
 
