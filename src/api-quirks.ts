@@ -168,7 +168,10 @@ export const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
   people: { "이름": "name" },
   organization: { "이름": "name" },
   product: { "이름": "name", "금액": "price" },
-  quote: { "이름": "name" },
+  // 실측 2026-07-29 — 둘 다 fieldList 거부: 이름은 `[name]: 필수 입력 사항입니다`,
+  // 메인 견적서 여부는 `[refine]: 설정할 수 없는 Quote 필드 값이 존재합니다`.
+  // (`금액`은 반대로 fieldList로 들어간다)
+  quote: { "이름": "name", "메인 견적서 여부": "isMainQuote" },
   "custom-object": { "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId" },
 };
 

@@ -41,20 +41,23 @@ function isNoiseField(fieldName: string): boolean {
   return false;
 }
 
+const PROPERTY_VALUE = z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]);
+
+/**
+ * 필드는 전부 `properties` 하나로만 받는다.
+ *
+ * 전용 파라미터(name·price·amount…)를 함께 두면 같은 값을 넣을 자리가 둘이 되고,
+ * "둘 다 오면 누가 이기나"라는 규칙이 생긴다. 그 규칙은 어느 표면에도 안 보이므로
+ * 넣은 값이 조용히 무시되는 사고로 이어진다. 입구가 하나면 충돌할 자리가 없다.
+ *
+ * 여기 남는 건 **필드가 아닌 것**뿐이다 — productId는 레코드 참조다.
+ */
 const quoteProductSchema = z.object({
-  name: z.string().optional().describe("상품 이름 (properties['이름']으로 넣어도 됩니다)"),
-  productId: z.string().optional().describe("상품 ID"),
-  price: z.number().optional().describe("단가"),
-  amount: z.number().optional().describe("수량"),
-  paymentCount: z.number().optional()
-    .describe("결제 횟수. ⚠️ 상품 유형이 '구독 (월간)'·'구독 (연간)'이면 **필수** (누락 시 400 '구독형 상품은 결제 횟수와 시작 결제일이 필수 항목입니다'). 유형은 salesmap-list-products로 확인."),
-  paymentStartAt: z.string().optional()
-    .describe("시작 결제일 (YYYY-MM-DD). ⚠️ 구독형 상품이면 **필수** — paymentCount와 함께 전달."),
-  properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
-    .optional()
-    .describe("견적서 상품 필드를 평탄하게 { 필드명: 값 }으로. '이름'·'금액'(단가)·'수량'·'결제 횟수'·'결제 시작일'은 자동으로 올바른 자리로 보냅니다. 그 외는 커스텀 필드로 전달."),
+  productId: z.string().optional().describe("연결할 상품 ID (salesmap-list-products). 필드가 아니라 레코드 참조."),
+  properties: z.record(PROPERTY_VALUE)
+    .describe("견적서 상품 필드 전부를 { 필드명: 값 }으로. '이름'(필수)·'금액'(단가)·'수량'·'할인'·'할인 유형' 등.\n⚠️ 상품 유형이 '구독 (월간)'·'구독 (연간)'이면 '결제 횟수'와 '시작 결제일'(YYYY-MM-DD)이 **필수** (누락 시 400). 유형은 salesmap-list-products로 확인.\n📋 필드 목록: salesmap-list-properties(objectType: 'quote-product')."),
   fieldList: z.array(z.object({ name: z.string() }).passthrough()).optional()
-    .describe("(비권장) 원시 fieldList. properties를 쓰세요."),
+    .describe("(호환) 원시 fieldList. properties에 합쳐 처리하니 properties를 쓰세요."),
 });
 type QuoteProductInput = z.infer<typeof quoteProductSchema>;
 
@@ -62,10 +65,9 @@ type QuoteProductInput = z.infer<typeof quoteProductSchema>;
  * @quirk quoteproduct-flat-input
  *
  * 평탄한 properties를 견적서 상품의 top-level 파라미터 + fieldList로 분리한다.
- * 원시 fieldList에 top-level 전용 필드가 들어와도 400을 내지 않고 옮겨준다 —
- * 백엔드 에러가 원인을 가리는 자리라(위 quirk 주석), 막기보다 고쳐 보내는 게 낫다.
+ * 원시 fieldList로 들어온 것도 같은 통에 부어 함께 처리한다 — 별도 경로가 아니라 합류다.
  *
- * 커스텀 필드는 `quote-product` 스키마를 조회해 타입별 값 키로 변환한다
+ * 필드 타입별 값 키는 `quote-product` 스키마를 조회해 정한다
  * (@quirk quoteproduct-type-name-split — `quoteProduct`로 조회하면 404).
  */
 async function resolveQuoteProduct(
@@ -75,13 +77,9 @@ async function resolveQuoteProduct(
 ): Promise<{ body: Record<string, unknown>; errors: string[] }> {
   const errors: string[] = [];
   const body: Record<string, unknown> = {};
+  if (input.productId !== undefined) body.productId = input.productId;
 
-  // 명시 파라미터를 먼저 깔고, 아래에서 properties가 덮는다 (update-object와 같은 규칙).
-  for (const [k, v] of Object.entries(input)) {
-    if (v !== undefined && k !== "properties" && k !== "fieldList") body[k] = v;
-  }
-
-  // 평탄 입력 + 원시 fieldList를 하나의 properties로 합친다.
+  // properties와 원시 fieldList를 한 통에 합친다.
   // fieldList에 top-level 전용 필드가 와도 400을 내지 않고 제자리로 옮겨준다 —
   // 백엔드 에러가 원인을 가리는 자리라(위 quirk 주석), 막기보다 고쳐 보내는 게 낫다.
   const merged: Record<string, unknown> = {};
@@ -96,12 +94,11 @@ async function resolveQuoteProduct(
   if (Object.keys(merged).length > 0) {
     const r = await resolveProperties(client, QUOTE_PRODUCT_SCHEMA_TYPE, merged, QUOTE_PRODUCT_TOP_LEVEL);
     errors.push(...r.errors.map(e => `quoteProductList[${index}] ${e}`));
-    // update-object와 동일하게 properties가 명시 파라미터를 덮는다 — 규칙을 하나로.
     Object.assign(body, r.extractedTopLevel);
     if (r.fieldList.length > 0) body.fieldList = r.fieldList;
   }
 
-  if (!body.name) errors.push(`quoteProductList[${index}] 상품 이름이 필요합니다 (name 또는 properties['이름']).`);
+  if (!body.name) errors.push(`quoteProductList[${index}] properties['이름']은 필수입니다.`);
   return { body, errors };
 }
 
@@ -209,7 +206,7 @@ formula(계산 유형) 필드는 아래 **계산 유형 필드** 섹션 참조.
 \`\`\`
 get-pipelines(objectType: "deal")                 # 파이프라인·단계 ID 확인
   → list-products()                               # 상품 ID·가격 확인
-  → create-quote(dealId OR leadId, quoteProductList)
+  → create-quote(dealId OR leadId, properties{이름…}, quoteProductList[{productId, properties{이름,금액,수량…}}])
 \`\`\`
 ⚠️ 구독형 상품 포함 시: \`paymentCount\`(결제 횟수)·\`startPaymentDate\`(시작 결제일) 필수.
 
@@ -584,47 +581,44 @@ export function registerExtrasTools(server: McpServer) {
   // ── Quote (create) ────────────────────────────────────
   server.tool(
     "salesmap-create-quote",
-    "🎯 견적서 생성. dealId 또는 leadId 중 하나 필수.\n📋 salesmap-get-quotes로 기존 견적서 확인.",
+    "🎯 견적서 생성. dealId 또는 leadId 중 하나 필수.\n📋 필드는 견적서·상품 모두 properties에 { 필드명: 값 }으로만 넣습니다 (전용 파라미터 없음). '이름'은 양쪽 다 필수.\n📋 salesmap-get-quotes로 기존 견적서 확인.",
     {
-      name: z.string().describe("견적서 이름"),
-      dealId: z.string().optional().describe("딜 ID"),
-      leadId: z.string().optional().describe("리드 ID"),
-      note: z.string().optional().describe("견적서 노트"),
-      isMainQuote: z.boolean().optional().describe("메인 견적서 여부"),
-      quoteProductList: z.array(quoteProductSchema).optional().describe("상품 목록"),
-      properties: z.record(z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]))
-        .optional()
-        .describe("견적서 커스텀 필드 key-value"),
+      // 필드가 아닌 것만 전용 파라미터 — dealId·leadId는 레코드 참조, note는 memo(필드 아님).
+      // '이름'·'메인 견적서 여부'는 top-level로 나가지만 입력은 properties 하나로 받는다.
+      dealId: z.string().optional().describe("연결할 딜 ID (dealId 또는 leadId 중 하나 필수)"),
+      leadId: z.string().optional().describe("연결할 리드 ID (dealId 또는 leadId 중 하나 필수)"),
+      note: z.string().optional().describe("견적서 노트 (필드가 아닌 메모)"),
+      properties: z.record(PROPERTY_VALUE)
+        .describe("견적서 필드 전부를 { 필드명: 값 }으로. '이름'(필수)·'할인'·'할인 유형'·'담당자'·'메인 견적서 여부' 등.\n📋 필드 목록: salesmap-list-properties(objectType: 'quote')."),
+      quoteProductList: z.array(quoteProductSchema).optional().describe("견적서 상품 목록"),
     },
     WRITE,
-    async ({ name, note, properties, ...rest }, extra) => {
+    async ({ note, properties, ...rest }, extra) => {
       if (!rest.dealId && !rest.leadId) {
         return err("dealId 또는 leadId 중 하나는 필수입니다.");
       }
 
       try {
         const client = getClient(extra);
-        const body: Record<string, unknown> = { name };
+        const body: Record<string, unknown> = {};
         if (note !== undefined) body.memo = note;
         for (const [k, v] of Object.entries(rest)) {
-          if (v !== undefined) body[k] = v;
+          if (v !== undefined && k !== "quoteProductList") body[k] = v;
         }
 
-        // @quirk quoteproduct-flat-input — 평탄 입력을 top-level + fieldList로 분리
+        // properties → fieldList + top-level 추출 (@quirk top-level-split)
+        const { fieldList, errors, extractedTopLevel } = await resolveProperties(client, "quote", properties);
+        if (errors.length > 0) return err(errors.join("\n"));
+        Object.assign(body, extractedTopLevel);
+        if (fieldList.length > 0) body.fieldList = fieldList;
+        if (!body.name) return err("properties['이름']은 필수입니다.");
+
+        // @quirk quoteproduct-flat-input — 상품도 같은 방식으로 분리
         if (rest.quoteProductList) {
           const resolved = await Promise.all(rest.quoteProductList.map((p, i) => resolveQuoteProduct(client, p, i)));
           const qpErrors = resolved.flatMap(r => r.errors);
           if (qpErrors.length > 0) return err(qpErrors.join("\n"));
           body.quoteProductList = resolved.map(r => r.body);
-        }
-
-        // properties → fieldList + top-level 추출.
-        // extractedTopLevel을 버리면 properties["이름"]이 조용히 사라진다 (@quirk top-level-split).
-        if (properties && Object.keys(properties).length > 0) {
-          const { fieldList, errors, extractedTopLevel } = await resolveProperties(client, "quote", properties);
-          if (errors.length > 0) return err(errors.join("\n"));
-          Object.assign(body, extractedTopLevel);
-          if (fieldList.length > 0) body.fieldList = fieldList;
         }
 
         return ok(await client.post("/v2/quote", body));
