@@ -49,6 +49,12 @@ const PRODUCT_ALIAS: Record<string, string> = {
 // 상품은 `상태`가 top-level이 아니라 실제 singleSelect 필드다 → 기본 맵을 쓰면 안 된다.
 const PRODUCT_TOP_LEVEL: Record<string, string> = { "이름": "name", "금액": "price" };
 
+// `상태` 입력값 정규화 — 조회 API가 주는 값(active/inactive)과 생성 API가 받는 값(활성/비활성)이
+// 다르다(백엔드 확인 2026-07-29). 어느 쪽으로 오든 생성 API가 받는 표기로 맞춘다.
+const PRODUCT_STATUS_INPUT: Record<string, string> = {
+  active: "활성", inactive: "비활성", "활성": "활성", "비활성": "비활성",
+};
+
 /**
  * 상품 생성 — v3 create 미지원이라 v2 단건 API를 순회한다.
  * `유형`·`상태`·`담당자`·`코드`·`단위` 등은 fieldList로 전달해야 저장된다
@@ -66,12 +72,16 @@ async function createProducts(
     const props: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(input.properties)) props[PRODUCT_ALIAS[k] ?? k] = v;
 
-    // `상태`는 선택지에 있는 값(active/inactive)을 보내도 백엔드가 거부한다.
-    // 상품 수정 API도 없어(원장 #21) 생성 후 변경도 불가 → 항상 기본값 active.
-    // 조용히 버리면 "설정했다"고 오인하므로 명시적으로 알린다.
-    if (props["상태"] !== undefined) {
-      warnings.push(`inputList[${index}]: "상태"는 API로 지정할 수 없어 무시했습니다 (기본값 active, 변경은 UI에서).`);
-      delete props["상태"];
+    // ⚠️ 백엔드 버그 우회 (2026-07-29 확인, 수정되면 이 블록 삭제할 것)
+    // GET /v2/field/product의 optionList는 `active`/`inactive`를 주는데,
+    // POST /v2/product의 fieldList 검증은 표시값 `활성`/`비활성`을 기대한다
+    // (validateAPIV2FieldList가 transformFilterStringValueToFilterValueText로 변환 후 비교).
+    // 조회값 그대로 보내면 400 "정의 되지 않은 값". 실측: `활성` 전송 → `active`로 저장됨.
+    // top-level `status`는 스키마에 없어 조용히 무시되므로(silent no-op) 쓰지 않는다.
+    const st = props["상태"];
+    if (typeof st === "string") {
+      const mapped = PRODUCT_STATUS_INPUT[st.trim().toLowerCase()] ?? PRODUCT_STATUS_INPUT[st.trim()];
+      if (mapped) props["상태"] = mapped;
     }
 
     if (typeof props["이름"] !== "string" || !props["이름"]) {
