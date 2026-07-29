@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err } from "../client";
 import { getClient } from "../types";
+import { FIELD_SCHEMA_TYPES, canonicalFieldSchemaType } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
@@ -122,15 +123,21 @@ export function registerFieldTools(server: McpServer) {
     "salesmap-list-properties",
     "🎯 오브젝트의 필드 스키마(이름·타입·옵션) 조회.\n🧭 필드 이름이나 허용 값이 불확실할 때 사용.",
     {
-      objectType: z.enum(["deal", "lead", "people", "organization", "product", "quote", "quote-product", "todo", "custom-object"])
-        .describe("오브젝트 타입"),
+      objectType: z.string()
+        .describe(`오브젝트 타입: ${FIELD_SCHEMA_TYPES.join(" | ")}. 견적서 상품은 'quote-product'(에러 메시지의 'QuoteProduct' 표기도 받습니다).`),
     },
     READ,
     async ({ objectType }, extra) => {
+      // @quirk quoteproduct-type-name-split — 표기 흔들림을 정식 값으로 모은다
+      const type = canonicalFieldSchemaType(objectType);
+      if (!(FIELD_SCHEMA_TYPES as readonly string[]).includes(type)) {
+        return err(`알 수 없는 오브젝트 타입 '${objectType}'. 사용 가능: ${FIELD_SCHEMA_TYPES.join(", ")}.`
+          + `\n커스텀 오브젝트는 'custom-object'로 조회한 뒤 salesmap-list-objects로 정의를 확인하세요.`);
+      }
       try {
         const client = getClient(extra);
-        const data = await client.get(`/v2/field/${objectType}`);
-        return ok(injectHints(objectType, data));
+        const data = await client.get(`/v2/field/${type}`);
+        return ok(injectHints(type, data));
       } catch (e: unknown) {
         return err((e as Error).message);
       }

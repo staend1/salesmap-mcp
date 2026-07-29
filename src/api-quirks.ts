@@ -301,6 +301,40 @@ export const PRODUCT_ALIAS: Record<string, string> = {
  */
 export const QUOTE_PRODUCT_SCHEMA_TYPE = "quote-product";
 
+/** `GET /v2/field/{type}`가 받는 정식 값 (OpenAPI enum) */
+export const FIELD_SCHEMA_TYPES = [
+  "deal", "lead", "people", "organization", "product",
+  "quote", QUOTE_PRODUCT_SCHEMA_TYPE, "todo", "custom-object",
+] as const;
+
+/**
+ * @quirk quoteproduct-type-name-split
+ *
+ * 입력 표기를 `/v2/field/{type}`가 받는 값 하나로 모은다.
+ * 표기가 갈리는 건 백엔드 사정이지만, **우리 입력면은 무엇을 받든 하나로 정규화한다.**
+ *
+ * 특히 견적서 상품 — 에러 메시지가 `QuoteProduct`라고 알려주므로 그 이름으로
+ * 조회를 시도하는 게 자연스러운 반응인데, 그 표기는 404다.
+ */
+export const FIELD_SCHEMA_TYPE_ALIAS: Record<string, string> = {
+  quoteproduct: QUOTE_PRODUCT_SCHEMA_TYPE,
+  quote_product: QUOTE_PRODUCT_SCHEMA_TYPE,
+  quoteproductlist: QUOTE_PRODUCT_SCHEMA_TYPE,
+  "견적서상품": QUOTE_PRODUCT_SCHEMA_TYPE,
+  "견적상품": QUOTE_PRODUCT_SCHEMA_TYPE,
+  "견적서": "quote",
+  "상품": "product",
+  "딜": "deal", "리드": "lead", "고객": "people", "회사": "organization",
+  "할일": "todo", "todolist": "todo",
+  customobject: "custom-object", custom_object: "custom-object", "커스텀오브젝트": "custom-object",
+};
+
+/** @quirk quoteproduct-type-name-split — 표기 흔들림을 흡수해 정식 값으로 */
+export function canonicalFieldSchemaType(objectType: string): string {
+  const key = objectType.trim().toLowerCase().replace(/[\s_-]/g, "");
+  return FIELD_SCHEMA_TYPE_ALIAS[key] ?? objectType.trim();
+}
+
 /**
  * @quirk quoteproduct-flat-input
  *

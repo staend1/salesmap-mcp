@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import type { SalesMapResponse } from "./types";
 import { cached, TTL } from "./cache";
-import { TOP_LEVEL_BY_TYPE, SYSTEM_SELECT_INPUT, TYPE_TO_VALUE_KEY } from "./api-quirks";
+import { TOP_LEVEL_BY_TYPE, SYSTEM_SELECT_INPUT, TYPE_TO_VALUE_KEY, canonicalFieldSchemaType } from "./api-quirks";
 import { canonicalFieldName } from "./field-aliases";
 export { canonicalFieldName } from "./field-aliases";
 
@@ -253,8 +253,10 @@ export function getFieldSchema(
   client: SalesMapClient,
   objectType: string,
 ): Promise<{ fieldList: Array<{ name: string; type: string; required?: boolean }> }> {
-  return cached(`${client.fingerprint}:field:${objectType}`, TTL.schema,
-    () => client.get(`/v2/field/${objectType}`));
+  // @quirk quoteproduct-type-name-split — 표기가 흔들려도 정식 값 하나로 조회한다
+  const type = canonicalFieldSchemaType(objectType);
+  return cached(`${client.fingerprint}:field:${type}`, TTL.schema,
+    () => client.get(`/v2/field/${type}`));
 }
 
 // User types that accept name-to-UUID auto-resolution

@@ -76,7 +76,7 @@ async function resolveQuoteProduct(
   const errors: string[] = [];
   const body: Record<string, unknown> = {};
 
-  // 명시 파라미터가 우선 — properties보다 구체적인 의도로 본다.
+  // 명시 파라미터를 먼저 깔고, 아래에서 properties가 덮는다 (update-object와 같은 규칙).
   for (const [k, v] of Object.entries(input)) {
     if (v !== undefined && k !== "properties" && k !== "fieldList") body[k] = v;
   }
@@ -96,9 +96,8 @@ async function resolveQuoteProduct(
   if (Object.keys(merged).length > 0) {
     const r = await resolveProperties(client, QUOTE_PRODUCT_SCHEMA_TYPE, merged, QUOTE_PRODUCT_TOP_LEVEL);
     errors.push(...r.errors.map(e => `quoteProductList[${index}] ${e}`));
-    for (const [k, v] of Object.entries(r.extractedTopLevel)) {
-      if (!(k in body)) body[k] = v;  // 명시 파라미터 우선
-    }
+    // update-object와 동일하게 properties가 명시 파라미터를 덮는다 — 규칙을 하나로.
+    Object.assign(body, r.extractedTopLevel);
     if (r.fieldList.length > 0) body.fieldList = r.fieldList;
   }
 
@@ -619,10 +618,12 @@ export function registerExtrasTools(server: McpServer) {
           body.quoteProductList = resolved.map(r => r.body);
         }
 
-        // Convert properties → fieldList
+        // properties → fieldList + top-level 추출.
+        // extractedTopLevel을 버리면 properties["이름"]이 조용히 사라진다 (@quirk top-level-split).
         if (properties && Object.keys(properties).length > 0) {
-          const { fieldList, errors } = await resolveProperties(client, "quote", properties);
+          const { fieldList, errors, extractedTopLevel } = await resolveProperties(client, "quote", properties);
           if (errors.length > 0) return err(errors.join("\n"));
+          Object.assign(body, extractedTopLevel);
           if (fieldList.length > 0) body.fieldList = fieldList;
         }
 
