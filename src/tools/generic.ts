@@ -40,37 +40,71 @@ const CREATE_UNSUPPORTED: Record<string, string> = {
   quote: "salesmap-create-quote",
 };
 
-/** 상품 생성 — v3 미지원이라 v2 단건 API를 순회한다. */
+// 상품의 실제 필드명은 `금액`이다(`가격` 아님). LLM이 흔히 쓰는 표현을 실제 이름으로 모은다.
+const PRODUCT_ALIAS: Record<string, string> = {
+  "가격": "금액", "단가": "금액", price: "금액", amount: "금액",
+  name: "이름", "상품명": "이름", "제품명": "이름",
+  code: "코드", type: "유형", status: "상태", owner: "담당자", unit: "단위",
+};
+// 상품은 `상태`가 top-level이 아니라 실제 singleSelect 필드다 → 기본 맵을 쓰면 안 된다.
+const PRODUCT_TOP_LEVEL: Record<string, string> = { "이름": "name", "금액": "price" };
+
+/**
+ * 상품 생성 — v3 create 미지원이라 v2 단건 API를 순회한다.
+ * `유형`·`상태`·`담당자`·`코드`·`단위` 등은 fieldList로 전달해야 저장된다
+ * (top-level name/price만 보내면 나머지가 조용히 사라진다).
+ */
 async function createProducts(
   client: ReturnType<typeof getClient>,
   inputList: V3CreateInput[],
-): Promise<{ objectList: Array<{ id: string; name: string }>; errors: unknown[] }> {
+): Promise<{ objectList: Array<{ id: string; name: string }>; errors: unknown[]; warnings: string[] }> {
   const objectList: Array<{ id: string; name: string }> = [];
   const errors: unknown[] = [];
+  const warnings: string[] = [];
 
   for (const [index, input] of inputList.entries()) {
-    const p = input.properties;
-    const name = p["이름"] ?? p["name"] ?? p["상품명"];
-    const price = p["가격"] ?? p["price"] ?? p["단가"];
-    if (typeof name !== "string" || !name) {
+    const props: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(input.properties)) props[PRODUCT_ALIAS[k] ?? k] = v;
+
+    // `상태`는 선택지에 있는 값(active/inactive)을 보내도 백엔드가 거부한다.
+    // 상품 수정 API도 없어(원장 #21) 생성 후 변경도 불가 → 항상 기본값 active.
+    // 조용히 버리면 "설정했다"고 오인하므로 명시적으로 알린다.
+    if (props["상태"] !== undefined) {
+      warnings.push(`inputList[${index}]: "상태"는 API로 지정할 수 없어 무시했습니다 (기본값 active, 변경은 UI에서).`);
+      delete props["상태"];
+    }
+
+    if (typeof props["이름"] !== "string" || !props["이름"]) {
       errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "이름", message: "상품 이름은 필수입니다" });
       continue;
     }
-    if (typeof price !== "number") {
-      errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "가격", message: "상품 가격은 숫자로 필수입니다" });
+    if (typeof props["금액"] !== "number") {
+      errors.push({
+        code: "REQUIRED_FIELD", inputIndex: index, fieldName: "금액",
+        message: "상품 금액은 숫자로 필수입니다 (필드명은 '가격'이 아니라 '금액')",
+      });
       continue;
     }
-    const description = p["설명"] ?? p["description"];
+
+    // 나머지 필드는 스키마를 보고 타입별 값 키로 변환해 fieldList에 싣는다
+    const { fieldList, errors: resolveErrors, extractedTopLevel } =
+      await resolveProperties(client, "product", props, PRODUCT_TOP_LEVEL);
+    if (resolveErrors.length) {
+      errors.push({ code: "INVALID_FIELD", inputIndex: index, message: resolveErrors.join(" / ") });
+      continue;
+    }
+
     try {
       const r = await client.post<{ product?: { id: string; name: string } }>("/v2/product", {
-        name, price, ...(typeof description === "string" ? { description } : {}),
+        ...extractedTopLevel,
+        ...(fieldList.length ? { fieldList } : {}),
       });
       if (r.product) objectList.push({ id: r.product.id, name: r.product.name });
     } catch (e) {
       errors.push({ code: "CREATE_FAILED", inputIndex: index, message: (e as Error).message });
     }
   }
-  return { objectList, errors };
+  return { objectList, errors, warnings };
 }
 
 // objectType 자리에 오면 안 되는 커오 리터럴 — 정의 이름으로 안내한다
@@ -365,7 +399,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Create ──────────────────────────────────────
   server.tool(
     "salesmap-batch-create-objects",
-    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'가격'(숫자, 필수)·'설명'. associations 미지원.",
+    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(숫자, 필수) + '유형'·'상태'·'담당자'·'코드'·'단위' 등. 금액 필드명은 '가격'이 아니라 '금액'. associations 미지원.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 한글 '고객'|'회사'|'딜'|'리드'|'상품' 또는 영문 별칭 'people'|'organization'|'deal'|'lead'|'product'. 커스텀 오브젝트는 정의 이름을 그대로 (salesmap-list-objects로 확인). 'custom-object'·'커스텀 오브젝트' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
@@ -404,7 +438,8 @@ export function registerGenericTools(server: McpServer) {
         // 상품은 v3 create 미지원 → v2 단건 API 순회로 처리 (호출자에겐 동일하게 보인다)
         if (PRODUCT_TYPES.has(objectType)) {
           const r = await createProducts(client, normalized.inputList ?? []);
-          const warn = normalized.warnings.length ? { normalizedInput: normalized.warnings } : {};
+          const allWarn = [...normalized.warnings, ...r.warnings];
+          const warn = allWarn.length ? { normalizedInput: allWarn } : {};
           if (r.errors.length && !r.objectList.length) {
             return err(r.errors.map((e) => JSON.stringify(e)).join("\n"));
           }
