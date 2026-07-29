@@ -15,4 +15,5 @@ CLAUDE.md
 docs/_internal/
 scripts/*
 !scripts/build-api-ref.mjs
+!scripts/quirks.mjs
 docs/*.txt

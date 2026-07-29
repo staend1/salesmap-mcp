@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
+import { REL_LIST_OP_MAP, GROUP_TYPES } from "../api-quirks";
 import type { SalesMapClient } from "../client";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -28,12 +29,8 @@ const RELATION_TYPES = new Set([
   "sequence", "multiSequence",
 ]);
 
-// 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN을 지원하지 않음 → 동등한 IN/NOT_IN으로 매핑
-const REL_LIST_OP_MAP: Record<string, string> = { LIST_CONTAIN: "IN", LIST_NOT_CONTAIN: "NOT_IN" };
 const isRelationType = (t: string) => USER_TYPES.has(t) || TEAM_TYPES.has(t) || RELATION_TYPES.has(t);
 
-// 그룹 필드: list API가 없어 유효 id를 구할 방법이 없음 → 값 검색 원천 불가(EXISTS/NOT_EXISTS만)
-const GROUP_TYPES = new Set(["multiLeadGroup", "multiPeopleGroup"]);
 
 // 비-id 값을 넣었을 때 "id를 어디서 조회하라"고 안내할 도구 (타입별)
 const RELATION_TOOL_HINT: Record<string, string> = {

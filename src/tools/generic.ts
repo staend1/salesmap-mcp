@@ -2,6 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolveProperties, getDefaultProperties, getDefinitionMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
+import {
+  V3_TYPE_MAP, V3_CREATE_TYPE_MAP, CUSTOM_OBJECT_LITERALS,
+  CREATE_UNSUPPORTED, PRODUCT_TYPES, PRODUCT_ALIAS,
+} from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -14,20 +18,7 @@ const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 // false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
 const V3_OBJECT_READ = true;
 
-// v2 영문 → v3 한글 objectType 매핑.
-// read·create 모두 같은 getObjectModel을 쓰므로 규칙이 동일하다(백엔드 확인 2026-07-29).
-// 커스텀 오브젝트는 **정의 이름**을 그대로 넣는다 — `커스텀 오브젝트` 리터럴은
-// 그 이름의 정의가 실제로 있을 때만 우연히 동작하므로 매핑에 두지 않는다.
-// (`상품변형`도 v3가 인식하지 못해 제거. 실측 2026-07-29)
-const V3_TYPE_MAP: Record<string, string> = {
-  deal: "딜", lead: "리드", people: "고객", organization: "회사",
-  quote: "견적서", product: "상품",
-};
 
-// create는 상품·견적서를 지원하지 않아(dispatcher에 case 없음) 별도로 좁힌다.
-const V3_CREATE_TYPE_MAP: Record<string, string> = {
-  deal: "딜", lead: "리드", people: "고객", organization: "회사",
-};
 
 /** 커오 리터럴이 objectType에 온 경우, 워크스페이스의 실제 정의 이름을 붙여 안내한다. */
 async function customObjectLiteralError(client: ReturnType<typeof getClient>, objectType: string) {
@@ -39,25 +30,7 @@ async function customObjectLiteralError(client: ReturnType<typeof getClient>, ob
   return err(`objectType에 "${objectType}"은(는) 쓸 수 없습니다. 커스텀 오브젝트는 정의 이름을 그대로 넣으세요 (예: objectType: "티켓(CRM)").\n\n[힌트] ${hint}`);
 }
 
-// 상품·견적서는 v3 create dispatcher에 case가 없어 필드 검증을 통과한 뒤
-// 400 "지원하지 않는 오브젝트 유형"이 된다 (백엔드 확인 2026-07-28).
-//
-// 상품: 스키마가 단순(name·price·description)해 이 도구의 properties로 표현 가능 →
-//       v2 POST /v2/product 루프로 내부 처리. 호출자는 v2/v3를 몰라도 된다.
-// 견적서: quoteProductList(라인아이템 배열)·dealId XOR leadId 등 전용 스키마가 필요해
-//        이 도구의 properties(scalar만 허용)로 표현할 수 없다 → 전용 도구로 안내.
-const PRODUCT_TYPES = new Set(["상품", "product"]);
-const CREATE_UNSUPPORTED: Record<string, string> = {
-  "견적서": "salesmap-create-quote",
-  quote: "salesmap-create-quote",
-};
 
-// 상품의 실제 필드명은 `금액`이다(`가격` 아님). LLM이 흔히 쓰는 표현을 실제 이름으로 모은다.
-const PRODUCT_ALIAS: Record<string, string> = {
-  "가격": "금액", "단가": "금액", price: "금액", amount: "금액",
-  name: "이름", "상품명": "이름", "제품명": "이름",
-  code: "코드", type: "유형", status: "상태", owner: "담당자", unit: "단위",
-};
 
 
 /**
@@ -110,8 +83,6 @@ async function createProducts(
   return { objectList, errors, warnings };
 }
 
-// objectType 자리에 오면 안 되는 커오 리터럴 — 정의 이름으로 안내한다
-const CUSTOM_OBJECT_LITERALS = new Set(["custom-object", "customObject", "커스텀 오브젝트", "커스텀오브젝트"]);
 
 // 딜·리드는 메인 고객/메인 회사 중 하나 필수, 메인 견적서는 생성 시 지정 불가
 const PRIMARY_RELATION_REQUIRED = new Set(["딜", "리드"]);
