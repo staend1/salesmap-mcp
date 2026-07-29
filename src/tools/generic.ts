@@ -135,6 +135,7 @@ function summarizeFields(params: Record<string, unknown>): string {
   return parts.join(", ");
 }
 
+// @quirk ai-field-name-correction (따옴표 축) — LLM이 필드명·관계명을 따옴표째 전달하는 사고 교정
 function normalizeWrappedName(name: string): string {
   const trimmed = name.trim().replace(/\\"/g, "\"");
   if (
@@ -300,6 +301,7 @@ export function registerGenericTools(server: McpServer) {
             return ok(await client.post("/v3/object/read", body));
           } catch (e: unknown) {
             const msg = (e as Error).message;
+            // @quirk v3-relation-field-hint
             // fieldList 에러: 관계형 필드면 associationList로 안내, 아니면 list-properties 안내
             // (v3는 관계형 필드를 field가 아닌 association으로 취급 — list-properties엔 필드로 보여서 이름 재확인만으론 못 벗어남)
             if (msg.includes("필드를 찾을 수 없습니다")) {

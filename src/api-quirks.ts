@@ -6,6 +6,10 @@
  * 여기 모인 것은 전부 **"세일즈맵 API가 개선되면 지울 코드"** 다.
  * 정상 스펙을 준수하는 로직(READONLY_TYPES, 노이즈 필터 등)은 여기 두지 않는다.
  *
+ * 예외 하나: AI 클라이언트의 입력 오생성 교정(ai-field-name-correction)도 여기서 관리한다.
+ * 우회 대상이 API가 아니라 AI지만, "언젠가 지울 보정 코드를 한곳에서 추적한다"는
+ * 목적이 같고, 제거 조건(영문 필드명 도입·관측 소멸)이 있다는 점도 같다.
+ *
  * ── 왜 한곳에 모으나 ──
  * 우회 로직이 5개 파일에 흩어져 있으면, API가 개선돼도 **어디를 지워야 하는지**
  * 알 수 없다. 반대로 새 결함을 발견해도 **이미 우회 중인지** 확인이 어렵다.
@@ -68,7 +72,7 @@ export const QUIRKS: readonly Quirk[] = [
     evidence: "v3가 표시명을 채택. 백엔드 확인 2026-07-29 — 영문 별칭 미지원",
     removeWhen: "v3 getObjectModel이 영문 별칭(deal→딜)을 허용하면",
     affects: ["batch-read-objects", "batch-create-objects", "list-engagements", "list-associations", "get-pipelines"],
-    location: "api-quirks.ts › V3_CORE_TYPE_MAP / V3_TYPE_MAP / V3_CREATE_TYPE_MAP",
+    location: "api-quirks.ts › V3_CORE_TYPE_MAP / V3_TYPE_MAP / V3_CREATE_TYPE_MAP + client.ts › request (응답면 — v3 무봉투 감지 json.success === undefined)",
   },
   {
     id: "quoteproduct-flat-input",
@@ -141,11 +145,76 @@ export const QUIRKS: readonly Quirk[] = [
   },
   {
     id: "ai-field-name-correction",
-    summary: "AI가 지어낸 이름 별칭(회사명→이름)과 한글 자모 오생성(딥 담당자→딜 담당자)을 교정",
-    evidence: "텔레메트리 2026-06~07. 별칭 51건, 자모 깨짐 22건/16종. 자모는 같은 요청 안에서 정상·깨짐이 공존",
-    removeWhen: "영문 internal field name이 도입되면 (자모 축은 원천 소멸)",
+    summary: "AI 입력 오생성 교정 3축 — 지어낸 이름 별칭(회사명→이름), 한글 자모 오생성(딥 담당자→딜 담당자), 따옴표째 감싼 필드명·관계명('이름'→이름)",
+    evidence: "텔레메트리 2026-06~07. 별칭 51건, 자모 깨짐 22건/16종(같은 요청 안에서 정상·깨짐 공존). 따옴표 축은 #100에서 함께 도입 — 근거 서술 미보존, 재발 여부는 텔레메트리로 판단",
+    removeWhen: "별칭·자모 축은 영문 internal field name 도입 시 원천 소멸. 따옴표 축은 텔레메트리에서 관측이 끊기면 제거",
     affects: ["search-objects", "update-object", "batch-create-objects", "batch-read-objects", "create-quote"],
-    location: "field-aliases.ts › canonicalFieldName",
+    location: "field-aliases.ts › canonicalFieldName / generic.ts › normalizeWrappedName",
+  },
+  {
+    id: "html-error-response",
+    summary: "백엔드가 라우트 없는 경로엔 Remix HTML 404, 핸들러 밖 예외엔 HTML 5xx를 반환 → 본문을 텍스트로 선수신 후 상태코드로 분기",
+    evidence: "실측 — res.json() 직파싱 시 SyntaxError가 그대로 튀어 'Unexpected token <'(JS 문법 오류처럼 보이는 문구)가 AI에게 전달됐다",
+    removeWhen: "백엔드가 모든 에러 경로에서 JSON을 반환하면",
+    affects: ["(전 도구 — client.ts 공통 요청 경로)"],
+    location: "client.ts › request (텍스트 선수신 + 비-JSON 분기)",
+  },
+  {
+    id: "retry-after-body-parse",
+    summary: "429 응답에 Retry-After 헤더가 없어 본문 문구 'N초 후 재시도해주세요.'를 정규식으로 파싱해 대기 시간 결정",
+    evidence: "백엔드가 잔여 시간을 본문 자연어로만 제공. 파싱 실패 시 지수 백오프 폴백이라 문구가 바뀌어도 완만히 저하될 뿐 깨지진 않음",
+    removeWhen: "429 응답에 Retry-After 헤더(또는 구조화 필드)가 실리면",
+    affects: ["(전 도구 — client.ts 공통 요청 경로)"],
+    location: "client.ts › request (429 분기)",
+  },
+  {
+    id: "relation-search-500",
+    summary: "검색 API가 관계 필드의 값 검증을 스킵 — id 형식이 아니거나 없는 id면 400 대신 500 또는 빈 결과 → UUID 사전 강제 + 500 시 원인 힌트",
+    evidence: "백엔드 known issue. 사전 차단이 없으면 AI가 이름 문자열로 검색을 시도하다 500을 받고 원인을 특정 못 함",
+    removeWhen: "검색 API가 관계 필드 값을 검증해 400 + 원인 메시지를 반환하면",
+    affects: ["search-objects"],
+    location: "search.ts › resolveFilterIds (RELATION_TYPES UUID 강제) + search-objects 핸들러 (Internal Server Error 힌트)",
+  },
+  {
+    id: "search-operator-matrix",
+    summary: "필드 타입별 허용 검색 연산자를 API가 어디서도 노출하지 않아, 백엔드 내부 getAvailableOperationList의 2026-06 스냅샷을 하드코딩해 에러 힌트에 사용",
+    evidence: "'Invalid operator' 에러가 유효 연산자 목록을 안 줌. ⚠️ 백엔드가 연산자를 추가·변경해도 자동 반영되지 않는 드리프트 리스크 — 스냅샷 날짜를 갱신할 것",
+    removeWhen: "에러 응답 또는 필드 스키마 API가 타입별 허용 연산자 목록을 제공하면",
+    affects: ["search-objects"],
+    location: "client.ts › SEARCH_OPS_BY_TYPE / allowedSearchOperators",
+  },
+  {
+    id: "underscore-id-key",
+    summary: "시퀀스 목록과 메모 유형 목록만 id 키가 `_id`다 (다른 목록은 전부 `id`) → 응답 매핑 시 보정",
+    evidence: "실측. GET /v2/sequence의 sequenceList[]._id, GET /v2/memo/type-list의 typeList[]._id",
+    removeWhen: "두 엔드포인트가 id 키로 통일되면",
+    affects: ["list-sequences", "list-notes"],
+    location: "extras.ts › list-sequences·list-notes 핸들러",
+    ledger: "#23",
+  },
+  {
+    id: "v3-relation-field-hint",
+    summary: "v3 read는 관계형 필드를 field가 아닌 association으로 취급하는데 스키마 표면(list-properties)엔 필드로 보임 → '필드를 찾을 수 없습니다' 에러 시 association 목록을 역조회해 안내",
+    evidence: "실측 — v2 필드 스키마엔 관계형이 필드로 등재되나 v3 read fieldList는 거부. 이름 재확인만으론 벗어날 수 없는 함정이라 힌트가 필수",
+    removeWhen: "v3 스키마 조회가 field/association 구분을 드러내거나, read가 fieldList의 관계형 필드를 수용하면",
+    affects: ["batch-read-objects"],
+    location: "generic.ts › batch-read-objects v3 에러 분기",
+  },
+  {
+    id: "leadtime-fieldname-parse",
+    summary: "단계 이력·체류시간 전용 API가 없어, 자동 생성 필드명('단계명(파이프라인명)로 진입한 날짜' 등 3종 접미사)을 문자열 역파싱해 구조화",
+    evidence: "파이프라인 단계 이력 API 부재. 필드명 규칙(접미사·괄호 표기)이 바뀌면 조용히 빈 결과가 된다",
+    removeWhen: "단계 이력/체류시간 API가 생기면",
+    affects: ["get-lead-time"],
+    location: "extras.ts › get-lead-time (SUFFIXES 역파싱)",
+  },
+  {
+    id: "error-message-string-coupling",
+    summary: "백엔드 에러에 구조화된 code가 없어 자연어 문구가 유일한 신호 → 힌트·복구 로직이 msg.includes(문구) 매칭에 결합 (개별 등록 대신 클래스로 일괄 추적)",
+    evidence: "에러 응답 필드가 reason/message 자연어뿐. 문구가 바뀌면 해당 힌트만 조용히 소실되고 기본 동작은 유지되는 완만한 실패",
+    removeWhen: "에러 응답에 안정적인 code/type 필드가 생기면 — 그때 msg.includes 호출부 전체를 코드 매칭으로 교체",
+    affects: ["(전 도구 — 에러 힌트 전반)"],
+    location: "client.ts › errWithSchemaHint 외 각 도구 핸들러의 msg.includes() 분기 전반",
   },
 ];
 

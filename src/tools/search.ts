@@ -189,6 +189,7 @@ async function resolveFilterIds(
       }
 
       // Other relation type → require UUID
+      // @quirk relation-search-500 — 백엔드가 관계 필드 값 검증을 스킵해 잘못된 id면 500이 나므로 사전 차단
       if (RELATION_TYPES.has(fieldType)) {
         const vals = Array.isArray(f.value) ? f.value : typeof f.value === "string" ? [f.value] : [];
         const bad = vals.filter(v => !isValidId(v));
@@ -262,6 +263,7 @@ export function registerSearchTools(server: McpServer) {
         return ok(data);
       } catch (e: unknown) {
         const message = (e as Error).message;
+        // @quirk relation-search-500
         // 관계 필드(id 참조)는 search API가 값 검증을 스킵하는 경우가 있어, id가 아니거나 없는 id면
         // 500 또는 빈 결과를 냄 (백엔드 known issue). 500이면 아래 힌트로 list 도구 안내.
         if (message.includes("Internal Server Error")) {

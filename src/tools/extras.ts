@@ -417,6 +417,7 @@ concat({{고객.이름}}, "님")
 
 export function registerExtrasTools(server: McpServer) {
   // ── Lead Time ───────────────────────────────────────────
+  // @quirk leadtime-fieldname-parse — 단계 이력 API가 없어 자동 생성 필드명을 역파싱한다
   const SUFFIXES = [
     { key: "enteredAt", suffix: "로 진입한 날짜" },
     { key: "durationSeconds", suffix: "에서 보낸 누적 시간" },
@@ -674,7 +675,7 @@ export function registerExtrasTools(server: McpServer) {
           }
         }
 
-        // type: 이름으로 typeId 조회
+        // type: 이름으로 typeId 조회 (@quirk underscore-id-key — 유형 목록도 id 키가 _id)
         if (type) {
           const typeData = await client.get<{ typeList: Array<{ _id: string; value: string }> }>("/v2/memo/type-list");
           const typeList = typeData.typeList ?? [];
@@ -706,7 +707,8 @@ export function registerExtrasTools(server: McpServer) {
         const client = getClient(extra);
         if (V3_PIPELINES) {
           // 마이그레이션: 2026-06-30 | 개선: 커스텀 오브젝트 파이프라인 지원 추가
-          const apiObjectType = objectType === "deal" ? "딜" : objectType === "lead" ? "리드" : objectType;
+          // @quirk objecttype-v2-v3-duality — 인라인 재작성 금지, 공용 맵 재사용
+          const apiObjectType = V3_CORE_TYPE_MAP[objectType] ?? objectType;
           return ok(await client.post("/v3/pipeline/list", { objectType: apiObjectType }));
         }
         // v2 fallback (롤백 시 사용) — deal/lead만 지원
@@ -794,7 +796,7 @@ export function registerExtrasTools(server: McpServer) {
         if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>("/v2/sequence", query);
         const list = (data.sequenceList as Array<Record<string, unknown>>) ?? [];
-        // 시퀀스만 id 키가 _id (api-issues #23)
+        // @quirk underscore-id-key — 시퀀스 목록만 id 키가 _id (원장 #23)
         return ok({ sequences: list.map(s => ({ id: s._id, name: s.name })), nextCursor: data.nextCursor ?? null });
       } catch (e: unknown) {
         return err((e as Error).message);

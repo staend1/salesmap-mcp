@@ -94,6 +94,7 @@ export class SalesMapClient {
         throw new Error(head + (isMutating(method, path) ? AMBIGUOUS_WRITE_WARNING : " 잠시 후 재시도하세요."));
       }
 
+      // @quirk html-error-response
       // 본문을 먼저 텍스트로 받고 파싱은 실패해도 되게 한다.
       // res.json()을 바로 부르면 백엔드가 HTML(라우트 없는 경로의 Remix 404, 핸들러 바깥
       // 예외의 5xx)을 줄 때 SyntaxError가 그대로 튀어나가, 손에 쥔 상태 코드를 못 쓰고
@@ -105,6 +106,7 @@ export class SalesMapClient {
       } catch { /* 비-JSON 응답 → 아래에서 상태 코드로 처리 */ }
 
       if (res.status === 429) {
+        // @quirk retry-after-body-parse
         // 429 body의 "N초 후 재시도해주세요."를 파싱해 그만큼 대기 (백엔드가 잔여 시간을 정확히 알려줌).
         // 파싱 실패 시에만 지수 백오프로 폴백.
         let waitMs = Math.pow(2, attempt) * 1000;
@@ -163,7 +165,7 @@ export class SalesMapClient {
         throw new Error(msg);
       }
 
-      // v3 API는 success/data 래퍼 없이 응답 직접 반환
+      // @quirk objecttype-v2-v3-duality (응답면) — v3 API는 success/data 래퍼 없이 응답 직접 반환
       if (json.success === undefined) return json as unknown as T;
       return json.data as T;
     }
@@ -532,6 +534,7 @@ export function err(message: string) {
   };
 }
 
+// @quirk search-operator-matrix
 // 검색 연산자 × 필드 타입 허용 매트릭스 (백엔드 getAvailableOperationList 기준, 2026-06)
 // "Invalid operator … (type: X)" 에러 시 그 타입의 유효 연산자 목록을 AI에게 안내.
 const SEARCH_OPS_BY_TYPE: Record<string, string[]> = {
@@ -555,6 +558,7 @@ function allowedSearchOperators(columnType: string): string[] | null {
   return null;
 }
 
+// @quirk error-message-string-coupling — 아래 분기 전부가 백엔드 에러 문구에 결합돼 있다
 export function errWithSchemaHint(message: string, objectType: string, filterSummary?: string) {
   let hint: string | null = null;
   if (message.includes("정의 되지 않은 값")) {
