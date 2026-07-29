@@ -392,6 +392,11 @@ export async function resolveProperties(
   client: SalesMapClient,
   objectType: string,
   properties: Record<string, unknown>,
+  /**
+   * top-level 파라미터로 빼낼 필드 맵. 기본값은 딜·리드 기준이다.
+   * 상품처럼 `상태`가 top-level이 아니라 실제 select 필드인 타입은 직접 넘겨야 한다.
+   */
+  topLevelOverride?: Record<string, string>,
 ): Promise<{ fieldList: Array<Record<string, unknown>>; errors: string[]; extractedTopLevel: Record<string, unknown> }> {
   const schemaData = await getFieldSchema(client, objectType);
   const fieldMap = new Map<string, string>();
@@ -421,7 +426,7 @@ export async function resolveProperties(
   const extractedTopLevel: Record<string, unknown> = {};
 
   // Fields that SalesMap API requires as top-level body params — auto-extracted from properties
-  const TOP_LEVEL_ONLY: Record<string, string> = {
+  const TOP_LEVEL_ONLY: Record<string, string> = topLevelOverride ?? {
     "금액": "price",
     "이름": "name",
     "파이프라인": "pipelineId",
