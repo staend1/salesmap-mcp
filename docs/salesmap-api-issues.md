@@ -282,33 +282,25 @@ CRM 업무에서 일상적으로 필요하지만 API가 없거나 작동하지 �
 
 ---
 
-## 9. 이메일 API 제한 — 본문 미제공 + 목록 조회 부재
+## 9. 이메일 API — 목록 조회 부재 + 첨부 정보 없음
 
-### 문제
+> **✅ 본문 미제공은 해소됨 (2026-07-29 릴리즈).** `GET /v2/email/{emailId}` 응답에
+> `snippet`·`htmlBody`·`text`가 추가됐다. MCP는 `salesmap-read-engagement(type:"email")`로 제공.
+> 주석 처리돼 있던 `read-email`을 이 도구로 되살렸다.
+>
+> 실측 참고 — 같은 메일에서 `htmlBody` 9,398자 vs `text` 339자로 **마크업이 96%**다.
+> 본문이 필요하면 `text`를 먼저 보고 없을 때만 `htmlBody`를 쓰는 편이 낫다.
 
-두 가지 제한:
+### 남은 문제
 
-1. **본문 미제공**: `GET /v2/email/{id}` 응답에 subject, from, to, date 등 메타데이터만 포함됩니다. body/htmlBody/content 필드가 없습니다.
-2. **목록 API 부재**: `GET /v2/email` → 404 (HTML 반환). 이메일 목록 조회 엔드포인트가 존재하지 않습니다. 고객별 이메일을 보려면 activity API에서 emailId를 하나씩 추출 → 개별 조회해야 합니다.
+**① 이메일 목록 조회 API가 없다.** `emailId`를 얻는 경로가 activity뿐이라,
+"이번 주 주고받은 메일 전부"는 레코드를 하나씩 돌며 activity를 뒤지는 수밖에 없다.
 
-### 실제 영향
+**② 첨부파일 정보가 응답에 없다** (실측 확인). 첨부 유무·파일명·크기를 알 수 없다.
 
-이메일 조회 도구가 존재해도 실질적 가치가 없습니다. "이 고객에게 뭐라고 메일 보냈어?" → 제목만 보여줄 수 있고, 본문은 알 수 없습니다. 이메일 내용 기반 분석·요약·후속 조치 추천이 불가능합니다.
+### API 개선안
 
-### HubSpot 비교
-
-```
-HubSpot: GET /crm/v3/objects/emails/{id}?properties=hs_email_html,hs_email_text
-  → 본문 HTML/텍스트 반환. 이메일이 일반 오브젝트이므로 properties로 원하는 필드 지정 가능.
-  → 이메일도 오브젝트이므로 search/batch-read로 목록 조회 가능.
-```
-
-### MCP에서의 우회
-
-- **본문**: 우회 불가. `read-email` 도구를 비활성화하고 `list-engagements`에서 제목만 인라인.
-- **목록**: `list-engagements`가 activity API를 래핑하여 emailId 추출 + 제목 인라인을 자동 처리. API가 본문을 제공하게 되면 `read-email` 활성화 예정.
-
----
+`GET /v2/email` 목록(기간·상대·방향 필터) + 응답에 첨부 메타(`attachments[]`).
 
 ## 10. 삭제 API 비표준
 
@@ -464,11 +456,15 @@ const nameFields = schema.fieldList
 | sms | ❌ 404 | — | — | |
 | 카카오 알림톡 | ❌ 404 | — | — | |
 | meeting | ❌ 404 | — | — | |
-| AI transcript | ❌ API 없음 | — | — | |
+| AI transcript | **✅ 2026-07-29 신설** | `GET /v2/recording/{id}/transcript` | `read-engagement(type:"recording")` | 목록·역방향 조회는 여전히 없음 → #34 |
 
 ### 실제 영향
 
-- activity 타임라인에서 `smsId`, `meetingId`, `kakaoAlimtalkId` 등이 나오지만 상세 내용 조회 불가
+- activity 타임라인에서 `smsId` 등이 나오지만 상세 내용 조회 불가
+- ⚠️ **meeting·카카오 알림톡은 id조차 없다** (2026-07-31 실측). 기본 오브젝트 4종
+  (고객·회사·딜·리드)의 activity 응답에 `meetingId`·`kakaoAlimtalkId` 필드가 아예 없어,
+  활동이 타임라인에 떠도 **무엇에 대한 것인지 열어볼 방법이 없다.** 커스텀 오브젝트 응답에만
+  이 필드들이 존재한다. → `read-engagement`가 email·recording·note만 지원하는 이유
 - 노트 생성은 레코드 update 우회만 가능 — 날짜/담당자/유형 지정 불가
 - 노트 수정, 태스크 생성/수정, engagement 삭제 모두 불가
 
@@ -1430,16 +1426,19 @@ AI가 생성 결과를 확인할 수 없으면 "조용히 틀림"을 검증할 �
 
 해결된 이슈는 본문에서 제거하고 여기 간단히만 남긴다.
 
-### 반영 예정 — 2026-07-29 회신 (배포 후 확인할 것)
+### 2026-07-29 릴리즈 — 반영 완료 (2026-07-31)
 
-- **association 응답 규약 통일** — `POST /v3/association/list`·`read`가 `type`(영문) → `유형`(한글, `field_list`와 동일 규약), `_id` → `id`로 변경. **2026-07-29 메인 배포.**
-  → 우리 영향 **없음**: `associationList`에서 `name`만 읽는다 (`generic.ts`의 batch-read 힌트 2곳, `list-associations`는 응답을 그대로 전달).
-  배포 후 `list-associations`·`batch-read-objects(associationList)`를 한 번씩 돌려볼 것.
-- **#31 타입 표기** — `/v2/field/{type}`가 `quoteProduct`·`quote-product` 양쪽 수용 예정.
-  → 우리는 이미 `canonicalFieldSchemaType()`으로 정규화 중. 반영돼도 유지한다 (`견적서 상품`·`quote_product` 같은 표기까지 흡수하므로).
-- **#31 검증 순서** — `fieldList` 위치 오류 시 사용자가 바로 고칠 수 있는 문구가 먼저 나가게 정리 예정.
-- **시스템 select 값 (#2 계열)** — 변환 대상은 **제품 상태 / 딜 구독 시작 유형 / 딜 구독 종료 유형 / 견적서 할인 유형 4개가 전부**이고, 값은 **워크스페이스 언어 설정과 무관한 한국어·기호 고정값**임을 확인. 다국어 우려 해소.
-  조회값을 POST도 그대로 받게 통일하는 방향이나, **하위호환 때문에 MCP 내부 예외처리로 남길 가능성**도 함께 제기됨 → 변환표는 당분간 유지.
+- **association 응답 규약** `type`→`유형`(한글, 단복수 포함: `"고객 (단일)"`), `_id`→`id`.
+  배포 확인했고 **우리 영향 없음** — `associationList`에서 `name`만 읽는다. 실측 재확인 완료
+- **v2 activity 유형·기간 필터** → `list-engagements` v2 재이관, 활동 유형 8종 신규 노출
+- **이메일 본문 / 녹음·녹취** → `salesmap-read-engagement` 신설 (`read-note` 흡수)
+- **v3 상품 생성** → v2 단건 순회 폐기. 전 필드 저장 역확인 완료
+- **formula 오류 500→400** — 힌트는 붙이지 않기로 결정. 문구가 내부 validator 메시지에 의존해
+  고정 계약이 아니다(백엔드 확인). 문자열 매칭 힌트는 문구가 바뀌면 조용히 깨진다
+- **`/v2/field/{type}` 표기 양쪽 수용 예정** — 우리는 이미 `canonicalFieldSchemaType()`으로
+  정규화 중. 반영돼도 유지한다(`견적서 상품`·`quote_product` 같은 표기까지 흡수하므로)
+- **시스템 select 값** — 변환 대상 4종이 전부이고 워크스페이스 언어와 무관한 고정값임을 확인.
+  하위호환 때문에 MCP 내부 예외처리로 남을 가능성이 커 변환표는 유지
 
 ### 완료
 
