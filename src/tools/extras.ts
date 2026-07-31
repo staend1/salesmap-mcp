@@ -4,7 +4,7 @@ import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 import { SALESMAP_API_REF } from "./api-ref";
-import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE } from "../api-quirks";
+import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE, toKstBoundary } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -635,8 +635,8 @@ export function registerExtrasTools(server: McpServer) {
     "🎯 노트 목록 조회. 담당자·유형·날짜·연결 레코드 기준으로 필터 가능.",
     {
       after: z.string().optional().describe("페이지네이션 커서"),
-      startDate: z.string().optional().describe("작성일 시작 (예: 2026-01-01)"),
-      endDate: z.string().optional().describe("작성일 종료 (예: 2026-06-30)"),
+      startDate: z.string().optional().describe("작성일 시작. 날짜만 쓰면 한국시간 그날 00:00부터 (예: 2026-01-01). 시각까지 지정하려면 오프셋 포함 ISO"),
+      endDate: z.string().optional().describe("작성일 종료. 날짜만 쓰면 한국시간 그날 23:59:59까지 — 종료일 당일이 포함됩니다 (예: 2026-06-30)"),
       owner: z.string().optional().describe("노트를 작성한 담당자. 사용자 이름 또는 userId 모두 허용"),
       type: z.string().optional().describe("노트 유형 이름 (예: '미팅', '콜')"),
       leadId: z.string().optional().describe("연결된 리드 ID"),
@@ -651,8 +651,10 @@ export function registerExtrasTools(server: McpServer) {
         const query: Record<string, string> = {};
 
         if (after) query.cursor = after;
-        if (startDate) query.startDate = startDate;
-        if (endDate) query.endDate = endDate;
+        // @quirk date-only-timezone-split — memo는 date-only를 UTC로 읽어 종료일 당일이 통째로 빠진다.
+        // KST 경계를 명시해 보내면 어느 구현에서도 같은 결과가 된다.
+        if (startDate) query.startDate = toKstBoundary(startDate, "start");
+        if (endDate) query.endDate = toKstBoundary(endDate, "end");
         if (leadId) query.leadId = leadId;
         if (dealId) query.dealId = dealId;
         if (peopleId) query.peopleId = peopleId;

@@ -119,6 +119,15 @@ export const QUIRKS: readonly Quirk[] = [
     ledger: "#21",
   },
   {
+    id: "date-only-timezone-split",
+    summary: "date-only 입력의 시간대 해석이 엔드포인트마다 다르다 — memo만 UTC라 종료일 당일이 통째로 빠진다",
+    evidence: "실측 2026-07-31. GET /v2/memo는 dayjs(value).toDate()로 타임존 없이 파싱(서버 UTC) → endDate=오늘이 UTC 00:00까지가 되어 당일 누락. 텔레메트리에서 list-notes endDate 사용 22회 전부 피해. activity·search·v3 create는 KST 정상",
+    removeWhen: "GET /v2/memo가 activity와 같은 KST day-bound로 바뀌면. ⚠️ 그래도 이 변환은 유지하는 편이 낫다 — 오프셋 ISO는 어느 쪽 구현에서도 같은 결과를 주고, 엔드포인트별 분기를 없애준다",
+    affects: ["list-notes", "search-objects"],
+    location: "api-quirks.ts › toKstBoundary",
+    ledger: "#32",
+  },
+  {
     id: "relation-list-operator",
     summary: "관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN 미지원 → IN/NOT_IN으로 변환",
     evidence: "실측. 관계 필드에 LIST_CONTAIN을 쓰면 400",
@@ -441,6 +450,35 @@ export const QUOTE_PRODUCT_ALIAS: Record<string, string> = {
   "결제횟수": "결제 횟수", paymentCount: "결제 횟수",
   "결제 시작일": "시작 결제일", "결제시작일": "시작 결제일", paymentStartAt: "시작 결제일",
 };
+
+/**
+ * @quirk date-only-timezone-split
+ *
+ * `2026-07-29`처럼 날짜만 보내면 엔드포인트마다 해석이 다르다.
+ *
+ *   GET /v2/{object}/activity      KST 달력일  ✅
+ *   POST /v2/object/{type}/search  KST 달력일  ✅
+ *   POST /v3/object/create (date)  KST 자정    ✅
+ *   GET /v2/memo                   ⚠️ **UTC** — dayjs(value).toDate(), 서버가 UTC
+ *
+ * memo가 문제다. `endDate=2026-07-31`이 `2026-07-31T00:00:00Z`(=KST 09:00)까지로 해석돼
+ * **종료일 당일이 통째로 빠진다.** 텔레메트리 실측상 list-notes의 endDate 사용 22회가 전부
+ * 이 피해를 봤고, 200 OK라 아무도 몰랐다.
+ *
+ * 해법: 날짜만 오면 **KST 경계를 명시한 오프셋 ISO로 바꿔 보낸다.**
+ * 실측상 activity·search는 date-only와 결과가 완전히 동일하고, memo만 고쳐진다.
+ * 백엔드가 memo를 KST로 바꿔도 결과가 같으므로 **걷어낼 필요가 없다.**
+ *
+ * 이미 시각·오프셋이 붙어 있으면 사용자 의도이므로 그대로 통과시킨다.
+ */
+const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function toKstBoundary(value: string, edge: "start" | "end"): string {
+  if (!DATE_ONLY_RE.test(value.trim())) return value;
+  return edge === "start"
+    ? `${value.trim()}T00:00:00.000+09:00`
+    : `${value.trim()}T23:59:59.999+09:00`;
+}
 
 /** @quirk relation-list-operator — 관계 필드에서 리스트 연산자를 동등한 IN/NOT_IN으로 */
 export const REL_LIST_OP_MAP: Record<string, string> = {

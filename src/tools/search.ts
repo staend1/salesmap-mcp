@@ -2,8 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
-import { REL_LIST_OP_MAP, GROUP_TYPES } from "../api-quirks";
+import { REL_LIST_OP_MAP, GROUP_TYPES, toKstBoundary } from "../api-quirks";
 import type { SalesMapClient } from "../client";
+
+// @quirk date-only-timezone-split — 값이 "날짜"인 연산자만 KST 경계 변환 대상.
+// 상대 연산자(DATE_MORE_THAN_DAYS_AGO 등)는 값이 숫자라 해당 없음.
+const ABSOLUTE_DATE_OPS = new Set([
+  "DATE_ON_OR_AFTER", "DATE_ON_OR_BEFORE", "DATE_IS_SPECIFIC_DAY", "DATE_BETWEEN",
+]);
+
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 
@@ -123,6 +130,27 @@ async function resolveFilterIds(
       if (!fieldType) {
         filters.push(f);
         continue;
+      }
+
+      // @quirk date-only-timezone-split — 날짜 필드에 날짜만 오면 KST 하루 경계를 명시해 보낸다.
+      // 검색 API는 date-only도 KST로 읽어 결과가 같지만(실측), 도구 전체가 같은 규칙을 쓰게
+      // 통일해두면 memo처럼 해석이 다른 엔드포인트가 섞여도 사고가 안 난다.
+      if ((fieldType === "date" || fieldType === "dateTime") && ABSOLUTE_DATE_OPS.has(f.operator)) {
+        if (Array.isArray(f.value)) {
+          // DATE_BETWEEN: [시작, 끝]
+          const [s, e] = f.value;
+          filters.push({ ...f, value: [
+            typeof s === "string" ? toKstBoundary(s, "start") : s,
+            typeof e === "string" ? toKstBoundary(e, "end") : e,
+          ] });
+          continue;
+        }
+        if (typeof f.value === "string") {
+          // ON_OR_BEFORE만 하루의 끝, 나머지는 하루의 시작
+          const edge = f.operator === "DATE_ON_OR_BEFORE" ? "end" : "start";
+          filters.push({ ...f, value: toKstBoundary(f.value, edge) });
+          continue;
+        }
       }
 
       // boolean 필드에 문자열 "true"/"false"가 오면 실제 boolean으로 교정.
