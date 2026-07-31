@@ -31,7 +31,7 @@
 | `salesmap-list-sequences` | 읽기 | `after`? |
 | `salesmap-list-webforms` | 읽기 | `after`? |
 | `salesmap-get-user-details` | 읽기 | — |
-| `salesmap-read-note` | 읽기 | `noteId` |
+| `salesmap-read-engagement` | 읽기 | `type` `id` |
 | `salesmap-list-changelog` | 읽기 | `objectType` `objectId` `after`? |
 | `salesmap-create-property` | 쓰기 | `objectType` `name` `type` `customObjectDefinitionName`? `customObjectDefinitionId`? `description`? `showInCreateForm`? `required`? `options`? `preventDuplicates`? `formula`? |
 | `salesmap-get-guide` | 읽기 | — |
@@ -343,17 +343,20 @@
 
 파라미터 없음.
 
-### `salesmap-read-note`
+### `salesmap-read-engagement`
 
 - 성격: **읽기** · 정의: `src/tools/extras.ts`
 
 ```
-🎯 노트 상세 조회.
+🎯 활동 단건의 **전문** 조회 — 이메일 본문 · 녹취 전체 · 노트 전문.
+🧭 salesmap-list-engagements가 준 emailId·recordingId·memoId를 그대로 넣습니다.
+📦 목록엔 미리보기만 실립니다. `truncated: true`인 항목이나 본문이 필요할 때 이 도구로 엽니다.
 ```
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `noteId` | `string` | ✅ | 노트 UUID |
+| `type` | `enum(email|recording|note)` | ✅ | 활동 유형. list-engagements 응답의 emailId→'email', recordingId→'recording', memoId→'note' |
+| `id` | `string` | ✅ | 해당 활동의 UUID |
 
 ### `salesmap-list-changelog`
 
@@ -400,7 +403,7 @@
 - 성격: **읽기** · 정의: `src/tools/extras.ts`
 
 ```
-🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.
+🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·필드 입력 규칙·formula 문법 수록.
 🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, batch-create-objects·update-object·create-property 전에 참조.
 ```
 

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, getUserMap, getTeamMap, getFieldSchema, canonicalFieldName } from "../client";
 import { getClient } from "../types";
-import { REL_LIST_OP_MAP, GROUP_TYPES, toKstBoundary } from "../api-quirks";
+import { REL_LIST_OP_MAP, GROUP_TYPES, V3_CORE_TYPE_MAP, toKstBoundary } from "../api-quirks";
 import type { SalesMapClient } from "../client";
 
 // @quirk date-only-timezone-split — 값이 "날짜"인 연산자만 KST 경계 변환 대상.
@@ -21,6 +21,7 @@ const HEX_ID_RE = /^[0-9a-f]{24}$/i; // MongoDB ObjectId
 function isValidId(v: string): boolean { return UUID_RE.test(v) || HEX_ID_RE.test(v); }
 
 type FilterGroup = { filters: Array<{ propertyName: string; operator: string; value?: string | number | boolean | string[] }> };
+type PipelineInfo = { id: string; name: string; stageList: Array<{ id: string; name: string }> };
 
 
 // Auto-resolve types: accept name strings, auto-resolve to UUIDs
@@ -41,8 +42,6 @@ const isRelationType = (t: string) => USER_TYPES.has(t) || TEAM_TYPES.has(t) || 
 
 // 비-id 값을 넣었을 때 "id를 어디서 조회하라"고 안내할 도구 (타입별)
 const RELATION_TOOL_HINT: Record<string, string> = {
-  pipeline: "salesmap-get-pipelines",
-  pipelineStage: "salesmap-get-pipelines",
   sequence: "salesmap-list-sequences",
   multiSequence: "salesmap-list-sequences",
   multiProduct: "salesmap-list-products",
@@ -51,9 +50,120 @@ const RELATION_TOOL_HINT: Record<string, string> = {
   multiCustomObject: "salesmap-list-associations(연결 레코드 조회) 또는 해당 레코드 읽기",
 };
 
+function asStringValues(value: string | number | boolean | string[] | undefined): string[] {
+  if (Array.isArray(value)) return value;
+  return typeof value === "string" ? [value] : [];
+}
+
+async function getPipelineInfos(client: SalesMapClient, targetType: string): Promise<PipelineInfo[]> {
+  const apiType = V3_CORE_TYPE_MAP[targetType] ?? targetType;
+  const data = await client.post<{ pipelineList?: Array<Record<string, unknown>> }>(
+    "/v3/pipeline/list",
+    { objectType: apiType },
+  );
+
+  return (data.pipelineList ?? []).flatMap((p) => {
+    const id = typeof p.id === "string" ? p.id : typeof p._id === "string" ? p._id : null;
+    const name = typeof p.name === "string" ? p.name : null;
+    if (!id || !name) return [];
+    const rawStages = (Array.isArray(p.stageList) ? p.stageList : p.pipelineStageList) as Array<Record<string, unknown>> | undefined;
+    const stageList = (rawStages ?? []).flatMap((s) => {
+      const stageId = typeof s.id === "string" ? s.id : typeof s._id === "string" ? s._id : null;
+      const stageName = typeof s.name === "string" ? s.name : null;
+      return stageId && stageName ? [{ id: stageId, name: stageName }] : [];
+    });
+    return [{ id, name, stageList }];
+  });
+}
+
+function matchOneByNameOrId<T extends { id: string; name: string }>(
+  items: T[],
+  value: string,
+  label: string,
+): { item?: T; error?: string } {
+  if (isValidId(value)) {
+    const item = items.find((x) => x.id === value);
+    return item ? { item } : { error: `${label} ID "${value}"를 찾을 수 없습니다.` };
+  }
+
+  const matches = items.filter((x) => x.name === value);
+  if (matches.length === 1) return { item: matches[0] };
+  if (matches.length > 1) return { error: `${label} 이름 "${value}"이 여러 개입니다. 더 구체적인 조건을 함께 지정하세요.` };
+  const sample = items.slice(0, 10).map((x) => x.name).join(", ");
+  return { error: `${label} "${value}"를 찾을 수 없습니다. 사용 가능한 값 예: ${sample}` };
+}
+
+function resolvePipelineScope(
+  group: FilterGroup,
+  fieldTypeMap: Map<string, string>,
+  pipelines: PipelineInfo[],
+): { pipeline?: PipelineInfo; error?: string } {
+  const pipelineFilter = group.filters.find((f) =>
+    fieldTypeMap.get(f.propertyName) === "pipeline"
+    && f.operator !== "EXISTS"
+    && f.operator !== "NOT_EXISTS",
+  );
+  if (!pipelineFilter) return {};
+
+  const values = asStringValues(pipelineFilter.value);
+  if (values.length !== 1) return {};
+  const match = matchOneByNameOrId(pipelines, values[0], "파이프라인");
+  return match.error ? { error: match.error } : { pipeline: match.item };
+}
+
+function resolvePipelineValue(
+  value: string | number | boolean | string[] | undefined,
+  pipelines: PipelineInfo[],
+): { value?: string | string[]; error?: string } {
+  const values = asStringValues(value);
+  if (value !== undefined && !values.length) return { error: "파이프라인 검색 값은 이름 또는 ID 문자열이어야 합니다." };
+  if (!values.length) return { value: value as string | string[] | undefined };
+
+  const resolved: string[] = [];
+  for (const v of values) {
+    const match = matchOneByNameOrId(pipelines, v, "파이프라인");
+    if (match.error) return { error: match.error };
+    resolved.push(match.item!.id);
+  }
+  return { value: Array.isArray(value) ? resolved : resolved[0] };
+}
+
+function resolvePipelineStageValue(
+  value: string | number | boolean | string[] | undefined,
+  pipelines: PipelineInfo[],
+  scope?: PipelineInfo,
+): { value?: string | string[]; error?: string } {
+  const values = asStringValues(value);
+  if (value !== undefined && !values.length) return { error: "파이프라인 단계 검색 값은 이름 또는 ID 문자열이어야 합니다." };
+  if (!values.length) return { value: value as string | string[] | undefined };
+
+  const resolved: string[] = [];
+  for (const v of values) {
+    if (isValidId(v)) {
+      const exists = pipelines.some((p) => p.stageList.some((s) => s.id === v));
+      if (!exists) return { error: `파이프라인 단계 ID "${v}"를 찾을 수 없습니다.` };
+      resolved.push(v);
+      continue;
+    }
+
+    const candidates = scope ? scope.stageList : pipelines.flatMap((p) => p.stageList);
+    const matches = candidates.filter((s) => s.name === v);
+    if (matches.length === 1) {
+      resolved.push(matches[0].id);
+      continue;
+    }
+    if (matches.length > 1) {
+      return { error: `파이프라인 단계 "${v}"이 여러 파이프라인에 있습니다. 같은 필터 그룹에 "파이프라인" 조건도 함께 넣으세요.` };
+    }
+    const sample = candidates.slice(0, 10).map((s) => s.name).join(", ");
+    return { error: `파이프라인 단계 "${v}"를 찾을 수 없습니다. 사용 가능한 값 예: ${sample}` };
+  }
+  return { value: Array.isArray(value) ? resolved : resolved[0] };
+}
+
 /**
  * Schema-based filter validation:
- * - user/multiUser fields → auto-resolve names to UUIDs
+ * - user/multiUser, team/multiTeam, pipeline/pipelineStage → auto-resolve names to UUIDs
  * - other relation fields → require UUID, return error with tool hint
  * - unknown fields → pass through (API will validate)
  */
@@ -81,11 +191,15 @@ async function resolveFilterIds(
   // Identify user-type and team-type fields used in filters
   const userTypeNames = new Set<string>();
   const teamTypeNames = new Set<string>();
+  const pipelineTypeNames = new Set<string>();
+  const pipelineStageTypeNames = new Set<string>();
   for (const group of groups) {
     for (const f of group.filters) {
       const ft = fieldTypeMap.get(f.propertyName);
       if (ft && USER_TYPES.has(ft)) userTypeNames.add(f.propertyName);
       if (ft && TEAM_TYPES.has(ft)) teamTypeNames.add(f.propertyName);
+      if (ft === "pipeline") pipelineTypeNames.add(f.propertyName);
+      if (ft === "pipelineStage") pipelineStageTypeNames.add(f.propertyName);
     }
   }
 
@@ -102,8 +216,12 @@ async function resolveFilterIds(
   // Lazy-load maps only if needed
   let userMap: Map<string, string> | null = null;
   let teamMap: Map<string, string> | null = null;
+  let pipelines: PipelineInfo[] | null = null;
   if (hasNameValues(userTypeNames)) userMap = await getUserMap(client);
   if (hasNameValues(teamTypeNames)) teamMap = await getTeamMap(client);
+  if (hasNameValues(pipelineTypeNames) || hasNameValues(pipelineStageTypeNames)) {
+    pipelines = await getPipelineInfos(client, targetType);
+  }
 
   const resolved: FilterGroup[] = [];
   for (const group of groups) {
@@ -213,6 +331,34 @@ async function resolveFilterIds(
         }
         const resolvedValue = Array.isArray(f.value) ? resolvedVals : resolvedVals[0];
         filters.push({ ...f, value: resolvedValue });
+        continue;
+      }
+
+      // Pipeline type → auto-resolve pipeline names to UUIDs.
+      // The v2 search API still requires IDs, but the MCP surface should accept names like v3 create.
+      if (pipelineTypeNames.has(f.propertyName)) {
+        if (!pipelines) {
+          filters.push(f);
+          continue;
+        }
+        const resolvedPipeline = resolvePipelineValue(f.value, pipelines);
+        if (resolvedPipeline.error) return { error: resolvedPipeline.error, resolved: [] };
+        filters.push({ ...f, value: resolvedPipeline.value });
+        continue;
+      }
+
+      // Pipeline stage type → auto-resolve stage names to UUIDs. If a stage name is duplicated,
+      // the caller can disambiguate by adding a "파이프라인" filter in the same group.
+      if (pipelineStageTypeNames.has(f.propertyName)) {
+        if (!pipelines) {
+          filters.push(f);
+          continue;
+        }
+        const scope = resolvePipelineScope(group, fieldTypeMap, pipelines);
+        if (scope.error) return { error: scope.error, resolved: [] };
+        const resolvedStage = resolvePipelineStageValue(f.value, pipelines, scope.pipeline);
+        if (resolvedStage.error) return { error: resolvedStage.error, resolved: [] };
+        filters.push({ ...f, value: resolvedStage.value });
         continue;
       }
 

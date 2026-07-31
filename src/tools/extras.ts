@@ -102,6 +102,87 @@ async function resolveQuoteProduct(
   return { body, errors };
 }
 
+const msToClock = (ms: number) => {
+  const t = Math.floor(ms / 1000);
+  return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
+};
+
+/**
+ * 이메일 전문. `text` 우선, 없을 때만 `htmlBody`.
+ *
+ * 실측 2026-07-31 — 같은 메일에서 `htmlBody` 9,398자 vs `text` 339자로 **마크업이 96%**다.
+ * 둘 다 실으면 응답이 28배가 되는데 AI가 읽을 내용은 같다. v3에서 `note.htmlBody`를
+ * 중복이라 제거한 것과 같은 판단이다. 첨부 정보는 응답에 없다 (원장 #9 잔여 항목).
+ */
+async function readEmail(client: ReturnType<typeof getClient>, id: string) {
+  const d = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${id}`);
+  const { htmlBody, text, ...rest } = (d.email ?? {}) as Record<string, unknown>;
+  const hasText = typeof text === "string" && text.trim().length > 0;
+  const body = hasText ? (text as string)
+    : (typeof htmlBody === "string" && htmlBody.trim() ? htmlBody : null);
+  return {
+    ...compactRecord(rest),
+    ...(body !== null
+      ? { body, bodyFormat: hasText ? "text" : "html" }
+      : { body: null, hint: "이 메일은 본문이 비어 있습니다 (text·htmlBody 모두 없음)." }),
+  };
+}
+
+/**
+ * 녹취 전문. 요약(`coreSummary`)은 list-engagements가 이미 인라인하므로,
+ * 이 도구를 부른다는 건 **전문을 원한다**는 뜻이다 — transcript를 항상 함께 준다.
+ *
+ * ⚠️ 상한도 페이지네이션도 없다(백엔드 확인). 실측 59분 회의 = 404 세그먼트 / 85KB / 20,687자.
+ * 3시간이면 250KB라 우리가 자른다. 자를 땐 **몇 개 중 몇 개까지 봤는지** 반드시 밝힌다.
+ */
+const TRANSCRIPT_CHAR_LIMIT = 40_000; // ≈2시간 분량
+
+type TranscriptData = {
+  transcriptSegmentList?: Array<Record<string, unknown>>;
+  speakerInfoList?: Array<{ speakerId: string; label?: string | null }>;
+};
+
+async function readRecording(client: ReturnType<typeof getClient>, id: string) {
+  const meta = await client.get<{ recording: Record<string, unknown> }>(`/v2/recording/${id}`);
+  const base = compactRecord(meta.recording ?? {});
+
+  let tr: TranscriptData;
+  try {
+    const d = await client.get<{ recordingTranscript: TranscriptData }>(`/v2/recording/${id}/transcript`);
+    tr = d.recordingTranscript ?? {};
+  } catch {
+    return { ...base, transcript: null, hint: "녹취 전문을 가져오지 못했습니다 (아직 변환 전이거나 없음)." };
+  }
+
+  // speakerId를 라벨로 치환 — 사용자가 UI에서 실명을 매핑했으면 실명이 내려온다.
+  const label = new Map((tr.speakerInfoList ?? []).map(s => [s.speakerId, s.label || s.speakerId]));
+  const segs = tr.transcriptSegmentList ?? [];
+
+  const lines: string[] = [];
+  let chars = 0;
+  for (const s of segs) {
+    const who = label.get(String(s.speakerId)) ?? String(s.speakerId);
+    const line = `[${msToClock(Number(s.startTime) || 0)}] ${who}: ${s.text ?? ""}`;
+    if (chars + line.length > TRANSCRIPT_CHAR_LIMIT) break;
+    lines.push(line);
+    chars += line.length;
+  }
+
+  const used = lines.length;
+  if (used >= segs.length) {
+    return { ...base, speakers: [...label.values()], transcript: lines.join("\n") };
+  }
+  const until = msToClock(Number(segs[used - 1]?.endTime) || 0);
+  return {
+    ...base,
+    speakers: [...label.values()],
+    transcript: lines.join("\n"),
+    truncated: true,
+    segments: `${used}/${segs.length}`,
+    hint: `녹취가 길어 앞부분만 실었습니다 (${used}/${segs.length} 세그먼트, ${until}까지). 전체 흐름은 coreSummary를 참고하세요.`,
+  };
+}
+
 // ── salesmap-get-guide content (MCP 사용 가이드) ──────────────────
 const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 
@@ -151,7 +232,7 @@ const SALESMAP_DOCS = `# 세일즈맵 MCP 가이드
 | 탐색·메타 | \`list-objects\`, \`get-user-details\`, \`list-users\`, \`list-teams\` |
 | 레코드 조회 | \`search-objects\`, \`batch-read-objects\` |
 | 관계 탐색 | \`list-associations\` |
-| 타임라인·노트 | \`list-engagements\`, \`list-notes\`, \`read-note\` |
+| 타임라인·노트 | \`list-engagements\`, \`list-notes\`, \`read-engagement\` |
 | 이력·변경 | \`list-changelog\`, \`get-lead-time\` |
 | 레코드 생성·수정·삭제 | \`batch-create-objects\`, \`update-object\`, \`delete-object\` |
 | 노트 생성 | \`create-note\` |
@@ -182,17 +263,17 @@ list-associations(objectType)                     # 사용 가능한 관계명 �
 생성 순서 엄수: **회사 → 고객 → 딜/리드** (부모 ID가 먼저 존재해야 함)
 \`\`\`
 batch-create-objects(objectType: "organization", inputList)
-  → batch-create-objects(objectType: "people", inputList + organizationId)
-  → batch-create-objects(objectType: "deal" | "lead", inputList + peopleId + organizationId)
+  → batch-create-objects(objectType: "people", inputList + associations{"메인 회사":[organizationId]})
+  → batch-create-objects(objectType: "deal" | "lead", inputList + associations{"메인 고객":[peopleId], "메인 회사":[organizationId]})
 \`\`\`
-⚠️ 리드 생성 시 \`peopleId\` 또는 \`organizationId\` 중 하나 **필수**.
+⚠️ 딜·리드 생성 시 associations의 \`메인 고객\` 또는 \`메인 회사\` 중 하나 **필수**.
 순서를 지키지 않아도 각각 독립 생성 후 update-object로 나중에 연결 가능.
 
 ### 레코드 수정
 \`\`\`
 search-objects(objectType, filterGroups)          # ID 확인
   → list-properties(objectType)                   # 정확한 필드명·옵션 확인
-  → update-object(id, objectType, fieldList)
+  → update-object(id, objectType, properties)
 \`\`\`
 
 ### 필드 추가
@@ -248,12 +329,20 @@ run-script(script: \`
 
 ---
 
-## fieldList 핵심 규칙
+## 필드 입력 핵심 규칙
 
-\`update-object\`에서 커스텀 필드 값은 \`fieldList\` 배열로 지정. \`batch-create-objects\`는 v3 create API라 \`properties\`에 필드명→값 형태로 지정.
-\`name\`은 세일즈맵 UI의 **한글 필드명과 정확히 일치**해야 함 (\`list-properties\`로 확인).
+\`batch-create-objects\`, \`update-object\`, \`create-quote\` 모두 MCP 입력은 \`properties\`에 필드명→값 형태로 지정한다.
+내부에서 필요한 경우 v2 API의 \`fieldList\`/top-level 파라미터로 변환한다.
+필드명은 세일즈맵 UI의 **한글 필드명과 정확히 일치**해야 함 (\`list-properties\`로 확인).
 
-### 값 키 (필드 타입별)
+**기본 입력 원칙**
+- 사용자 필드(\`담당자\`, \`팔로워\`)는 사용자 이름을 넣는다. MCP가 필요한 경우 userId로 변환한다.
+- 팀 필드는 팀 이름을 넣는다. 검색 시 MCP가 teamId로 변환한다.
+- 파이프라인·파이프라인 단계는 생성·검색에서 이름을 넣는다. 단계명이 여러 파이프라인에 중복되면 파이프라인 이름도 함께 넣는다.
+- 고객·회사·딜·리드·상품·웹폼·시퀀스 등 다른 레코드를 가리키는 관계 값은 레코드 ID가 필요하다.
+- \`batch-create-objects\`에서 관계는 \`properties\`가 아니라 \`associations\`에 넣는다.
+
+### 내부 변환 참고 (raw API를 직접 쓸 때만)
 
 | 타입 | 값 키 | 예시 |
 |---|---|---|
@@ -271,9 +360,10 @@ run-script(script: \`
 
 | 잘못된 방법 | 올바른 방법 |
 |---|---|
-| top-level \`ownerId\` 전달 | \`fieldList\`의 \`userValueId\` 사용 |
+| top-level \`ownerId\` 전달 | MCP 도구의 \`properties.담당자\`에 사용자 이름 입력 |
 | \`fieldList\`에 \`{ name: "금액" }\` (딜) | top-level \`price\` 파라미터 사용 |
-| 담당자 이름을 \`stringValue\`로 | \`userValueId\`에 userId 전달 (\`list-users\`로 확인) |
+| 담당자 UUID를 batch-create에 입력 | 사용자 이름 입력 |
+| 파이프라인/단계 UUID를 batch-create에 입력 | 파이프라인/단계 이름 입력 |
 | 선택 필드에 미등록 옵션 값 | \`list-properties\`에서 정확한 옵션 확인 후 사용 |
 | \`stringValue: ""\` (빈 문자열) | 필드 초기화는 해당 항목을 \`fieldList\`에서 생략 |
 
@@ -841,37 +931,26 @@ export function registerExtrasTools(server: McpServer) {
     },
   );
 
-  // ── Read Email (비활성화) ──────────────────────────────────
-  // API가 이메일 본문을 반환하지 않아 실질 가치 없음 (api-mcp-readiness #10).
-  // list-engagements가 subject를 이미 인라인.
-  // API가 본문 제공 시 활성화 예정 — 타임라인에 본문 인라인은 비효율적이므로 별도 도구로 필요.
-  // server.tool(
-  //   "salesmap-read-email",
-  //   "🎯 이메일 상세 조회 (제목·발신자·수신자·날짜 등 메타데이터).\n📦 본문 없음 — API 제한.",
-  //   { emailId: z.string().describe("이메일 UUID") },
-  //   READ,
-  //   async ({ emailId }, extra) => {
-  //     try {
-  //       const client = getClient(extra);
-  //       const data = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${emailId}`);
-  //       return ok(data.email);
-  //     } catch (e: unknown) {
-  //       return err((e as Error).message);
-  //     }
-  //   },
-  // );
 
   // ── Read Note ───────────────────────────────────────────
   server.tool(
-    "salesmap-read-note",
-    "🎯 노트 상세 조회.",
-    { noteId: z.string().describe("노트 UUID") },
+    "salesmap-read-engagement",
+    "🎯 활동 단건의 **전문** 조회 — 이메일 본문 · 녹취 전체 · 노트 전문.\n🧭 salesmap-list-engagements가 준 emailId·recordingId·memoId를 그대로 넣습니다.\n📦 목록엔 미리보기만 실립니다. `truncated: true`인 항목이나 본문이 필요할 때 이 도구로 엽니다.",
+    {
+      type: z.enum(["email", "recording", "note"])
+        .describe("활동 유형. list-engagements 응답의 emailId→'email', recordingId→'recording', memoId→'note'"),
+      id: z.string().describe("해당 활동의 UUID"),
+    },
     READ,
-    async ({ noteId }, extra) => {
+    async ({ type, id }, extra) => {
       try {
         const client = getClient(extra);
-        const data = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${noteId}`);
-        return ok(data.memo);
+        if (type === "note") {
+          const d = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${id}`);
+          return ok(d.memo);
+        }
+        if (type === "email") return ok(await readEmail(client, id));
+        return ok(await readRecording(client, id));
       } catch (e: unknown) {
         return err((e as Error).message);
       }
@@ -960,7 +1039,7 @@ export function registerExtrasTools(server: McpServer) {
   // ── Guide ─────────────────────────────────────────────────
   server.tool(
     "salesmap-get-guide",
-    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·fieldList 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, batch-create-objects·update-object·create-property 전에 참조.",
+    "🎯 세일즈맵 MCP 사용 가이드 조회. 오브젝트 모델·시나리오별 도구 조합·필드 입력 규칙·formula 문법 수록.\n🧭 세션 시작 시, 어떤 MCP 도구를 써야 할지 모를 때, batch-create-objects·update-object·create-property 전에 참조.",
     {},
     READ,
     async (_params, _extra) => {
