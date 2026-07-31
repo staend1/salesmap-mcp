@@ -26,4 +26,7 @@ export const TTL = {
   schema: 5 * 60_000, // 필드 스키마 — 거의 안 변함
   map: 5 * 60_000, // userMap / teamMap
   room: 30 * 60_000, // roomId — 사실상 불변
+  // activity 인라인용 상세(이메일·노트·녹음). list-engagements가 채운 걸 뒤이은
+  // read-engagement가 그대로 쓴다 — 같은 대화 안에서 여는 경우가 대부분이라 적중률이 높다.
+  detail: 60_000,
 } as const;

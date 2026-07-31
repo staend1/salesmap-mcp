@@ -38,7 +38,7 @@
 | `salesmap-get-api-ref` | 읽기 | — |
 | `salesmap-run-script` | 쓰기 | `script` |
 | `salesmap-report-feedback` | 쓰기 | `category` `summary` `detail` |
-| `salesmap-list-engagements` | 읽기 | `objectType` `objectId` `types`? `limit`? `after`? |
+| `salesmap-list-engagements` | 읽기 | `objectType` `objectId` `types`? `startDate`? `endDate`? `limit`? `after`? |
 
 ---
 
@@ -460,16 +460,18 @@
 - 성격: **읽기** · 정의: `src/tools/extras.ts`
 
 ```
-🎯 레코드 activity 타임라인 조회.
-📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.
-📏 limit으로 유형별 건수 조절(1~50, 기본 5). 요약·집계 땐 낮게, 전체 이력 땐 높게.
-🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.
+🎯 레코드 활동 타임라인 조회 — 웹폼 제출·이메일 열람·링크 클릭·문서 열람까지 15종.
+📦 types로 유형 필터, startDate·endDate로 기간 필터.
+⏱️ **오래된 순으로 한 페이지 50건 고정.** 최근 활동을 보려면 startDate로 범위를 좁히세요.
+📖 본문·녹취 전문은 salesmap-read-engagement(type, id)로 엽니다 — 목록엔 제목·미리보기만 실립니다.
 ```
 
 | 파라미터 | 타입 | 필수 | 설명 |
 |---|---|:---:|---|
-| `objectType` | `string` | ✅ | 오브젝트 타입. 기본값: 'people' \| 'organization' \| 'deal' \| 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)') |
+| `objectType` | `enum(people|organization|deal|lead|custom-object)` | ✅ | 오브젝트 타입 |
 | `objectId` | `string` | ✅ | 레코드 UUID |
-| `types` | `enum(todo|note|recording|meeting|email|alimtalk|sms)[]` |  | 조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note']). note·recording은 본문·요약이 커 응답이 무거우니 필요한 유형만 지정 권장 |
-| `limit` | `number` |  | 유형별 반환 건수 (1~50, 기본 5). 모든 조회 유형에 동일 적용. |
-| `after` | `string` |  | 페이지네이션 커서. 이전 응답의 cursor 값. types로 유형 한정 후 사용. |
+| `types` | `string[]` |  | 조회할 활동 유형. 생략 시 전체. 사용 가능: create, webFormView, webFormSubmit, email, emailOpen, emailLinkClick, smsSend, memoCreate, todoCreate, meeting, documentView, kakaoAlimtalkSend, merge, modusignContractCreated, recordingCreate. (구 이름 note·todo·recording·alimtalk·sms도 받습니다) |
+| `startDate` | `string` |  | 시작일. 날짜만 쓰면 한국시간 그날 00:00부터 (예: 2026-07-01). **최근 활동을 볼 땐 꼭 지정하세요** — 정렬이 오래된 순이라 안 주면 옛날 것부터 나옵니다 |
+| `endDate` | `string` |  | 종료일. 날짜만 쓰면 한국시간 그날 23:59:59까지 — 종료일 당일이 포함됩니다 |
+| `limit` | `number` |  | 반환 건수 상한 (1~50). API는 항상 50건을 주므로 응답 크기만 줄입니다. |
+| `after` | `string` |  | 페이지네이션 커서. 이전 응답의 nextCursor 값. |

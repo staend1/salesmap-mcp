@@ -1,10 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ok, err, errWithSchemaHint, compactRecord, resolveProperties, getRoomId, getUserMap } from "../client";
+import { cached, TTL } from "../cache";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 import { SALESMAP_API_REF } from "./api-ref";
-import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE, toKstBoundary } from "../api-quirks";
+import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE, toKstBoundary, V2_ACTIVITY_TYPES, ACTIVITY_TYPE_ALIAS } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -16,6 +17,11 @@ const timelineObjectType = z.enum(["people", "organization", "deal", "lead"]);
 // false로 바꾸면 v2 동작으로 즉시 롤백. 안정화 목표: 2026-07-31
 const V3_PIPELINES = true; // v2 차이: deal/lead만 지원, 커스텀 오브젝트 파이프라인 없음
 const V3_ACTIVITY = true;
+
+// ── v2 activity 이관 (2026-07-31) ──────────────────────────────
+// v2가 15종 + 유형/기간 필터를 갖추면서 v3를 추월했다. false로 바꾸면 v3로 즉시 롤백.
+// v3 차이: 유형 7종만, 날짜 필터 없음, 대신 유형별 cursor·limit
+const V2_ACTIVITY = true;
 
 const ALL_ACTIVITY_TYPES = ["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"] as const;
 type ActivityType = typeof ALL_ACTIVITY_TYPES[number];
@@ -108,6 +114,23 @@ const msToClock = (ms: number) => {
 };
 
 /**
+ * activity 인라인과 read-engagement가 **같은 응답을 공유**하도록 캐시를 태운다.
+ * list-engagements가 제목을 채우려고 부른 상세를, 뒤이은 read-engagement가 본문 때문에
+ * 다시 부르면 API를 두 번 쓴다. 같은 대화 안에서 여는 경우가 대부분이라 적중률이 높다.
+ */
+const getEmailRaw = (client: ReturnType<typeof getClient>, id: string) =>
+  cached(`${client.fingerprint}:email:${id}`, TTL.detail,
+    () => client.get<{ email: Record<string, unknown> }>(`/v2/email/${id}`).then(d => d.email ?? {}));
+
+const getMemoRaw = (client: ReturnType<typeof getClient>, id: string) =>
+  cached(`${client.fingerprint}:memo:${id}`, TTL.detail,
+    () => client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${id}`).then(d => d.memo ?? {}));
+
+const getRecordingRaw = (client: ReturnType<typeof getClient>, id: string) =>
+  cached(`${client.fingerprint}:rec:${id}`, TTL.detail,
+    () => client.get<{ recording: Record<string, unknown> }>(`/v2/recording/${id}`).then(d => d.recording ?? {}));
+
+/**
  * 이메일 전문. `text` 우선, 없을 때만 `htmlBody`.
  *
  * 실측 2026-07-31 — 같은 메일에서 `htmlBody` 9,398자 vs `text` 339자로 **마크업이 96%**다.
@@ -115,8 +138,7 @@ const msToClock = (ms: number) => {
  * 중복이라 제거한 것과 같은 판단이다. 첨부 정보는 응답에 없다 (원장 #9 잔여 항목).
  */
 async function readEmail(client: ReturnType<typeof getClient>, id: string) {
-  const d = await client.get<{ email: Record<string, unknown> }>(`/v2/email/${id}`);
-  const { htmlBody, text, ...rest } = (d.email ?? {}) as Record<string, unknown>;
+  const { htmlBody, text, ...rest } = await getEmailRaw(client, id);
   const hasText = typeof text === "string" && text.trim().length > 0;
   const body = hasText ? (text as string)
     : (typeof htmlBody === "string" && htmlBody.trim() ? htmlBody : null);
@@ -143,8 +165,7 @@ type TranscriptData = {
 };
 
 async function readRecording(client: ReturnType<typeof getClient>, id: string) {
-  const meta = await client.get<{ recording: Record<string, unknown> }>(`/v2/recording/${id}`);
-  const base = compactRecord(meta.recording ?? {});
+  const base = compactRecord(await getRecordingRaw(client, id));
 
   let tr: TranscriptData;
   try {
@@ -180,6 +201,99 @@ async function readRecording(client: ReturnType<typeof getClient>, id: string) {
     truncated: true,
     segments: `${used}/${segs.length}`,
     hint: `녹취가 길어 앞부분만 실었습니다 (${used}/${segs.length} 세그먼트, ${until}까지). 전체 흐름은 coreSummary를 참고하세요.`,
+  };
+}
+
+/**
+ * v2 activity 조회 + 얕은 인라인.
+ *
+ * ── 왜 v2로 되돌렸나 ──
+ * v2는 15종을 다 주지만 필터가 없었고 v3는 필터는 되지만 7종만 줬다. 2026-07-29 릴리즈로
+ * **v2가 15종 + 유형/기간 필터를 모두 갖췄다**(v3엔 날짜 필터가 아예 없다). v2에만 있는
+ * webFormSubmit·emailOpen·emailLinkClick·documentView가 "고객 액션 감지"의 재료다.
+ *
+ * ── 얕은 인라인은 회귀 방지 요건이다 ──
+ * v3는 email 제목·note 본문·recording 요약을 인라인해줬다. v2는 id만 준다.
+ * 그대로 두면 6,815회 쓰이는 도구가 UUID 목록으로 퇴화한다. 제목 없는 id를 받은 AI는
+ * 반드시 N번 되묻는데, **그건 N번의 LLM 턴이라 우리 내부 N+1(120ms)보다 훨씬 비싸다.**
+ *
+ * 본문·녹취 전문은 read-engagement로 미룬다. 상세 조회는 캐시를 공유하므로
+ * 뒤이은 read-engagement가 API를 다시 부르지 않는다.
+ */
+const INLINE_FETCH_LIMIT = 20;   // 한 응답에서 상세를 열어볼 최대 건수
+const NOTE_PREVIEW_CHARS = 300;  // 실측 분포상 64%가 이 안에 통째로 들어간다
+
+type ActivityQuery = {
+  objectType: string; objectId: string;
+  types?: string[]; startDate?: string; endDate?: string;
+  limit?: number; after?: string;
+};
+
+async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQuery) {
+  // @quirk activity-type-v2-v3-names — 구 v3 이름을 v2 정식 이름으로
+  const types = q.types?.map(t => ACTIVITY_TYPE_ALIAS[t] ?? t);
+  const unknown = types?.filter(t => !(V2_ACTIVITY_TYPES as readonly string[]).includes(t)) ?? [];
+  if (unknown.length) {
+    // 백엔드가 잘못된 types에 **본문 없는 400**을 주므로(원장 #32 계열) 우리가 먼저 막는다
+    throw new Error(`알 수 없는 활동 유형: ${unknown.join(", ")}\n사용 가능: ${V2_ACTIVITY_TYPES.join(", ")}`);
+  }
+
+  const query: Record<string, string> = { [`${q.objectType}Id`]: q.objectId };
+  if (types?.length) query.types = types.join(",");
+  // @quirk date-only-timezone-split — 날짜만 오면 KST 경계를 찍어 보낸다
+  if (q.startDate) query.startDate = toKstBoundary(q.startDate, "start");
+  if (q.endDate) query.endDate = toKstBoundary(q.endDate, "end");
+  if (q.after) query.cursor = q.after;
+
+  const data = await client.get<Record<string, unknown>>(`/v2/${q.objectType}/activity`, query);
+  const key = `${q.objectType}ActivityList`;
+  const raw = (data[key] as Array<Record<string, unknown>>) ?? [];
+  // API는 limit을 무시하고 항상 50건을 준다(실측) — 응답 크기만 우리가 줄인다
+  const items = (q.limit ? raw.slice(0, q.limit) : raw).map(i => compactRecord(i));
+
+  // 상세 인라인 — 같은 id는 한 번만, 전체 상한 20건
+  let budget = INLINE_FETCH_LIMIT;
+  let skipped = 0;
+  for (const it of items) {
+    const emailId = it.emailId as string | undefined;
+    const memoId = it.memoId as string | undefined;
+    const recordingId = it.recordingId as string | undefined;
+    if (!emailId && !memoId && !recordingId) continue;
+    if (budget <= 0) { skipped++; continue; }
+    budget--;
+    try {
+      if (emailId) {
+        const e = await getEmailRaw(client, emailId);
+        if (e.subject) it.subject = e.subject;
+        if (e.snippet) it.snippet = e.snippet;
+      } else if (memoId) {
+        const m = await getMemoRaw(client, memoId);
+        const text = typeof m.text === "string" ? m.text : "";
+        if (text) {
+          it.note = text.slice(0, NOTE_PREVIEW_CHARS);
+          // 잘렸다는 사실을 AI가 추측하게 두지 않는다 — 안 잘린 항목엔 플래그가 없다
+          if (text.length > NOTE_PREVIEW_CHARS) { it.truncated = true; it.fullLength = text.length; }
+        }
+      } else if (recordingId) {
+        const r = await getRecordingRaw(client, recordingId);
+        if (r.title) it.title = r.title;
+        if (r.duration) it.duration = r.duration;
+        if (r.coreSummary) it.summary = r.coreSummary;
+      }
+    } catch { /* 상세 조회 실패는 목록 자체를 막지 않는다 */ }
+  }
+
+  const hints: string[] = [];
+  if (items.some(i => i.truncated)) {
+    hints.push("본문이 잘린 항목이 있습니다(truncated: true). 전문은 salesmap-read-engagement(type, id)로 확인하세요.");
+  }
+  if (skipped) {
+    hints.push(`상세를 열지 않은 항목 ${skipped}건이 있습니다(한 응답당 ${INLINE_FETCH_LIMIT}건까지만 조회). types나 기간을 좁히거나 salesmap-read-engagement로 개별 조회하세요.`);
+  }
+  return {
+    [key]: items,
+    nextCursor: data.nextCursor ?? null,
+    ...(hints.length ? { hint: hints.join(" ") } : {}),
   };
 }
 
@@ -945,10 +1059,7 @@ export function registerExtrasTools(server: McpServer) {
     async ({ type, id }, extra) => {
       try {
         const client = getClient(extra);
-        if (type === "note") {
-          const d = await client.get<{ memo: Record<string, unknown> }>(`/v2/memo/${id}`);
-          return ok(d.memo);
-        }
+        if (type === "note") return ok(await getMemoRaw(client, id));
         if (type === "email") return ok(await readEmail(client, id));
         return ok(await readRecording(client, id));
       } catch (e: unknown) {
@@ -1166,21 +1277,30 @@ export function registerExtrasTools(server: McpServer) {
   // ── Engagements ─────────────────────────────────────────
   server.tool(
     "salesmap-list-engagements",
-    "🎯 레코드 activity 타임라인 조회.\n📦 types로 원하는 활동 유형만 필터 가능. 생략 시 전체 반환.\n📏 limit으로 유형별 건수 조절(1~50, 기본 5). 요약·집계 땐 낮게, 전체 이력 땐 높게.\n🔑 유형별로 data 배열과 cursor 독립 반환 — 추가 조회 시 types로 해당 유형 지정 + after에 cursor 담아 재호출.",
+    "🎯 레코드 활동 타임라인 조회 — 웹폼 제출·이메일 열람·링크 클릭·문서 열람까지 15종.\n📦 types로 유형 필터, startDate·endDate로 기간 필터.\n⏱️ **오래된 순으로 한 페이지 50건 고정.** 최근 활동을 보려면 startDate로 범위를 좁히세요.\n📖 본문·녹취 전문은 salesmap-read-engagement(type, id)로 엽니다 — 목록엔 제목·미리보기만 실립니다.",
     {
-      objectType: z.string().describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead'. 커스텀 오브젝트 이름도 가능 (예: '티켓(CRM)')"),
+      objectType: z.enum(["people", "organization", "deal", "lead", "custom-object"])
+        .describe("오브젝트 타입"),
       objectId: z.string().describe("레코드 UUID"),
-      types: z.array(z.enum(["todo", "note", "recording", "meeting", "email", "alimtalk", "sms"])).optional()
-        .describe("조회할 활동 유형 목록. 생략 시 전체(todo·note·recording·meeting·email·alimtalk·sms). 특정 유형만 원하면 지정 (예: ['email','note']). note·recording은 본문·요약이 커 응답이 무거우니 필요한 유형만 지정 권장"),
+      types: z.array(z.string()).optional()
+        .describe(`조회할 활동 유형. 생략 시 전체. 사용 가능: ${V2_ACTIVITY_TYPES.join(", ")}. (구 이름 note·todo·recording·alimtalk·sms도 받습니다)`),
+      startDate: z.string().optional()
+        .describe("시작일. 날짜만 쓰면 한국시간 그날 00:00부터 (예: 2026-07-01). **최근 활동을 볼 땐 꼭 지정하세요** — 정렬이 오래된 순이라 안 주면 옛날 것부터 나옵니다"),
+      endDate: z.string().optional()
+        .describe("종료일. 날짜만 쓰면 한국시간 그날 23:59:59까지 — 종료일 당일이 포함됩니다"),
       limit: z.number().int().min(1).max(50).optional()
-        .describe("유형별 반환 건수 (1~50, 기본 5). 모든 조회 유형에 동일 적용."),
+        .describe("반환 건수 상한 (1~50). API는 항상 50건을 주므로 응답 크기만 줄입니다."),
       after: z.string().optional()
-        .describe("페이지네이션 커서. 이전 응답의 cursor 값. types로 유형 한정 후 사용."),
+        .describe("페이지네이션 커서. 이전 응답의 nextCursor 값."),
     },
     READ,
-    async ({ objectType, objectId, types, limit, after }, extra) => {
+    async ({ objectType, objectId, types, startDate, endDate, limit, after }, extra) => {
       try {
         const client = getClient(extra);
+
+        if (V2_ACTIVITY) {
+          return ok(await listActivityV2(client, { objectType, objectId, types, startDate, endDate, limit, after }));
+        }
 
         if (V3_ACTIVITY) {
           // ── v3: 유형별 분리 응답, 이메일/레코딩 데이터 인라인 포함 (마이그레이션: 2026-06-30) ──
