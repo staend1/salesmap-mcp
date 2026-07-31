@@ -1,8 +1,8 @@
 // AI용 세일즈맵 REST API 레퍼런스 — salesmap-get-api-ref 도구용
 // 생성물입니다. 직접 수정하지 마세요.
-//   원장:     docs/salesmap-api-reference-2026-07-28.md  (그대로 보관 — 수정 금지)
+//   원장:     docs/salesmap-api-reference-2026-07-30.md  (그대로 보관 — 수정 금지)
 //   오버레이: docs/internal/api-ref-overlay.md                (우리 지식 — 여기에 씀)
-//   병합본:   docs/internal/api-ref-merged-2026-07-28.md
+//   병합본:   docs/internal/api-ref-merged-2026-07-30.md
 //   빌드:     node scripts/build-api-ref.mjs
 export const SALESMAP_API_REF = `# AI용 문서
 
@@ -10,7 +10,7 @@ export const SALESMAP_API_REF = `# AI용 문서
 
 세일즈맵은 B2B 영업 CRM입니다. 이 문서는 세일즈맵 v2 REST API의 엔드포인트, 요청·응답 형식, 에러를 설명합니다.
 
-> **문서 기준일: 2026-07-28.** 이 레퍼런스는 세일즈맵 개발팀이 API를 개발·수정할 때 갱신되며, 최신본은 <https://docs.salesmap.kr/developers/api-reference/ai#api> 에 게시됩니다.
+> **문서 기준일: 2026-07-30.** 이 레퍼런스는 세일즈맵 개발팀이 API를 개발·수정할 때 갱신되며, 최신본은 <https://docs.salesmap.kr/developers/api-reference/ai#api> 에 게시됩니다.
 >
 > * **AI 에이전트:** 호출 결과(키·값·에러)가 이 문서와 다르면 API가 변경된 것일 수 있습니다. 그 경우 위 최신본을 확인하고, 문서보다 **실제 응답을 우선**하세요.
 > * **To User:** 주기적으로(예: 분기마다) 위 링크에서 변경 사항을 확인해 통합을 갱신하길 권장합니다.
@@ -63,22 +63,23 @@ export const SALESMAP_API_REF = `# AI용 문서
 
 사용자 요청을 보고 어떤 API를 쓸지 빠르게 고르는 표입니다.
 
-| 하려는 것                       | API                                                                                           |
-| --------------------------- | --------------------------------------------------------------------------------------------- |
-| 고객·회사·딜·리드 목록/단건 조회         | \`GET /v2/{type}\`, \`GET /v2/{type}/{id}\`                                                       |
-| 고객·회사·딜·리드 생성/수정            | \`POST /v2/{type}\`, \`POST /v2/{type}/{id}\`                                                     |
-| 커스텀 필드 값 넣기                 | 생성/수정 body의 \`fieldList\` ("필드 값 쓰기" 참조)                                                        |
-| 고객을 회사에 연결 / 딜·리드에 고객·회사 연결 | 생성·수정 시 top-level \`organizationId\`·\`peopleId\`                                                 |
-| 복합 조건 검색                    | \`POST /v2/object/{type}/search\`                                                               |
-| 연결된 레코드 조회                  | \`GET /v2/object/{type}/{id}/association/{toType}/primary\` 또는 \`/custom\`                        |
-| 필드 정의(이름·타입·옵션) 조회          | \`GET /v2/field/{type}\`                                                                        |
-| 이메일 발송 / 이메일 첨부용 파일 업로드     | \`POST /v2/email\` / \`POST /v2/file\` (objectType·objectId 없이)                                   |
-| 레코드에 파일 첨부 / 첨부 조회 / 파일 삭제  | \`POST /v2/file\` (+\`objectType\`·\`objectId\`) / \`GET /v2/file\` / \`POST /v2/file/{fileId}/delete\` |
-| 견적서 생성 / 딜·리드 견적 조회         | \`POST /v2/quote\` / \\\`GET /v2/{deal                                                            |
-| 노트(메모) 생성                   | 레코드 생성·수정 시 body \`memo\` (전용 생성 API 없음. "노트 / 메모" 섹션 참조)                                       |
-| 노트 조회 / 유형 목록               | \`GET /v2/memo\` (필터 가능) / \`GET /v2/memo/type-list\`                                             |
-| 변경 이력 / 활동(타임라인) 조회         | \`GET /v2/{type}/history\` / \`GET /v2/{type}/activity\`                                          |
-| 삭제                          | "부록 > 삭제 API 요약" 참조 (딜·리드만 API 삭제 가능)                                                         |
+| 하려는 것                       | API                                                                                            |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| 고객·회사·딜·리드 목록/단건 조회         | \`GET /v2/{type}\`, \`GET /v2/{type}/{id}\`                                                        |
+| 고객·회사·딜·리드 생성/수정            | \`POST /v2/{type}\`, \`POST /v2/{type}/{id}\`                                                      |
+| 커스텀 필드 값 넣기                 | 생성/수정 body의 \`fieldList\` ("필드 값 쓰기" 참조)                                                         |
+| 고객을 회사에 연결 / 딜·리드에 고객·회사 연결 | 생성·수정 시 top-level \`organizationId\`·\`peopleId\`                                                  |
+| 복합 조건 검색                    | \`POST /v2/object/{type}/search\`                                                                |
+| 연결된 레코드 조회                  | \`GET /v2/object/{type}/{id}/association/{toType}/primary\` 또는 \`/custom\`                         |
+| 필드 정의(이름·타입·옵션) 조회          | \`GET /v2/field/{type}\`                                                                         |
+| 이메일 발송 / 이메일 첨부용 파일 업로드     | \`POST /v2/email\` / \`POST /v2/file\` (objectType·objectId 없이)                                    |
+| 레코드에 파일 첨부 / 첨부 조회 / 파일 삭제  | \`POST /v2/file\` (+\`objectType\`·\`objectId\`) / \`GET /v2/file\` / \`POST /v2/file/{fileId}/delete\`  |
+| 견적서 생성 / 딜·리드 견적 조회         | \`POST /v2/quote\` / \\\`GET /v2/{deal                                                             |
+| 노트(메모) 생성                   | 레코드 생성·수정 시 body \`memo\` (전용 생성 API 없음. "노트 / 메모" 섹션 참조)                                        |
+| 노트 조회 / 유형 목록               | \`GET /v2/memo\` (필터 가능) / \`GET /v2/memo/type-list\`                                              |
+| 변경 이력 / 활동(타임라인) 조회         | \`GET /v2/{type}/history\` / \`GET /v2/{type}/activity\` (활동은 \`types\`·\`startDate\`·\`endDate\` 필터 지원) |
+| 이메일 본문 조회                   | \`GET /v2/email/{emailId}\` (활동의 \`emailId\`로 제목·수신자·본문 조회)                                        |
+| 삭제                          | "부록 > 삭제 API 요약" 참조 (딜·리드만 API 삭제 가능)                                                          |
 
 > **생성 순서 (연결된 상태로 만들 때):** 연결 대상 ID(\`organizationId\`·\`peopleId\`)는 생성 시 검증되어 **이미 존재해야** 하며, 없으면 \`400\`(\`organizationId의 대상을 찾을 수 없습니다.\` 등)을 반환합니다. 따라서 처음부터 연결된 상태로 만들려면 **회사 → 고객 → 딜·리드** 순으로 생성하세요(부모를 먼저 만들고, 반환된 \`id\`를 자식 생성 body의 \`organizationId\`·\`peopleId\`로 전달). 순서를 지키지 않아도 각 오브젝트를 독립적으로 만든 뒤 수정 API(\`POST /v2/{type}/{id}\`)로 나중에 연결할 수 있습니다.
 
@@ -94,7 +95,7 @@ export const SALESMAP_API_REF = `# AI용 문서
 
 **레코드 종류별 History / Activity 지원**
 
-History·Activity 타임라인을 제공하는 레코드는 딜·리드·고객·회사·커스텀 오브젝트 5종입니다. 견적서·상품·노트(memo)·TODO는 제공하지 않습니다.
+**전용** History·Activity 조회 엔드포인트(\`GET /v2/{type}/history\`·\`/activity\`)를 가진 레코드는 딜·리드·고객·회사·커스텀 오브젝트 5종입니다. 아래 "미지원"은 **그 타입 전용 엔드포인트가 없다**는 뜻이며, 노트·TODO 활동이 어디에도 안 보인다는 뜻은 아닙니다(아래 참고).
 
 | 레코드      | \`{type}\` 경로값    | History | Activity |
 | -------- | --------------- | ------- | -------- |
@@ -109,8 +110,20 @@ History·Activity 타임라인을 제공하는 레코드는 딜·리드·고객�
 | TODO     | \`todo\`          | 미지원     | 미지원      |
 
 * "지원" 레코드만 \`GET /v2/{type}/history\`, \`GET /v2/{type}/activity\`로 조회됩니다.
-* "미지원" 레코드로 호출하면 엔드포인트가 없어 \`404\`(노트는 라우팅상 \`400\`)를 반환합니다.
-* 견적서·상품·노트·TODO의 활동은 자체 타임라인이 아니라 연결된 딜·고객 등 상위 오브젝트의 activity에 기록됩니다.
+* "미지원" 레코드로 그 경로를 호출하면 엔드포인트가 없어 \`404\`(노트는 라우팅상 \`400\`)를 반환합니다.
+* **노트·TODO는 전용 엔드포인트는 없지만, 상위 오브젝트(딜·고객 등)의 activity 타임라인에 \`memoCreate\`·\`todoCreate\` 유형으로 나타납니다**(각 항목의 \`memoId\`·\`todoId\`로 식별). 상위 activity를 \`types=memoCreate\` 등으로 필터해 조회합니다.
+* **견적서·상품은 전용 엔드포인트도 없고, 상위 activity의 활동 유형으로도 나타나지 않습니다**(\`quoteCreate\`·\`productCreate\` 등은 유효한 \`types\` 값이 아님).
+
+**활동(activity) 공통 필터 · 필드** (5개 \`…/activity\` 조회 API 공통, query 파라미터)
+
+| 파라미터                    | 설명                                                                                                                                                                                                                            |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| \`types\`                 | 조회할 활동 유형(쉼표 구분). 유효값: \`create\`·\`email\`·\`emailOpen\`·\`memoCreate\`·\`todoCreate\`·\`meeting\`·\`webFormSubmit\`·\`recordingCreate\`·\`smsSend\`·\`kakaoAlimtalkSend\`. 활동 레코드의 \`type\` 값과 동일해야 하며, 그 외 값은 400 \`[<i>]: 유효하지 않은 값입니다.\`를 반환합니다. |
+| \`startDate\` / \`endDate\` | 활동 발생 시점(레코드의 \`date\` 필드) 범위(ISO8601, 예 \`2026-07-01T00:00:00+09:00\`). \`startDate\`가 \`endDate\`보다 늦으면 400 \`startDate는 endDate보다 늦을 수 없습니다.\`                                                                                       |
+
+* 이 필터(\`types\`·\`startDate\`·\`endDate\`)는 **\`…/activity\`에만** 적용됩니다. **\`…/history\`는 이 파라미터를 무시하고 전체를 반환**하므로(에러 없이), 히스토리 증분 수집은 cursor(\`cursorId\`)로 합니다.
+* 유형값 주의: 통화 녹음은 \`recordingCreate\`, SMS는 \`smsSend\`, 카카오 알림톡은 \`kakaoAlimtalkSend\`입니다. 단순 \`recording\`·\`call\`·\`sms\`는 유효하지 않습니다.
+* 각 활동 레코드에는 \`recordingId\`가 포함됩니다(통화/녹음 활동이면 녹음 식별자, 아니면 \`null\`). 이메일 활동의 \`emailId\`로 \`GET /v2/email/{emailId}\`(본문 조회)로, \`recordingId\`로 녹음 상세로 이어서 조회할 수 있습니다.
 
 ### 기본 정보
 
@@ -350,7 +363,7 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 * \`GET /v2/file\` — 레코드 첨부파일 조회
 * \`POST /v2/file/{fileId}/delete\` — 파일 삭제
 * \`POST /v2/email\` — 이메일 발송
-* \`GET /v2/email/{emailId}\` — 발송 이메일 단건 조회
+* \`GET /v2/email/{emailId}\` — 이메일 상세 조회 (본문 포함)
 
 **시퀀스 · 웹폼 · TODO · 메모 (Sequence / WebForm / Todo / Memo)**
 
@@ -626,10 +639,12 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
 
 **요청 파라미터**
 
-| 이름         | 위치    | 타입           |  필수 | 설명                                       |
-| ---------- | ----- | ------------ | :-: | ---------------------------------------- |
-| \`peopleId\` | query | string(UUID) |  선택 | 특정 고객으로 필터링합니다. 생략 시 전체 고객의 액티비티를 반환합니다. |
-| \`cursor\`   | query | string(UUID) |  선택 | 페이지네이션 커서                                |
+| 이름                      | 위치    | 타입              |  필수 | 설명                                                  |
+| ----------------------- | ----- | --------------- | :-: | --------------------------------------------------- |
+| \`peopleId\`              | query | string(UUID)    |  선택 | 특정 고객으로 필터링합니다. 생략 시 전체 고객의 액티비티를 반환합니다.            |
+| \`types\`                 | query | string          |  선택 | 활동 유형 필터(쉼표 구분). 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터" 참조. |
+| \`startDate\` / \`endDate\` | query | string(ISO8601) |  선택 | 활동 발생 시점 범위. \`startDate\`가 \`endDate\`보다 늦으면 400.      |
+| \`cursor\`                | query | string(UUID)    |  선택 | 페이지네이션 커서                                           |
 
 **응답** \`200 OK\`
 
@@ -654,7 +669,8 @@ GET /v2/people?cursor=<직전 응답의 nextCursor>
         "memoId": null,
         "todoId": null,
         "documentId": null,
-        "documentName": null
+        "documentName": null,
+        "recordingId": null
       }
     ],
     "nextCursor": null
@@ -855,10 +871,12 @@ id, RecordId, 이름, 주소, 웹 주소, 전화, 업종, 직원수, 프로필 �
 
 **요청 파라미터**
 
-| 이름               | 위치    | 타입           |  필수 | 설명                                      |
-| ---------------- | ----- | ------------ | :-: | --------------------------------------- |
-| \`organizationId\` | query | string(UUID) | 아니오 | 특정 회사로 필터합니다. 생략하면 워크스페이스 전체 활동을 반환합니다. |
-| \`cursor\`         | query | string       | 아니오 | 페이지네이션 커서(페이지당 50건).                    |
+| 이름                      | 위치    | 타입              |  필수 | 설명                                                  |
+| ----------------------- | ----- | --------------- | :-: | --------------------------------------------------- |
+| \`organizationId\`        | query | string(UUID)    | 아니오 | 특정 회사로 필터합니다. 생략하면 워크스페이스 전체 활동을 반환합니다.             |
+| \`types\`                 | query | string          | 아니오 | 활동 유형 필터(쉼표 구분). 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터" 참조. |
+| \`startDate\` / \`endDate\` | query | string(ISO8601) | 아니오 | 활동 발생 시점 범위. \`startDate\`가 \`endDate\`보다 늦으면 400.      |
+| \`cursor\`                | query | string          | 아니오 | 페이지네이션 커서(페이지당 50건).                                |
 
 **응답** \`200 OK\`
 
@@ -1170,10 +1188,12 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터**
 
-| 이름     | 위치    | 타입           |  필수 | 설명                                              |
-| ------ | ----- | ------------ | :-: | ----------------------------------------------- |
-| dealId | query | string(uuid) |  선택 | 특정 딜로 필터합니다. 미지정 시 워크스페이스 전체 액티비티를 최신순으로 반환합니다. |
-| cursor | query | string       |  선택 | 페이지네이션 커서                                       |
+| 이름                  | 위치    | 타입              |  필수 | 설명                                                  |
+| ------------------- | ----- | --------------- | :-: | --------------------------------------------------- |
+| dealId              | query | string(uuid)    |  선택 | 특정 딜로 필터합니다. 미지정 시 워크스페이스 전체 액티비티를 최신순으로 반환합니다.     |
+| types               | query | string          |  선택 | 활동 유형 필터(쉼표 구분). 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터" 참조. |
+| startDate / endDate | query | string(ISO8601) |  선택 | 활동 발생 시점 범위. \`startDate\`가 \`endDate\`보다 늦으면 400.      |
+| cursor              | query | string          |  선택 | 페이지네이션 커서                                           |
 
 **응답** \`200 OK\`
 
@@ -1278,19 +1298,20 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터** (body, application/json)
 
-| 이름                | 위치   | 타입              |  필수 | 설명                                                                                                                              |
-| ----------------- | ---- | --------------- | :-: | ------------------------------------------------------------------------------------------------------------------------------- |
-| name              | body | string          |  필수 | 딜명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                                                                                                 |
-| pipelineId        | body | string(uuid)    |  필수 | 파이프라인 ID. 누락 시 \`[pipelineId]: 필수 입력 사항입니다.\`                                                                                     |
-| pipelineStageId   | body | string(uuid)    |  필수 | 단계 ID. 누락 시 \`[pipelineStageId]: 필수 입력 사항입니다.\` 해당 파이프라인에 속한 단계여야 합니다.                                                            |
-| status            | body | string          |  필수 | \`"Won"\` \\| \`"Lost"\` \\| \`"In progress"\` 중 하나(대소문자 구분). 누락/오류 시 \`[status]: status의 값은 Won, Lost, In progress 중 하나여야 합니다.\`         |
-| peopleId          | body | string(uuid)    | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나가 필수입니다. 둘 다 없으면 \`[refine]: peopleId 또는 organizationId를 입력해주세요.\`                          |
-| organizationId    | body | string(uuid)    | 조건부 | 위와 동일합니다.                                                                                                                       |
-| price             | body | number          |  선택 | 딜 금액은 top-level \`price\`입니다. \`fieldList\`에 \`금액\`을 넣으면 \`[refine]: 금액 값은 fieldList가 아닌 파라메터 입니다.\`                                    |
-| 상태                | body | string          |  선택 | 한글 커스텀 상태 필드(예: \`"SQL"\`). **top-level**로 보냅니다(영문 \`status\` enum과 별개). \`fieldList\`에 넣으면 \`[refine]: 상태 값은 fieldList가 아닌 파라메터 입니다.\` |
-| memo              | body | string          |  선택 | 이 딜에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                                                                                            |
-| expectedCloseDate | body | string(ISO8601) |  선택 | 수주 예정일. \`마감일\`은 status가 Won/Lost일 때만 반영됩니다.                                                                                      |
-| fieldList         | body | array           |  선택 | 커스텀 필드. \`[{name, stringValue\\|numberValue\\|booleanValue\\|...}]\`. \`금액\`·\`상태\`는 넣지 않습니다(top-level, 위 참고).                           |
+| 이름              | 위치   | 타입           |  필수 | 설명                                                                                                                                |
+| --------------- | ---- | ------------ | :-: | --------------------------------------------------------------------------------------------------------------------------------- |
+| name            | body | string       |  필수 | 딜명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                                                                                                   |
+| pipelineId      | body | string(uuid) |  필수 | 파이프라인 ID. 누락 시 \`[pipelineId]: 필수 입력 사항입니다.\`                                                                                       |
+| pipelineStageId | body | string(uuid) |  필수 | 단계 ID. 누락 시 \`[pipelineStageId]: 필수 입력 사항입니다.\` 해당 파이프라인에 속한 단계여야 합니다.                                                              |
+| status          | body | string       |  필수 | \`"Won"\` \\| \`"Lost"\` \\| \`"In progress"\` 중 하나(대소문자 구분). 누락/오류 시 \`[status]: status의 값은 Won, Lost, In progress 중 하나여야 합니다.\`           |
+| peopleId        | body | string(uuid) | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나가 필수입니다. 둘 다 없으면 \`[refine]: peopleId 또는 organizationId를 입력해주세요.\`                            |
+| organizationId  | body | string(uuid) | 조건부 | 위와 동일합니다.                                                                                                                         |
+| price           | body | number       |  선택 | 딜 금액은 top-level \`price\`입니다. \`fieldList\`에 \`금액\`을 넣으면 \`[refine]: 금액 값은 fieldList가 아닌 파라메터 입니다.\`                                      |
+| 상태              | body | string       |  선택 | 한글 커스텀 상태 필드(예: \`"SQL"\`). **top-level**로 보냅니다(영문 \`status\` enum과 별개). \`fieldList\`에 넣으면 \`[refine]: 상태 값은 fieldList가 아닌 파라메터 입니다.\`   |
+| memo            | body | string       |  선택 | 이 딜에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                                                                                              |
+| fieldList       | body | array        |  선택 | 커스텀 필드. \`[{name, stringValue\\|numberValue\\|booleanValue\\|...}]\`. \`금액\`·\`상태\`는 넣지 않습니다(top-level, 위 참고). 날짜(예: \`수주 예정일\`)도 여기서 설정합니다. |
+
+> **참고:** top-level \`expectedCloseDate\`는 저장되지 않습니다(무시됨). \`수주 예정일\` 등 날짜 값은 \`fieldList\`(\`dateValue\`)로 설정합니다. \`마감일\`은 status가 Won/Lost가 되면 자동 기록됩니다.
 
 > **참고:** 검증 순서는 ① name/pipelineId/pipelineStageId/status 누락 검사 → ② peopleId|organizationId refine → ③ \`금액\`·\`상태\` 등 top-level 전용 필드의 fieldList refine → ④ 파이프라인/단계 존재 검사(\`파이프라인 단계를 찾을 수 없습니다.\`) 입니다.
 
@@ -1300,7 +1321,7 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 { "name": "삼성전자 ERP 도입", "pipelineId": "...", "pipelineStageId": "...", "status": "In progress", "peopleId": "...", "price": 1000000 }
 \`\`\`
 
-**응답** \`200 OK\`
+**응답** \`201 Created\`
 
 \`data.deal\`은 생성된 딜 객체이며 \`id\`, \`name\`, \`createdAt\` 등을 포함합니다.
 
@@ -1328,18 +1349,17 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터**
 
-| 이름                        | 위치   | 타입              |  필수 | 설명                                                    |
-| ------------------------- | ---- | --------------- | :-: | ----------------------------------------------------- |
-| dealId                    | path | string(uuid)    |  필수 | 수정할 딜 ID. 존재하지 않으면 \`400 Bad Request\`와 \`딜을 찾을 수 없습니다.\` |
-| name                      | body | string          |  선택 | 딜명                                                    |
-| price                     | body | number          |  선택 | 금액(top-level. fieldList에 \`금액\` 금지)                     |
-| status                    | body | string          |  선택 | \`Won\` / \`Lost\` / \`In progress\`                        |
-| pipelineId                | body | string(uuid)    |  선택 | 변경 시 \`pipelineStageId\`와 함께 보냅니다.                      |
-| pipelineStageId           | body | string(uuid)    |  선택 | 단계 ID                                                 |
-| peopleId / organizationId | body | string(uuid)    |  선택 | 연결 변경                                                 |
-| expectedCloseDate         | body | string(ISO8601) |  선택 | 수주 예정일                                                |
-| memo                      | body | string          |  선택 | 이 딜에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                  |
-| fieldList                 | body | array           |  선택 | 커스텀 필드 (금액 금지)                                        |
+| 이름                        | 위치   | 타입           |  필수 | 설명                                                                           |
+| ------------------------- | ---- | ------------ | :-: | ---------------------------------------------------------------------------- |
+| dealId                    | path | string(uuid) |  필수 | 수정할 딜 ID. 존재하지 않으면 \`400 Bad Request\`와 \`딜을 찾을 수 없습니다.\`                        |
+| name                      | body | string       |  선택 | 딜명                                                                           |
+| price                     | body | number       |  선택 | 금액(top-level. fieldList에 \`금액\` 금지)                                            |
+| status                    | body | string       |  선택 | \`Won\` / \`Lost\` / \`In progress\`                                               |
+| pipelineId                | body | string(uuid) |  선택 | 변경 시 \`pipelineStageId\`와 함께 보냅니다.                                             |
+| pipelineStageId           | body | string(uuid) |  선택 | 단계 ID                                                                        |
+| peopleId / organizationId | body | string(uuid) |  선택 | 연결 변경                                                                        |
+| memo                      | body | string       |  선택 | 이 딜에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                                         |
+| fieldList                 | body | array        |  선택 | 커스텀 필드 (금액 금지). \`수주 예정일\` 등 날짜도 여기서 설정. top-level \`expectedCloseDate\`는 무시됩니다. |
 
 > **참고:** 빈 body(\`{}\`)로 호출하면 변경 없이 200을 반환하며 \`updatedAt\`만 갱신됩니다.
 
@@ -1528,10 +1548,12 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터**
 
-| 이름     | 위치    | 타입           |  필수 | 설명                                     |
-| ------ | ----- | ------------ | :-: | -------------------------------------- |
-| leadId | query | string(uuid) |     | 특정 리드로 필터링합니다. 생략 시 전체 리드 액티비티를 반환합니다. |
-| cursor | query | string       |     | 페이지네이션 커서                              |
+| 이름                  | 위치    | 타입              |  필수 | 설명                                                  |
+| ------------------- | ----- | --------------- | :-: | --------------------------------------------------- |
+| leadId              | query | string(uuid)    |     | 특정 리드로 필터링합니다. 생략 시 전체 리드 액티비티를 반환합니다.              |
+| types               | query | string          |     | 활동 유형 필터(쉼표 구분). 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터" 참조. |
+| startDate / endDate | query | string(ISO8601) |     | 활동 발생 시점 범위. \`startDate\`가 \`endDate\`보다 늦으면 400.      |
+| cursor              | query | string          |     | 페이지네이션 커서                                           |
 
 **응답** \`200 OK\`
 
@@ -1639,16 +1661,17 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터** (body, application/json)
 
-| 이름                | 타입                     |  필수 | 설명                                               |
-| ----------------- | ---------------------- | :-: | ------------------------------------------------ |
-| \`name\`            | string                 |  필수 | 리드명                                              |
-| \`peopleId\`        | string(uuid)           | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나를 보내야 합니다. |
-| \`organizationId\`  | string(uuid)           | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나를 보내야 합니다. |
-| \`pipelineId\`      | string(uuid)           |     | \`pipelineStageId\`와 함께 보내야 합니다.                   |
-| \`pipelineStageId\` | string(uuid)           |     | \`pipelineId\`와 함께 보내야 합니다.                        |
-| \`ownerId\`         | string(uuid)           |     | 담당자                                              |
-| \`fieldList\`       | array \`[{name, <값키>}]\` |  선택 | 커스텀 필드 값("필드 값 쓰기" 참조)                           |
-| \`memo\`            | string                 |  선택 | 이 리드에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).            |
+| 이름                | 타입                     |  필수 | 설명                                                          |
+| ----------------- | ---------------------- | :-: | ----------------------------------------------------------- |
+| \`name\`            | string                 |  필수 | 리드명                                                         |
+| \`peopleId\`        | string(uuid)           | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나를 보내야 합니다.            |
+| \`organizationId\`  | string(uuid)           | 조건부 | \`peopleId\` 또는 \`organizationId\` 중 최소 하나를 보내야 합니다.            |
+| \`pipelineId\`      | string(uuid)           |     | \`pipelineStageId\`와 함께 보내야 합니다.                              |
+| \`pipelineStageId\` | string(uuid)           |     | \`pipelineId\`와 함께 보내야 합니다.                                   |
+| \`fieldList\`       | array \`[{name, <값키>}]\` |  선택 | 커스텀 필드 값. 담당자는 여기 \`담당자\`(\`userValueId\`)로 넣습니다("필드 값 쓰기" 참조). |
+| \`memo\`            | string                 |  선택 | 이 리드에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                       |
+
+> **참고:** top-level \`ownerId\`는 저장되지 않습니다(무시됨). 담당자는 \`fieldList\`의 \`담당자\`(\`userValueId\`)로 설정합니다.
 
 검증 규칙:
 
@@ -1660,10 +1683,10 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 **요청 예시**
 
 \`\`\`json
-{ "name": "ACME 신규 문의", "peopleId": "...", "pipelineId": "...", "pipelineStageId": "...", "ownerId": "..." }
+{ "name": "ACME 신규 문의", "peopleId": "...", "pipelineId": "...", "pipelineStageId": "...", "fieldList": [ { "name": "담당자", "userValueId": "<userId>" } ] }
 \`\`\`
 
-**응답** \`200 OK\`
+**응답** \`201 Created\`
 
 \`\`\`json
 { "success": true, "data": { "lead": { "id": "...", "name": "...", "createdAt": "..." } } }
@@ -1688,20 +1711,22 @@ Base \`https://salesmap.kr/api\` · 버전 **v2** · 인증 \`Authorization: Bea
 
 **요청 파라미터**
 
-| 이름                                    | 위치   | 타입                     |  필수 | 설명                                             |
-| ------------------------------------- | ---- | ---------------------- | :-: | ---------------------------------------------- |
-| leadId                                | path | string(uuid)           |  필수 | 대상 리드                                          |
-| \`name\`                                | body | string                 |     | 리드명                                            |
-| \`pipelineStageId\`                     | body | string(uuid)           |     | 단계 이동. 파이프라인까지 바뀔 때는 \`pipelineId\`와 함께 보내야 합니다. |
-| \`pipelineId\`                          | body | string(uuid)           |     | \`pipelineStageId\`와 함께 보내야 합니다.                 |
-| \`ownerId\` \`peopleId\` \`organizationId\` | body | string(uuid)           |     |                                                |
-| \`fieldList\`                           | body | array \`[{name, <값키>}]\` |  선택 | 커스텀 필드 값("필드 값 쓰기" 참조)                         |
-| \`memo\`                                | body | string                 |  선택 | 이 리드에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).          |
+| 이름                          | 위치   | 타입                     |  필수 | 설명                                                          |
+| --------------------------- | ---- | ---------------------- | :-: | ----------------------------------------------------------- |
+| leadId                      | path | string(uuid)           |  필수 | 대상 리드                                                       |
+| \`name\`                      | body | string                 |     | 리드명                                                         |
+| \`pipelineStageId\`           | body | string(uuid)           |     | 단계 이동. 파이프라인까지 바뀔 때는 \`pipelineId\`와 함께 보내야 합니다.              |
+| \`pipelineId\`                | body | string(uuid)           |     | \`pipelineStageId\`와 함께 보내야 합니다.                              |
+| \`peopleId\` \`organizationId\` | body | string(uuid)           |     | 연결 변경                                                       |
+| \`fieldList\`                 | body | array \`[{name, <값키>}]\` |  선택 | 커스텀 필드 값. 담당자는 여기 \`담당자\`(\`userValueId\`)로 넣습니다("필드 값 쓰기" 참조). |
+| \`memo\`                      | body | string                 |  선택 | 이 리드에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                       |
+
+> **참고:** top-level \`ownerId\`는 저장되지 않습니다(무시됨). 담당자는 \`fieldList\`의 \`담당자\`(\`userValueId\`)로 변경합니다.
 
 **요청 예시**
 
 \`\`\`json
-{ "name": "ACME 신규 문의 (수정)", "pipelineId": "...", "pipelineStageId": "...", "ownerId": "..." }
+{ "name": "ACME 신규 문의 (수정)", "pipelineId": "...", "pipelineStageId": "...", "fieldList": [ { "name": "담당자", "userValueId": "<userId>" } ] }
 \`\`\`
 
 **응답** \`200 OK\`
@@ -2105,10 +2130,12 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 
 **요청 파라미터**
 
-| 이름               | 위치    | 타입     |  필수 | 설명                  |
-| ---------------- | ----- | ------ | :-: | ------------------- |
-| \`customObjectId\` | query | string |     | 특정 레코드로 필터. 생략 시 전체 |
-| \`cursor\`         | query | string |     | 페이지네이션 커서           |
+| 이름                      | 위치    | 타입              |  필수 | 설명                                                  |
+| ----------------------- | ----- | --------------- | :-: | --------------------------------------------------- |
+| \`customObjectId\`        | query | string          |     | 특정 레코드로 필터. 생략 시 전체                                 |
+| \`types\`                 | query | string          |     | 활동 유형 필터(쉼표 구분). 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터" 참조. |
+| \`startDate\` / \`endDate\` | query | string(ISO8601) |     | 활동 발생 시점 범위. \`startDate\`가 \`endDate\`보다 늦으면 400.      |
+| \`cursor\`                | query | string          |     | 페이지네이션 커서                                           |
 
 **응답 \`200 OK\`**
 
@@ -2178,6 +2205,8 @@ Content-Type: application/json          # 쓰기(POST) 시 필수
 \`\`\`json
 { "success": true, "data": { "customObject": { "id": "<id>", "customObjectDefinitionId": "<defId>" } } }
 \`\`\`
+
+> **참고:** 이 임시 생성 보조 엔드포인트는 다른 생성 API(\`201 Created\`)와 달리 \`200 OK\`를 반환합니다.
 
 **에러**
 
@@ -2280,14 +2309,14 @@ Content-Type: application/json   # 쓰기(POST)에만
 
 **요청 파라미터 (body, application/json)**
 
-| 이름            | 타입     |  필수 | 설명                                                    |
-| ------------- | ------ | :-: | ----------------------------------------------------- |
-| \`name\`        | string |  필수 | 상품명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                      |
-| \`price\`       | number |  필수 | 단가. 숫자로 입력해야 합니다. 누락/비숫자 시 \`[price]: 유효한 숫자를 입력해주세요.\` |
-| \`memo\`        | string |      | 상품 생성 시 작성할 메모                                           |
-| \`fieldList\`   | array  |      | 생성할 상품의 데이터 필드. 상태를 생략하면 활성화, 유형을 생략하면 일반 상품으로 생성됩니다. |
+| 이름          | 타입                     |  필수 | 설명                                                    |
+| ----------- | ---------------------- | :-: | ----------------------------------------------------- |
+| \`name\`      | string                 |  필수 | 상품명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                      |
+| \`price\`     | number                 |  필수 | 단가. 숫자로 입력해야 합니다. 누락/비숫자 시 \`[price]: 유효한 숫자를 입력해주세요.\` |
+| \`fieldList\` | array \`[{name, <값키>}]\` |  선택 | 유형·담당자 등 커스텀 필드 값("필드 값 쓰기" 참조).                      |
+| \`memo\`      | string                 |  선택 | 이 상품에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                 |
 
-> **참고:** \`name\`과 \`price\`는 모두 필수입니다. \`name\`만 보내면 \`400 Bad Request\`와 \`[price]: 유효한 숫자를 입력해주세요.\`를 반환합니다.
+> **참고:** \`name\`과 \`price\`는 모두 필수입니다. \`name\`만 보내면 \`400 Bad Request\`와 \`[price]: 유효한 숫자를 입력해주세요.\`를 반환합니다. **참고:** top-level \`description\`, \`status\`는 저장되지 않습니다(무시됨). \`description\` 필드는 상품에 없습니다. **상태는 생성 시 지정할 수 없으며 항상 기본값 \`active\`로 생성됩니다.** 유형·담당자 등은 \`fieldList\`로 넣습니다.
 
 **요청 예시**
 
@@ -2295,9 +2324,9 @@ Content-Type: application/json   # 쓰기(POST)에만
 {
   "name": "서버1",
   "price": 100000,
-  "memo": "초기 등록 메모",
   "fieldList": [
-    { "name": "코드", "stringValue": "SERVER-001" }
+    { "name": "유형", "stringValue": "일반" },
+    { "name": "담당자", "userValueId": "<userId>" }
   ]
 }
 \`\`\`
@@ -2305,7 +2334,7 @@ Content-Type: application/json   # 쓰기(POST)에만
 **응답 — 201 Created**
 
 \`\`\`json
-{ "success": true, "data": { "product": { "id": "string", "name": "string", "createdAt": "string" } } }
+{ "success": true, "data": { "product": { "id": "...", "name": "...", "createdAt": "..." } } }
 \`\`\`
 
 **에러**
@@ -2335,53 +2364,56 @@ Content-Type: application/json   # 쓰기(POST)에만
 
 **요청 파라미터 (body, application/json)**
 
-| 이름                     | 타입           |  필수 | 설명                                                       |
-| ---------------------- | ------------ | :-: | -------------------------------------------------------- |
-| \`name\`                 | string       |  필수 | 견적서명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                        |
-| \`dealId\`               | string(UUID) | 조건부 | 연결할 딜. \`dealId\` 또는 \`leadId\` 중 하나는 필수입니다.                 |
-| \`leadId\`               | string(UUID) | 조건부 | 연결할 리드. \`dealId\` 또는 \`leadId\` 중 하나는 필수입니다.                |
-| \`itemList\`             | array        |     | 견적 구성 상품. \`[{productId, quantity, unitPrice, discount}]\` |
-| \`itemList[].productId\` | string(UUID) |     | 상품 ID                                                    |
-| \`itemList[].quantity\`  | integer      |     | 수량                                                       |
-| \`itemList[].unitPrice\` | number       |     | 단가                                                       |
-| \`itemList[].discount\`  | number       |     | 할인                                                       |
+| 이름                                  | 타입                     |  필수 | 설명                                                                                                                 |
+| ----------------------------------- | ---------------------- | :-: | ------------------------------------------------------------------------------------------------------------------ |
+| \`name\`                              | string                 |  필수 | 견적서명. 누락 시 \`[name]: 필수 입력 사항입니다.\`                                                                                  |
+| \`dealId\`                            | string(UUID)           | 조건부 | 연결할 딜. \`dealId\`와 \`leadId\` 중 **정확히 하나**만 보냅니다.                                                                      |
+| \`leadId\`                            | string(UUID)           | 조건부 | 연결할 리드. \`dealId\`와 \`leadId\` 중 **정확히 하나**만 보냅니다.                                                                     |
+| \`quoteProductList\`                  | array                  |  선택 | 견적 구성 상품 배열. 각 항목은 아래 필드로 구성합니다.                                                                                   |
+| \`quoteProductList[].name\`           | string                 | 조건부 | 항목명. 항목마다 필수.                                                                                                      |
+| \`quoteProductList[].productId\`      | string(UUID)           | 조건부 | 상품 ID. 항목마다 필수.                                                                                                    |
+| \`quoteProductList[].price\`          | number                 | 조건부 | 단가. 항목마다 필수.                                                                                                       |
+| \`quoteProductList[].amount\`         | number                 | 조건부 | 수량. 항목마다 필수. 항목 금액 = \`price × amount\`.                                                                             |
+| \`quoteProductList[].paymentCount\`   | integer                | 조건부 | 결제 횟수. **구독형 상품이면 \`paymentStartAt\`과 함께 둘 다 필수**입니다. 일반 상품에 넣으면 400 \`구독형 상품이 아닌 일반 상품에는 결제 횟수와 시작 결제일을 입력할 수 없습니다.\` |
+| \`quoteProductList[].paymentStartAt\` | string                 | 조건부 | 시작 결제일. **구독형 상품이면 \`paymentCount\`와 함께 둘 다 필수**, 일반 상품에는 넣지 않습니다.                                                   |
+| \`quoteProductList[].fieldList\`      | array                  |  선택 | 항목 커스텀 필드 값.                                                                                                       |
+| \`isMainQuote\`                       | boolean                |  선택 | 메인 견적서로 지정(조회 시 \`메인 견적서 여부\`).                                                                                      |
+| \`memo\`                              | string                 |  선택 | 이 견적서에 텍스트 노트를 생성합니다("노트 / 메모" 섹션 참조).                                                                             |
+| \`fieldList\`                         | array \`[{name, <값키>}]\` |  선택 | 견적서 커스텀 필드 값.                                                                                                      |
 
-> **참고:** \`dealId\` 또는 \`leadId\` 중 하나는 반드시 보내야 합니다. 둘 다 생략하면 \`400 Bad Request\`와 \`[refine]: dealId 또는 leadId를 입력해주세요.\`를 반환합니다. 둘 다 함께 보낼 수도 있습니다. **참고:** 존재하지 않는 \`dealId\`/\`leadId\`를 보내면 \`400 Bad Request\`와 \`dealId의 대상을 찾을 수 없습니다.\` / \`leadId의 대상을 찾을 수 없습니다.\` 메시지를 반환합니다(이 경우 \`reason\`은 문자열입니다). 검증 순서는 \`name\` → \`dealId/leadId\` 존재 여부 → 나머지입니다.
+> **참고:** \`dealId\`와 \`leadId\`는 **정확히 하나**만 보냅니다. 둘 다 생략하면 \`400\`과 \`[refine]: dealId 또는 leadId를 입력해주세요.\`, 둘 다 보내면 \`400\`과 \`[refine]: dealId와 leadId 중 하나만 입력해 주세요.\`를 반환합니다. **참고:** 견적 구성 상품은 \`quoteProductList\`로 보냅니다. 구 필드명 \`itemList\`를 보내면 400 없이 **조용히 무시**되어 상품 없는 빈 견적서가 생성되므로 주의합니다. **참고:** 존재하지 않는 \`dealId\`/\`leadId\`를 보내면 \`400 Bad Request\`와 \`dealId의 대상을 찾을 수 없습니다.\` / \`leadId의 대상을 찾을 수 없습니다.\` 메시지를 반환합니다(이 경우 \`reason\`은 문자열입니다). 검증 순서는 \`name\` → \`dealId/leadId\` 존재 여부 → 나머지입니다.
 
 **요청 예시**
 
 \`\`\`json
 {
   "name": "11월 서버 견적서",
-  "dealId": "...",
-  "itemList": [
-    {
-      "productId": "...",
-      "quantity": 1,
-      "unitPrice": 100000,
-      "discount": 0
-    }
+  "dealId": "<dealId>",
+  "isMainQuote": true,
+  "quoteProductList": [
+    { "name": "서버1", "productId": "<productId>", "price": 100000, "amount": 2 }
   ]
 }
 \`\`\`
 
-**응답 — 200 OK**
+**응답 — 201 Created**
 
 \`\`\`json
-{ "success": true, "data": { "quote": { "id": "string", "name": "string", "totalAmount": 0, "dealId": "string", "leadId": "string", "createdAt": "string" } } }
+{ "success": true, "data": { "quote": { "id": "...", "name": "...", "createdAt": "..." } } }
 \`\`\`
 
 **에러**
 
-| Status | message               | reason                                              | 조건                           |
-| ------ | --------------------- | --------------------------------------------------- | ---------------------------- |
-| 400    | Bad Request           | \`["[name]: 필수 입력 사항입니다."]\`                          | 빈 바디                         |
-| 400    | Bad Request           | \`["[refine]: dealId 또는 leadId를 입력해주세요."]\`           | \`name\`만 전송, deal/lead 둘 다 누락 |
-| 400    | Bad Request           | \`dealId의 대상을 찾을 수 없습니다.\` (문자열)                      | 존재하지 않는 \`dealId\`             |
-| 400    | Bad Request           | \`leadId의 대상을 찾을 수 없습니다.\` (문자열)                      | 존재하지 않는 \`leadId\`             |
-| 401    | Unauthorized          | \`헤더에서 Authorization을 찾을 수 없습니다.\` / \`유효하지 않은 토큰입니다.\` | 인증 실패                        |
-| 429    | Too Many Requests     | —                                                   | 레이트리밋 초과                     |
-| 500    | Internal Server Error | —                                                   | 서버 오류                        |
+| Status | message               | reason                                              | 조건                        |
+| ------ | --------------------- | --------------------------------------------------- | ------------------------- |
+| 400    | Bad Request           | \`["[name]: 필수 입력 사항입니다."]\`                          | 빈 바디                      |
+| 400    | Bad Request           | \`["[refine]: dealId 또는 leadId를 입력해주세요."]\`           | \`dealId\`·\`leadId\` 둘 다 누락  |
+| 400    | Bad Request           | \`["[refine]: dealId와 leadId 중 하나만 입력해 주세요."]\`       | \`dealId\`·\`leadId\`를 둘 다 전송 |
+| 400    | Bad Request           | \`dealId의 대상을 찾을 수 없습니다.\` (문자열)                      | 존재하지 않는 \`dealId\`          |
+| 400    | Bad Request           | \`leadId의 대상을 찾을 수 없습니다.\` (문자열)                      | 존재하지 않는 \`leadId\`          |
+| 401    | Unauthorized          | \`헤더에서 Authorization을 찾을 수 없습니다.\` / \`유효하지 않은 토큰입니다.\` | 인증 실패                     |
+| 429    | Too Many Requests     | —                                                   | 레이트리밋 초과                  |
+| 500    | Internal Server Error | —                                                   | 서버 오류                     |
 
 **GET /v2/{deal|lead}/{id}/quote — 딜/리드의 견적서 조회**
 
@@ -2538,7 +2570,7 @@ Content-Type: application/json   # 쓰기(POST)에만
 | \`…filters[].operator\`       | body  | enum                                 | 필수  | 아래 연산자표 참고. 필드 타입과 맞아야 합니다.                                                                                                                                                       |
 | \`…filters[].value\`          | body  | string \\| number \\| boolean \\| array | 조건부 | \`EXISTS\`/\`NOT_EXISTS\`에서만 생략할 수 있고, 그 외 연산자에서는 필수입니다. 빈 문자열 \`""\`은 허용되지 않습니다. \`IN\`/\`NOT_IN\`/\`DATE_BETWEEN\`은 배열로 전달합니다. boolean 필드는 따옴표 없는 \`true\`/\`false\`로 전달합니다(문자열 \`"true"\`는 400). |
 
-> **참고:** 딜의 이름 필드는 \`이름\`입니다(\`딜 이름\`이 아니며, \`딜 이름\`을 전달하면 400 \`Invalid fieldName: 딜 이름\`을 반환합니다). 정확한 이름은 \`GET /v2/field/{type}\`로 확인합니다.
+> **참고:** 고객·회사·딜·리드의 이름 필드는 모두 \`이름\`입니다. \`고객 이름\`·\`회사 이름\`·\`딜 이름\`·\`리드 이름\`처럼 타입명을 붙이면 400 \`Invalid fieldName: <이름>\`을 반환합니다. 정확한 필드 이름은 \`GET /v2/field/{type}\`로 확인합니다.
 
 **연산자표 (operator)**
 
@@ -2947,25 +2979,40 @@ curl -X POST -H "Authorization: Bearer <token>" -F "file=@/path/to/contract.pdf"
 | 401 | 인증 실패                                                        |
 | 429 | 레이트리밋 초과                                                     |
 
-#### GET /v2/email/{emailId} — 발송 이메일 단건 조회
+#### GET /v2/email/{emailId} — 이메일 상세 조회
 
-발송한 이메일 1건의 상세 정보를 조회합니다.
-
-> **참고:** 응답에는 이메일 **본문(\`body\`/\`htmlBody\`)이 포함되지 않습니다.** 메타데이터(제목·발신/수신·상태·날짜)만 조회됩니다.
+이메일 1건의 상세(제목·발신/수신·상태·본문)를 조회합니다. 활동(activity)의 \`emailId\`로 본문까지 이어서 조회할 때 사용합니다.
 
 **요청 파라미터**
 
-| 이름        | 위치   | 타입           |  필수 | 설명                                     |
-| --------- | ---- | ------------ | :-: | -------------------------------------- |
-| \`emailId\` | path | string(uuid) |  필수 | 조회할 이메일 ID (\`POST /v2/email\` 응답의 \`id\`) |
+| 이름        | 위치   | 타입           |  필수 | 설명                                                      |
+| --------- | ---- | ------------ | :-: | ------------------------------------------------------- |
+| \`emailId\` | path | string(uuid) |  필수 | 조회할 이메일 ID (활동의 \`emailId\` 또는 \`POST /v2/email\` 응답의 \`id\`) |
 
 **응답** \`200 OK\`
 
 \`\`\`json
-{ "success": true, "data": { "email": { "id": "...", "subject": "...", "from": "...", "to": "...", "cc": "...", "bcc": "...", "status": "...", "messageId": "...", "date": "..." } } }
+{ "success": true, "data": { "email": {
+  "id": "...", "subject": "...", "from": "user@example.com",
+  "to": [ ... ], "cc": [ ], "bcc": [ ],
+  "status": "...", "messageId": "...", "date": "...",
+  "snippet": "...", "htmlBody": "<div>...</div>", "text": "..." } } }
 \`\`\`
 
-* 응답 키는 \`id\`입니다.
+| 키                   | 타입              | 설명                |
+| ------------------- | --------------- | ----------------- |
+| \`id\`                | string(uuid)    | 이메일 ID            |
+| \`subject\`           | string          | 제목                |
+| \`from\`              | string          | 발신자               |
+| \`to\` / \`cc\` / \`bcc\` | array           | 수신 / 참조 / 숨은참조 목록 |
+| \`status\`            | string          | 발송 상태             |
+| \`date\`              | string(ISO8601) | 발송 시각             |
+| \`snippet\`           | string          | 미리보기 텍스트          |
+| \`htmlBody\`          | string          | HTML 본문           |
+| \`text\`              | string          | 텍스트 본문            |
+| \`messageId\`         | string          | 메일 스레드 식별자        |
+
+> **참고(본문 이미지):** 이미지 전용 필드는 없습니다. 본문 이미지는 \`htmlBody\` 안에 외부 URL(\`https://image.salesmap.kr/...\`)로 들어 있어 \`<img src>\`를 파싱해 받습니다. 이 이미지 URL은 **인증 없이 접근 가능한 공개 URL**이며(응답 \`content-type\`이 \`text/plain\`이어도 실제 바이트는 이미지), \`https://salesmap.kr/email-notification/pixel?code=...\`는 콘텐츠가 아니라 **열람 추적 픽셀**이므로 제외합니다.
 
 **에러**
 
@@ -2973,6 +3020,57 @@ curl -X POST -H "Authorization: Bearer <token>" -F "file=@/path/to/contract.pdf"
 | --- | ------------------------------ |
 | 400 | 존재하지 않는 id — \`이메일을 찾을 수 없습니다.\` |
 | 401 | 인증 실패                          |
+
+#### GET /v2/recording/{recordingId} — 녹음 상세 조회
+
+활동(액티비티)의 \`recordingId\`로 통화·미팅 녹음의 메타데이터와 AI 요약을 조회합니다.
+
+| 이름 | 위치 | 타입 | 필수 | 설명 |
+| --- | --- | --- | :-: | --- |
+| \`recordingId\` | path | string(uuid) | 필수 | 활동의 \`recordingId\` |
+
+**응답** \`200 OK\` — \`data.recording\`
+
+| 경로 | 타입 | 설명 |
+| --- | --- | --- |
+| \`id\` | string(uuid) | 녹음 ID |
+| \`title\` | string\\|null | 녹음 제목 |
+| \`duration\` | integer\\|null | 길이(초) |
+| \`source\` | string | \`upload\` 또는 \`realtime\` |
+| \`coreSummary\` | string\\|null | AI 핵심 요약 |
+| \`createdAt\` | string(ISO) | 생성 시각 |
+| \`owner\` | object | \`{ id, name }\` |
+
+> **참고:** 응답에 **연결된 레코드 정보가 없습니다.** 어느 딜·리드·고객·회사의 녹음인지는
+> 활동 조회의 문맥으로만 알 수 있습니다. 녹음 **목록** 엔드포인트도 없으므로
+> \`recordingId\`는 \`GET /v2/{type}/activity\`(\`types=recordingCreate\`)로 얻습니다.
+
+**에러** — 401 인증 실패 / 404 존재하지 않는 id / 429 레이트리밋
+
+#### GET /v2/recording/{recordingId}/transcript — 녹취 전문 조회
+
+| 이름 | 위치 | 타입 | 필수 | 설명 |
+| --- | --- | --- | :-: | --- |
+| \`recordingId\` | path | string(uuid) | 필수 | 녹음 ID |
+
+**응답** \`200 OK\` — \`data.recordingTranscript\`
+
+| 경로 | 타입 | 설명 |
+| --- | --- | --- |
+| \`transcriptSegmentList[]\` | array\\|null | 발화 구간 목록 |
+| \`…[].startTime\` / \`…[].endTime\` | integer | 발화 시작·종료 시각(밀리초) |
+| \`…[].text\` | string | 발화 내용 |
+| \`…[].speakerId\` | string | 화자 식별자 |
+| \`…[].confidence\` | number\\|null | 인식 신뢰도 |
+| \`speakerInfoList[]\` | array\\|null | \`{ speakerId, label }\` — \`label\`로 화자를 사람이 읽는 이름으로 치환할 수 있습니다. 사용자가 화면에서 실명을 지정했으면 실명이 내려옵니다 |
+
+> ⚠️ **응답 크기 주의:** 전체 세그먼트를 한 번에 반환하며 **상한도 페이지네이션도 없습니다.**
+> 실측 기준 59분 회의가 404개 세그먼트 / 약 85KB(텍스트 20,687자)입니다. 긴 회의는 응답이
+> 커지므로 호출하는 쪽에서 잘라 쓰는 것을 권장합니다. 요약만 필요하면 위 상세 조회의
+> \`coreSummary\`를 쓰세요.
+
+***
+
 
 ***
 
@@ -3348,6 +3446,11 @@ TODO 목록을 조회합니다.
 | \`ownerId\`                                           | query | string(uuid) |     | 작성자(유저)로 필터합니다.                                                                                    |
 | \`typeId\`                                            | query | string(uuid) |     | 노트 유형 id로 필터합니다(\`GET /v2/memo/type-list\`의 \`_id\`). UUID 형식이 아니거나 잘못된 값은 \`500\`을 반환하므로 유효한 id만 전달합니다. |
 | \`dealId\` / \`leadId\` / \`peopleId\` / \`organizationId\` | query | string(uuid) |     | 연결된 딜/리드/고객/회사로 필터합니다.                                                                             |
+
+> ⚠️ **날짜 해석이 활동 조회와 다릅니다.** \`GET /v2/{type}/activity\`의 \`startDate\`/\`endDate\`는 날짜만 주면 **KST 달력일**로 해석되지만, 이 엔드포인트는 **UTC**로 해석합니다.
+> 그래서 \`endDate=2026-07-31\`은 \`2026-07-31T00:00:00Z\`(= KST 오전 9시)까지가 되어 **종료일 당일이 거의 통째로 빠집니다.**
+> 실측: 노트 \`createdAt\`이 \`2026-07-31T04:27:55Z\`(KST 13:27)일 때 \`?startDate=2026-07-31\`은 1건, \`?endDate=2026-07-31\`은 0건.
+> **정확한 범위가 필요하면 오프셋 포함 ISO를 쓰세요** (\`2026-07-31T23:59:59+09:00\`). 이 형식은 어느 엔드포인트에서든 동일하게 동작합니다.
 
 > **참고(연결 전파 · 필터 혼입):** 딜·리드에 남긴 노트에는 그 딜·리드가 **연결된 고객·회사 id까지 함께** 기록됩니다. 딜 노트 = \`dealId\` + (연결 시) \`peopleId\` + \`organizationId\`, 리드 노트 = \`leadId\` + (연결 시) \`peopleId\` + \`organizationId\`.
 >

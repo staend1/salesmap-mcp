@@ -137,12 +137,13 @@ node scripts/build-api-ref.mjs 2026-07-28   # 해당 날짜 병합본으로 재�
 
 ***
 
-## 현재 상태 (2026-07-28)
+## 현재 상태 (2026-07-30)
 
 | 항목 | 값 |
 |---|---|
-| 최신 원장 | `docs/salesmap-api-reference-2026-07-28.md` |
-| 최신 병합본 | `docs/internal/api-ref-merged-2026-07-28.md` |
-| 오버레이 | **1건** — run-script 응답 래퍼 벗김 경고 (MCP 고유, 사실상 영구) |
+| 최신 원장 | `docs/salesmap-api-reference-2026-07-30.md` |
+| 최신 병합본 | `docs/internal/api-ref-merged-2026-07-30.md` |
+| 오버레이 | **3건** — run-script 응답 래퍼(MCP 고유, 사실상 영구) / 녹음 조회 2종(원장 미수록) / `GET /v2/memo` 날짜 UTC 해석(원장 미수록) |
 
-> 병합본 = 원장 + 경고 2줄. 원장을 새로 받으면 사실상 그대로 쓰면 된다.
+> 2026-07-30 원장이 activity 유형·기간 필터와 이메일 본문을 흡수해 **오버레이 2건을 삭제**했다.
+> 남은 2건은 원장에 실리면 지운다.

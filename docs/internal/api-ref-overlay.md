@@ -58,60 +58,46 @@ MCP 내부적으로 미공개 엔드포인트를 쓰더라도 **`get-api-ref` �
 
 ---
 
-## 2. v2 Activity — 유형·기간 필터 (2026-07-29 릴리즈)
+## 2. 녹음(Recording) 조회 — 원장 미수록
 
-`GET /v2/{people|organization|deal|lead|custom-object}/activity`에 파라미터 3개가 추가됐다.
-원장에 반영되면 이 항목은 지운다.
+`GET /v2/openapi`에 등재된 공개 엔드포인트인데 2026-07-30 원장에 아직 실리지 않았다.
+활동의 `recordingId`로 이어서 조회하는 경로라, 원장의 액티비티 설명 바로 뒤에 둔다.
 
-| 파라미터 | 설명 |
-|---|---|
-| `types` | 콤마 구분. 15종: `create`, `webFormView`, `webFormSubmit`, `email`, `emailOpen`, `emailLinkClick`, `smsSend`, `memoCreate`, `todoCreate`, `meeting`, `documentView`, `kakaoAlimtalkSend`, `merge`, `modusignContractCreated`, `recordingCreate` |
-| `startDate` / `endDate` | 활동의 `date` 기준, **양 끝 포함**. 날짜만 주면 **KST 달력일**로 해석 (`2026-07-29` → UTC `07-28T15:00` ~ `07-29T15:00`) |
-
-응답 item에 `recordingId`가 추가됐다. 실측 확인 사항:
-
-- **응답 필드가 오브젝트마다 다르다** — 고객엔 `documentId`·`documentName`이 있고 딜엔 없으며 딜엔 `dealStatus`가 있다. 날짜 키는 `date`다(OpenAPI의 `createdAt`은 오기)
-- **정렬은 오름차순(오래된 순), 한 페이지 50건 고정.** `limit` 파라미터는 받아도 무시된다.
-  "최근 활동"을 보려면 `startDate`로 범위를 좁혀야 한다
-- `nextCursor`는 다음 페이지가 없으면 **키 자체가 없다**(null 아님)
-- `types`에 잘못된 값을 넣으면 **본문 없는 400**이 온다
-
-## 3. 이메일 본문 조회 (2026-07-29 릴리즈)
-
-`GET /v2/email/{emailId}` 응답에 `snippet`·`htmlBody`·`text`가 추가됐다.
-키는 항상 있고 값은 각각 nullable이며, **첨부 정보는 없다.**
-
-실측상 `htmlBody`가 `text`의 28배인 경우가 있다(9,398자 vs 339자 — 마크업이 96%).
-본문이 필요하면 `text`를 먼저 보고, 없을 때만 `htmlBody`를 쓰는 편이 낫다.
-
-## 4. 녹음·녹취 조회 (2026-07-29 신설)
+**삭제 조건**: 원장에 이 두 엔드포인트가 실리면 삭제한다.
 
 | 엔드포인트 | 응답 |
 |---|---|
 | `GET /v2/recording/{recordingId}` | `id`, `title`, `duration`(초), `source`(`upload`\|`realtime`), `coreSummary`, `createdAt`, `owner{id,name}` |
 | `GET /v2/recording/{recordingId}/transcript` | `transcriptSegmentList[{startTime(ms), endTime(ms), text, speakerId, confidence}]`, `speakerInfoList[{speakerId, label}]` |
 
-- `recordingId`는 **activity 응답에서만** 얻을 수 있다 (녹음 목록 엔드포인트 없음)
+- `recordingId`를 얻는 경로는 **활동 조회뿐이다** — 녹음 목록 엔드포인트가 없다
 - 단건 응답에 **연결 레코드 정보가 없다** — 어느 딜·리드·고객의 녹음인지 알 수 없다
 - **transcript에 상한·페이지네이션이 없다.** 실측 59분 회의 = 404 세그먼트 / 85KB / 텍스트 20,687자.
   긴 회의는 응답이 커지므로 호출 측에서 잘라 쓸 것
-- `speakerInfoList`로 `speakerId`를 라벨로 치환할 수 있다. 사용자가 UI에서 실명을 매핑했으면 실명이 내려온다
+- `speakerInfoList`로 `speakerId`를 라벨로 치환할 수 있다. UI에서 실명을 매핑했으면 실명이 내려온다
 
-## 5. 날짜 파라미터 — date-only는 KST, 응답은 UTC
+## 3. `GET /v2/memo`의 날짜 필터는 KST가 아니다 — 원장 미수록
 
-날짜만 넣었을 때(`2026-07-29`) 해석이 **표면마다 다르다.** 실측·백엔드 확인 기준:
+원장은 쓰기 `dateValue`가 KST로 해석된다는 것만 적고 있다. **노트 조회 필터는 규칙이 다르다.**
 
-| 표면 | date-only 해석 |
+**삭제 조건**: `GET /v2/memo`가 다른 활동 조회와 같은 KST 달력일로 바뀌거나, 원장이 이 차이를 명시하면 삭제한다.
+
+| 파라미터 | 해석 |
 |---|---|
-| `GET /v2/{object}/activity` `startDate`·`endDate` | **KST 달력일** |
-| `POST /v2/object/{type}/search` `DATE_*`(절대) | **KST 달력일** |
-| 〃 `DATE_*_DAYS_AGO`(상대) | **KST 달력일** — 호출 시점 KST 오늘 기준(현재 시각 아님) |
-| `POST /v2/{type}/{id}` `dateValue` | **KST 자정** |
-| `POST /v3/object/create` `date` 타입 필드 | **KST 자정** |
-| ⚠️ `POST /v3/object/create` `dateTime` 타입 필드 | 입력 날짜 + **호출 시각**이 붙는다 |
-| ⚠️ `GET /v2/memo` `startDate`·`endDate` | **UTC** — `endDate=D`가 `D T00:00:00Z`까지라 **당일이 통째로 빠진다** |
+| `GET /v2/{type}/activity`의 `startDate`·`endDate` | **KST 달력일** (`2026-07-29` → UTC `07-28T15:00` ~ `07-29T15:00`) |
+| `POST /v2/object/{type}/search`의 `DATE_*` | **KST 달력일** |
+| `POST /v2/{type}/{id}`의 `dateValue` | **KST 자정** |
+| ⚠️ **`GET /v2/memo`의 `startDate`·`endDate`** | **UTC** |
 
-**응답 날짜는 전부 UTC(`Z`) 표기다.**
+`GET /v2/memo?endDate=2026-07-31`은 `2026-07-31T00:00:00Z`(= KST 09:00)까지로 해석되어
+**종료일 당일이 거의 통째로 빠진다.** 실측 확인:
 
-정확한 범위가 필요하면 **오프셋 포함 ISO**(`2026-07-29T00:00:00+09:00`)를 쓰면 어느 표면에서든
-동일하게 동작한다. 실측상 activity·search는 date-only와 결과가 같고, memo·v3 dateTime만 고쳐진다.
+```
+노트 createdAt = 2026-07-31T04:27:55Z (KST 13:27)
+?startDate=2026-07-31 → 1건        ?endDate=2026-07-31 → 0건
+```
+
+**정확한 범위가 필요하면 오프셋 포함 ISO를 쓴다** (`2026-07-31T23:59:59+09:00`).
+이 형식은 어느 엔드포인트에서든 동일하게 동작한다.
+
+응답 날짜는 전 엔드포인트에서 UTC(`Z`) 표기다.
