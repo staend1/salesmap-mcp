@@ -21,6 +21,8 @@ MCP는 API 위에 얇은 래퍼를 씌우는 구조인데, API 설계에 문제�
 
 수정(`POST /v2/{type}/{id}`)은 1건씩만 처리 가능합니다. (조회는 `POST /v3/object/read`로 최대 500건, 생성은 `POST /v3/object/create`로 최대 100건 배치 가능 — 하단 해결 메모 참조)
 
+**2026-07-31 부분 해소 — 이관은 보류**: `POST /v3/object/update`가 열렸으나 **회사·고객 2종만** 지원합니다(딜·리드·커스텀 오브젝트·상품은 400). 지금 이관하면 한 도구 안에 v3 배치 경로와 v2 단건 순회 경로를 동시에 유지해야 하고, 그 분기가 사용자 필드 변환 방향·관계 문법·커오 어휘에서 전부 갈립니다. **나머지 타입이 열린 뒤 한 번에 이관하기로 결정.** 확정된 스펙과 설계는 `docs/internal/v3-update-migration-plan.md`에 보존돼 있어 착수 조건 충족 시 재질의 없이 바로 시작할 수 있습니다.
+
 ### 실제 영향
 
 "이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요. 텔레메트리 기준 `update-object → update-object` 연속 전이 1,074회 — 일괄 수정 수요가 실사용에서 확인됨.
@@ -760,6 +762,8 @@ POST /v2/object/product/search → ❌ 400 Bad Request (product는 search 미지
 
 `GET /v2/product`는 이름·코드 등 필터 파라미터 없이 cursor 페이지네이션만 지원합니다. 상품 수가 많은 워크스페이스에서는 원하는 상품 ID를 찾기 위해 전체 목록을 순회해야 합니다.
 
+**2026-07-31 확정 — 상품은 수정 경로가 아예 없습니다.** 2026-07-29에 `POST /v3/object/create`가 상품을 지원하게 됐지만, 2026-07-31에 열린 `POST /v3/object/update`는 **회사·고객만** 지원합니다(백엔드 코드 실측: `updateObjectListForApiFunc`에서 Organization·People 외는 `지원하지 않는 오브젝트 유형입니다`). v2에도 `POST /v2/product/{id}`가 없으므로 **v2·v3 어느 쪽으로도 상품을 고칠 수 없습니다** — 만들 수는 있는데 못 고칩니다. v3 update가 상품을 지원하는 것이 유일한 해결 경로입니다.
+
 ### 실제 영향
 
 - 생성한 상품의 상세 정보를 API로 확인 불가 (목록에서만 확인 가능)
@@ -774,7 +778,7 @@ HubSpot은 Product(Line Item)도 다른 오브젝트와 동일하게 `batch-read
 
 ### MCP에서의 우회
 
-MCP는 `salesmap-batch-create-objects`에서 상품 생성만 v2 `POST /v2/product` 루프로 우회합니다. 평탄한 `properties` 입력을 받아 `이름`·`금액`은 top-level로, `유형`·`상태`·`코드`·`단위` 등 데이터 필드는 `fieldList`로 분리합니다. 생성 메모/노트(memo)는 create 도구 표면에서 지원하지 않습니다. 생성 후 상세 조회·수정·삭제는 여전히 API 한계로 불가합니다.
+MCP는 `salesmap-batch-create-objects`에서 상품 생성을 처리합니다. 2026-07-31에 **v2 단건 루프를 폐기하고 v3 배치(`POST /v3/object/create`)로 이관**했으므로 top-level/`fieldList` 분리는 더 이상 하지 않고 `{필드명: 값}`을 그대로 보냅니다(`가격`→`금액` 별칭 교정은 유지). 생성 메모/노트(memo)는 create 도구 표면에서 지원하지 않습니다. **생성 후 상세 조회·수정·삭제는 여전히 불가합니다** — 특히 수정은 위 확정 사항대로 v2·v3 양쪽에 경로가 없습니다.
 
 `create-quote`의 `quoteProductList`에서 `productId`는 선택 필드 — 카탈로그 연동 없이 `name` + `price`만으로도 견적 항목 생성 가능. 카탈로그 연동이 필요하면 CRM UI에서 상품 ID를 직접 확인해야 합니다.
 
