@@ -120,10 +120,10 @@ export const QUIRKS: readonly Quirk[] = [
   },
   {
     id: "date-only-timezone-split",
-    summary: "date-only 입력의 시간대 해석이 엔드포인트마다 다르다 — memo만 UTC라 종료일 당일이 통째로 빠진다",
-    evidence: "실측 2026-07-31. GET /v2/memo는 dayjs(value).toDate()로 타임존 없이 파싱(서버 UTC) → endDate=오늘이 UTC 00:00까지가 되어 당일 누락. 텔레메트리에서 list-notes endDate 사용 22회 전부 피해. activity·search·v3 create는 KST 정상",
+    summary: "date-only 입력의 시간대 해석이 표면마다 다르다 — memo 필터는 UTC, v3 dateTime 쓰기는 호출 시각 주입",
+    evidence: "실측 2026-07-31. ① GET /v2/memo는 dayjs(value).toDate()로 타임존 없이 파싱(서버 UTC) → endDate=오늘이 UTC 00:00까지가 되어 당일 누락. 텔레메트리에서 list-notes endDate 사용 22회 전부 피해. ② v3 create의 dateTime 타입 필드는 date-only를 주면 자정이 아니라 호출 시각을 붙인다(같은 요청이 실행 시각마다 다른 값). date 타입·v2 dateValue·activity·search는 KST 정상",
     removeWhen: "GET /v2/memo가 activity와 같은 KST day-bound로 바뀌면. ⚠️ 그래도 이 변환은 유지하는 편이 낫다 — 오프셋 ISO는 어느 쪽 구현에서도 같은 결과를 주고, 엔드포인트별 분기를 없애준다",
-    affects: ["list-notes", "search-objects"],
+    affects: ["list-notes", "search-objects", "batch-create-objects", "update-object", "create-quote"],
     location: "api-quirks.ts › toKstBoundary",
     ledger: "#32",
   },

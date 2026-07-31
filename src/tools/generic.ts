@@ -4,7 +4,7 @@ import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolvePrope
 import { getClient } from "../types";
 import {
   V3_TYPE_MAP, V3_CREATE_TYPE_MAP, CUSTOM_OBJECT_LITERALS,
-  CREATE_UNSUPPORTED, PRODUCT_TYPES, PRODUCT_ALIAS,
+  CREATE_UNSUPPORTED, PRODUCT_TYPES, PRODUCT_ALIAS, toKstBoundary,
 } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -205,9 +205,11 @@ async function canonicalizeV3CreateProperties(
 
   // 스키마 조회 실패(권한·미지원 타입 등)는 보정을 포기하고 API 검증에 맡긴다.
   let names: Set<string>;
+  let typeOf: Map<string, string>;
   try {
     const schema = await getFieldSchema(client, V3_TO_V2_SCHEMA[objectType] ?? schemaType);
     names = new Set(schema.fieldList.map(f => f.name));
+    typeOf = new Map(schema.fieldList.map(f => [f.name, f.type]));
   } catch {
     return { inputList, warnings: [] };
   }
@@ -225,7 +227,13 @@ async function canonicalizeV3CreateProperties(
           + (name !== rawName ? ` ("${rawName}"이 "${name}"으로 교정되면서 충돌)` : ""),
         );
       }
-      properties[name] = value;
+      // @quirk date-only-timezone-split — 날짜 필드에 날짜만 오면 KST 자정을 명시한다.
+      // 안 하면 v3가 date 타입은 자정으로, dateTime 타입은 **호출 시각**으로 저장해
+      // 같은 요청이 실행 시각마다 다른 값이 된다 (실측 2026-07-31).
+      const ft = typeOf.get(name);
+      properties[name] = (ft === "date" || ft === "dateTime") && typeof value === "string"
+        ? toKstBoundary(value, "start")
+        : value;
       if (name !== rawName) warnings.push(`inputList[${index}].properties: "${rawName}" → "${name}"`);
     }
     fixed.push({ ...input, properties });

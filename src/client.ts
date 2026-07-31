@@ -1,7 +1,7 @@
 import { createHash } from "crypto";
 import type { SalesMapResponse } from "./types";
 import { cached, TTL } from "./cache";
-import { TOP_LEVEL_BY_TYPE, SYSTEM_SELECT_INPUT, TYPE_TO_VALUE_KEY, canonicalFieldSchemaType } from "./api-quirks";
+import { TOP_LEVEL_BY_TYPE, SYSTEM_SELECT_INPUT, TYPE_TO_VALUE_KEY, canonicalFieldSchemaType, toKstBoundary } from "./api-quirks";
 import { canonicalFieldName } from "./field-aliases";
 export { canonicalFieldName } from "./field-aliases";
 
@@ -463,6 +463,13 @@ export async function resolveProperties(
         fieldList.push({ name, [valueKey]: resolved });
         continue;
       }
+    }
+
+    // @quirk date-only-timezone-split — 날짜 필드에 날짜만 오면 KST 자정을 명시해 보낸다.
+    // v2는 이미 KST로 읽지만, 쓰기·읽기 전 경로가 같은 규칙을 쓰게 통일한다.
+    if ((fieldType === "date" || fieldType === "dateTime") && typeof value === "string") {
+      fieldList.push({ name, [valueKey]: toKstBoundary(value, "start") });
+      continue;
     }
 
     // 리스트 타입(...List) 키인데 단일 값이면 배열로 감싼다 (multiSelect·multiUser 등에 단건 입력 허용)
