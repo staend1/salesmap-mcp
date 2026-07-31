@@ -54,8 +54,8 @@ export const QUIRKS: readonly Quirk[] = [
     summary: "시스템 select 4종은 조회값(영문)과 입력값(한글)이 다르다. 이 4종이 전부다",
     evidence: "백엔드 전수 확인 2026-07-29 — 대상은 제품 상태·딜 구독 시작/종료 유형·견적서 할인 유형 4개가 전부이고, 값은 워크스페이스 언어 설정을 타지 않는 한국어/기호 고정값이다 (다국어 걱정 불필요). validateAPIV2FieldList가 표시값으로 변환해 비교하므로 조회값 그대로 넣으면 400",
     removeWhen: "v2 입력이 조회값(active·newBusiness…)을 그대로 받으면. ⚠️ 다만 백엔드가 하위호환 때문에 안 고치고 우리 변환에 맡기는 쪽으로 기울어 있다(2026-07-29) — 장기 존속 가능성이 높으니 지울 준비보다 정확도 유지가 우선",
-    affects: ["update-object", "batch-create-objects(상품)", "create-quote"],
-    location: "api-quirks.ts › SYSTEM_SELECT_INPUT",
+    affects: ["update-object", "create-quote"],
+    location: "api-quirks.ts › SYSTEM_SELECT_INPUT (상품 항목은 현재 미사용 — 주석 참조)",
   },
   {
     id: "fieldlist-type-key",
@@ -103,20 +103,11 @@ export const QUIRKS: readonly Quirk[] = [
   },
   {
     id: "v3-create-unsupported-types",
-    summary: "견적서·상품은 v3 create dispatcher에 없어 필드 검증을 통과한 뒤 400이 된다",
-    evidence: "백엔드 확인 2026-07-28. getObjectModel은 인식하나 createObjectListForApiFunc에 case 없음",
-    removeWhen: "v3 create가 견적서·상품을 지원하면",
+    summary: "견적서는 v3 create dispatcher에 없어 필드 검증을 통과한 뒤 400이 된다 (상품은 2026-07-29 지원 시작)",
+    evidence: "백엔드 확인 2026-07-28. getObjectModel은 인식하나 createObjectListForApiFunc에 case 없음. 상품은 2026-07-29 릴리즈로 추가돼 v2 순회 폐기(실측: 유형·상태·담당자·코드·단위 전부 정상 저장)",
+    removeWhen: "v3 create가 견적서를 지원하면 (그때 create-quote도 batch-create로 흡수 검토)",
     affects: ["batch-create-objects"],
-    location: "api-quirks.ts › CREATE_UNSUPPORTED / PRODUCT_TYPES",
-  },
-  {
-    id: "product-v2-fallback",
-    summary: "상품 생성은 v3 미지원이라 v2 단건 API를 순회한다. 필드명도 흔한 표현으로 정규화",
-    evidence: "실측 2026-07-29. 실제 필드명은 `금액`(가격 아님), fieldList로 유형·코드·단위·담당자 전달 가능(문서 미기재)",
-    removeWhen: "v3 create가 상품을 지원하면 (v3-create-unsupported-types와 함께 제거)",
-    affects: ["batch-create-objects"],
-    location: "api-quirks.ts › PRODUCT_ALIAS",
-    ledger: "#21",
+    location: "api-quirks.ts › CREATE_UNSUPPORTED",
   },
   {
     id: "date-only-timezone-split",
@@ -281,6 +272,9 @@ export const TOP_LEVEL_BY_TYPE: Record<string, Record<string, string>> = {
  *    질의 발송: docs/_internal/query-discount-type-inversion.md
  */
 export const SYSTEM_SELECT_INPUT: Record<string, Record<string, Record<string, string>>> = {
+  // 상품 생성이 v3로 옮겨가면서(2026-07-31) 현재 이 항목을 타는 경로는 없다.
+  // v3는 `활성`·`active` 둘 다 받지만 **v2 POST /v2/product는 한글만** 받으므로,
+  // 상품 수정 도구가 생기거나 v2로 롤백하면 즉시 다시 필요하다. 그래서 남긴다.
   product: { "상태": { active: "활성", inactive: "비활성" } },
   deal: {
     "구독 시작 유형": { newBusiness: "신규", upgrade: "업그레이드", downgrade: "다운그레이드", renewal: "갱신" },
@@ -354,8 +348,14 @@ export const V3_TYPE_MAP: Record<string, string> = {
   quote: "견적서", product: "상품",
 };
 
-/** @quirk objecttype-v2-v3-duality — create dispatcher는 견적서·상품 미지원이라 코어 4종뿐 */
-export const V3_CREATE_TYPE_MAP: Record<string, string> = V3_CORE_TYPE_MAP;
+/**
+ * @quirk objecttype-v2-v3-duality
+ * create dispatcher가 받는 타입. 2026-07-29 릴리즈로 상품이 추가됐다(견적서는 여전히 미지원).
+ */
+export const V3_CREATE_TYPE_MAP: Record<string, string> = {
+  ...V3_CORE_TYPE_MAP,
+  product: "상품",
+};
 
 /** @quirk custom-object-definition-name — objectType 자리에 오면 안 되는 리터럴 */
 export const CUSTOM_OBJECT_LITERALS = new Set([
@@ -368,12 +368,10 @@ export const CREATE_UNSUPPORTED: Record<string, string> = {
   quote: "salesmap-create-quote",
 };
 
-/** @quirk product-v2-fallback — v2 POST /v2/product 순회로 처리할 타입 */
-export const PRODUCT_TYPES = new Set(["상품", "product"]);
-
 /**
- * @quirk product-v2-fallback
+ * @quirk ai-field-name-correction (상품 축)
  * 상품의 실제 필드명은 `금액`이다(`가격` 아님). LLM이 흔히 쓰는 표현을 실제 이름으로 모은다.
+ * 범용 별칭 규칙(canonicalFieldName)은 `가격`→`금액`을 잡지 못한다 — 상품 전용이라 여기 둔다.
  */
 export const PRODUCT_ALIAS: Record<string, string> = {
   "가격": "금액", "단가": "금액", price: "금액", amount: "금액",

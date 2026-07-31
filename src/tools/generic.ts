@@ -4,7 +4,7 @@ import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolvePrope
 import { getClient } from "../types";
 import {
   V3_TYPE_MAP, V3_CREATE_TYPE_MAP, CUSTOM_OBJECT_LITERALS,
-  CREATE_UNSUPPORTED, PRODUCT_TYPES, PRODUCT_ALIAS, toKstBoundary,
+  CREATE_UNSUPPORTED, PRODUCT_ALIAS, toKstBoundary,
 } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -31,57 +31,6 @@ async function customObjectLiteralError(client: ReturnType<typeof getClient>, ob
 }
 
 
-
-
-/**
- * 상품 생성 — v3 create 미지원이라 v2 단건 API를 순회한다.
- * `유형`·`상태`·`담당자`·`코드`·`단위` 등은 fieldList로 전달해야 저장된다.
- * API의 생성 메모(memo)는 노트 생성 개념이라 batch-create 도구에서는 노출하지 않는다.
- * (top-level name/price만 보내면 나머지가 조용히 사라진다).
- */
-async function createProducts(
-  client: ReturnType<typeof getClient>,
-  inputList: V3CreateInput[],
-): Promise<{ objectList: Array<{ id: string; name: string }>; errors: unknown[]; warnings: string[] }> {
-  const objectList: Array<{ id: string; name: string }> = [];
-  const errors: unknown[] = [];
-  const warnings: string[] = [];
-
-  for (const [index, input] of inputList.entries()) {
-    const props: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(input.properties)) props[PRODUCT_ALIAS[k] ?? k] = v;
-
-    if (typeof props["이름"] !== "string" || !props["이름"]) {
-      errors.push({ code: "REQUIRED_FIELD", inputIndex: index, fieldName: "이름", message: "상품 이름은 필수입니다" });
-      continue;
-    }
-    if (typeof props["금액"] !== "number") {
-      errors.push({
-        code: "REQUIRED_FIELD", inputIndex: index, fieldName: "금액",
-        message: "상품 금액은 숫자로 필수입니다 (필드명은 '가격'이 아니라 '금액')",
-      });
-      continue;
-    }
-    // 나머지 필드는 스키마를 보고 타입별 값 키로 변환해 fieldList에 싣는다
-    const { fieldList, errors: resolveErrors, extractedTopLevel } =
-      await resolveProperties(client, "product", props);
-    if (resolveErrors.length) {
-      errors.push({ code: "INVALID_FIELD", inputIndex: index, message: resolveErrors.join(" / ") });
-      continue;
-    }
-
-    try {
-      const r = await client.post<{ product?: { id: string; name: string } }>("/v2/product", {
-        ...extractedTopLevel,
-        ...(fieldList.length ? { fieldList } : {}),
-      });
-      if (r.product) objectList.push({ id: r.product.id, name: r.product.name });
-    } catch (e) {
-      errors.push({ code: "CREATE_FAILED", inputIndex: index, message: (e as Error).message });
-    }
-  }
-  return { objectList, errors, warnings };
-}
 
 
 // 딜·리드는 메인 고객/메인 회사 중 하나 필수, 메인 견적서는 생성 시 지정 불가
@@ -198,7 +147,7 @@ async function canonicalizeV3CreateProperties(
   // 커스텀 오브젝트는 `이름` 시스템 필드가 없고 정의마다 대표 필드명이 다르다.
   // 별칭을 `이름`으로 보정하면 존재하지 않는 필드를 만들게 되므로 보정 자체를 건너뛴다.
   const V3_TO_V2_SCHEMA: Record<string, string> = {
-    "고객": "people", "회사": "organization", "딜": "deal", "리드": "lead",
+    "고객": "people", "회사": "organization", "딜": "deal", "리드": "lead", "상품": "product",
   };
   const schemaType = V3_TO_V2_SCHEMA[objectType] ?? (V3_CREATE_TYPE_MAP[objectType] ? objectType : null);
   if (!schemaType) return { inputList, warnings: [] };
@@ -219,7 +168,9 @@ async function canonicalizeV3CreateProperties(
   const fixed: V3CreateInput[] = [];
   for (const [index, input] of inputList.entries()) {
     const properties: Record<string, V3CreateValue> = {};
-    for (const [rawName, value] of Object.entries(input.properties)) {
+    for (const [rawName0, value] of Object.entries(input.properties)) {
+      // @quirk ai-field-name-correction (상품 축) — 범용 별칭 규칙이 `가격`→`금액`을 못 잡는다
+      const rawName = schemaType === "product" ? (PRODUCT_ALIAS[rawName0] ?? rawName0) : rawName0;
       const name = canonicalFieldName(rawName, n => n === "이름" || names.has(n), names);
       if (Object.prototype.hasOwnProperty.call(properties, name)) {
         throw new Error(
@@ -234,7 +185,7 @@ async function canonicalizeV3CreateProperties(
       properties[name] = (ft === "date" || ft === "dateTime") && typeof value === "string"
         ? toKstBoundary(value, "start")
         : value;
-      if (name !== rawName) warnings.push(`inputList[${index}].properties: "${rawName}" → "${name}"`);
+      if (name !== rawName0) warnings.push(`inputList[${index}].properties: "${rawName0}" → "${name}"`);
     }
     fixed.push({ ...input, properties });
   }
@@ -385,7 +336,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Create ──────────────────────────────────────
   server.tool(
     "salesmap-batch-create-objects",
-    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에는 salesmap-list-properties(product)에 나오는 데이터 필드만 넣음. '이름'(필수)·'금액'(숫자, 필수)은 API 필수라 허용. 생성 메모/노트(memo)는 지원하지 않음. '설명'은 실제 상품 커스텀 필드가 있을 때만 사용. associations 미지원.",
+    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 활성 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(필수, 숫자) + '유형'·'상태'·'담당자'·'코드'·'단위'. 금액 필드명은 '가격'이 아니라 '금액'. 같은 이름의 상품이 이미 있으면 400. associations 미지원.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
@@ -413,17 +364,6 @@ export function registerGenericTools(server: McpServer) {
 
         const normalized = normalizeV3CreateInput(inputList);
         if (normalized.error) return err(normalized.error);
-
-        // 상품은 v3 create 미지원 → v2 단건 API 순회로 처리 (호출자에겐 동일하게 보인다)
-        if (PRODUCT_TYPES.has(objectType)) {
-          const r = await createProducts(client, normalized.inputList ?? []);
-          const allWarn = [...normalized.warnings, ...r.warnings];
-          const warn = allWarn.length ? { normalizedInput: allWarn } : {};
-          if (r.errors.length && !r.objectList.length) {
-            return err(r.errors.map((e) => JSON.stringify(e)).join("\n"));
-          }
-          return ok({ ...warn, result: { objectList: r.objectList, ...(r.errors.length ? { errors: r.errors } : {}) } });
-        }
 
         const apiType = V3_CREATE_TYPE_MAP[objectType] ?? objectType;
         const canonicalized = await canonicalizeV3CreateProperties(client, apiType, normalized.inputList ?? []);
