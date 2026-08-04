@@ -18,6 +18,10 @@
 (2026-07-31, 양쪽 prod main 코드 실측 기준). 원장 `docs/salesmap-api-reference-2026-07-30.md`,
 라이브 OpenAPI, 운영 DB와 교차 확인.
 
+> **이슈 참조는 번호가 아니라 「제목」으로 적는다.** `salesmap-api-issues.md`는 재구성 때
+> 번호가 통째로 바뀐다(2026-08-04에 `#2`→`L-1`, `#4`→`#1`, `#21`→`2-4` 식으로 두 번 바뀌었다).
+> 이 문서는 몇 달 뒤에 열릴 것을 전제로 하므로 번호를 믿지 않는다.
+
 ---
 
 ## §A. 확정된 사실
@@ -34,7 +38,7 @@
 코드 근거: `updateObjectListForApiFunc`에서 Organization·People 외는
 `throw ApiError.badRequest('지원하지 않는 오브젝트 유형입니다')`.
 
-**상품만 유일하게 수정 경로가 아예 없다** — 생성은 되는데 못 고친다 (이슈 #21).
+**상품만 유일하게 수정 경로가 아예 없다** — 생성은 되는데 못 고친다 (이슈 「상품(Product) 수정·삭제 API 부재」).
 
 **prod 배포 확인됨** — `HEAD /api/v3/object/update` → 204, 무인증 POST → 401(404 아님).
 
@@ -166,22 +170,24 @@ system 관계 연결/해제는 요청당 최대 100건.
   → **현행 정규식 파싱(`client.ts:108-118`) 그대로 유효.** `Retry-After` 헤더는 **없음**
 - 2,000건이면 100×20요청, **1.1~1.2초 간격** 권장 (이론상 최소는 1s)
 - 참고: 상품 `productElementList`는 create/update 공통으로 **상품 1개당 최대 50개**
-  (우리는 구성 상품 미지원 — 이슈 #35)
+  (우리는 구성 상품 미지원 — 이슈 「상품 구성(productElementList) 읽기 API 부재」)
 
 **쿼타 단위: 워크스페이스(room)당.** 일반 버킷도 배치 버킷도 동일 (2026-08-04 확인).
 사용자당이 아니다 — 같은 워크스페이스를 쓰는 **다른 사람·다른 MCP 클라이언트·API를 직접
 쓰는 연동**이 전부 같은 1 req/s를 나눠 쓴다.
 
-### A-7-1. 우리 쪽 대응 — 간격은 나눠주되 쿼타는 못 지킨다
+### A-7-1. 우리 쪽 대응 — ✅ **구현 완료** (2026-08-04, `d1c84a1`)
 
-현행 (`client.ts:32-41`): 버킷이 **하나**고 워크스페이스 구분도 없다.
+> 이관을 기다릴 이유가 없어 먼저 처리했다. 아래는 적용된 설계다.
+
+이전 (`client.ts`): 버킷이 **하나**고 워크스페이스 구분도 없었다.
 
 ```ts
 let lastRequestTime = 0;              // 전 엔드포인트 공용
 const MIN_INTERVAL_MS = 120;          // 100req/10s 기준
 ```
 
-**고칠 모양** — 버킷을 둘로 쪼개고 **워크스페이스별로 키를 건다**:
+**적용된 모양** — 버킷을 둘로 쪼개고 **워크스페이스별로 키를 건다**:
 
 | 버킷 | 대상 | 간격 |
 |---|---|---|
@@ -209,9 +215,18 @@ const MIN_INTERVAL_MS = 120;          // 100req/10s 기준
 스로틀의 목적은 **429를 없애는 것이 아니라 왕복을 아끼는 것** — 어차피 기다릴 거면
 거부당하기 전에 기다리는 편이 싸고 로그도 깨끗하다.
 
-> ⚠️ **이건 v3 update를 안 해도 지금 문제다.** `MIN_INTERVAL_MS = 120`은 100req/10s
-> 기준이라 **이미 배포된 `batch-create-objects`가 연속 호출되면 429가 난다.**
-> 사용량이 아직 31회뿐이라 안 터졌을 뿐. **별도 안건으로 먼저 처리 가능.**
+**실측 검증** (발신 시각 기준, 테스트 워크스페이스):
+
+| | 측정 |
+|---|---|
+| 일반 조회 연속 3회 | 121~132ms |
+| 배치 생성 연속 2회 | **1,102ms** |
+| 조회 → 배치 전환 | 132ms (버킷 독립 확인) |
+| 다른 지문의 배치 호출 | 36ms (워크스페이스 격리 확인) |
+
+⚠️ 측정할 땐 **완료 시각이 아니라 발신 시각**을 봐야 한다. 스로틀은 요청 시작을 벌리므로
+완료-완료 간격은 `interval - (첫 요청 소요시간)`으로 짧게 나온다(실제로 989ms가 나와
+오판할 뻔했다). `globalThis.fetch`를 감싸 발신 시각을 찍는 게 정확하다.
 
 ### A-8. Idempotency-Key
 
@@ -274,7 +289,8 @@ GROUP BY 1;
 
 **회사+고객 = 93.6%.** 착수 조건이 충족되면 나머지 6.4%도 같이 들어온다.
 
-- `update-object → update-object` **연속 전이 3,752회 (92%)** → 이슈 **#1**·**#20** 해소 대상
+- `update-object → update-object` **연속 전이 3,752회 (92%)** → 이슈 「Association 대량 처리 전용 API 부재」 해소 대상
+  (구 #1「Batch Update API 부재」는 원장 재구성 때 이 항목으로 흡수됐다)
 - 리뉴어스랩 7/27~7/28 이틀간 **2,318회를 1초 간격 순차 호출** → 100건 배치면 24회
 - `peopleId`/`organizationId` 전용 파라미터 실사용 88회
 - **관계 배열을 `properties`에 넣는 호출 1,994회 (49%)** ← 최대 위험 (§B-3)
@@ -301,8 +317,9 @@ salesmap-batch-update-objects({
 - `objectId`(단수) → `inputList[].id`. **이름을 `id`로 맞춘다** (v3 와이어와 동일)
 - `peopleId`/`organizationId` **제거** → `associations:{"메인 고객"/"메인 회사":[id]}`.
   create가 7/28에 같은 이유로 이미 제거했다 (`CLAUDE.md` 생성 도구 섹션).
-  이슈 **#3「연결 문법 이중성」**의 마지막 미구현 항목
-  (`salesmap-api-issues.md` — *"기본 연결만 아직 우회 미적용 … 코드 십수 줄"*) 해소
+  이슈 「Association 대량 처리 전용 API 부재」가 서술하는 **연결 문법 이중성**
+  (기본 연결 = top-level `peopleId`/`organizationId`, 커스텀 연결 = fieldList 관계 키)의
+  마지막 미구현 항목 해소
 - 롤백 플래그 `V3_OBJECT_UPDATE`를 `generic.ts` 상단에 신설, v2 경로를 폴백으로 보존
   (관례: `V3_OBJECT_READ`·`V3_PIPELINES`·`V2_ACTIVITY`)
 
@@ -352,10 +369,11 @@ v3는 400으로 막으므로 **v2 경로에도 같은 검사를 넣어 두 경�
 
 ### B-5. 곁다리 수정 대상
 
-1. **`client.ts:366-381` 실질 버그** — `needsUserLookup` 판정이 `canonicalFieldName` 교정
-   **이전의 raw name**으로 스키마를 조회한다. 자모가 깨진 user 필드(`"딥 담당자"` 실발생 3회)는
-   `userMap`이 로드되지 않아 `client.ts:438`의 `&& userMap` 가드에 막히고, **이름 문자열이
-   그대로 `userValueId`에 실려** 백엔드 400이 난다. v2 경로가 남으므로 반드시 고친다
+1. ✅ **완료** (`d1c84a1`) — `needsUserLookup` 판정이 `canonicalFieldName` 교정 **이전의
+   raw name**으로 스키마를 조회해, 자모가 깨진 user 필드(`"딥 담당자"` 실발생 3회)의
+   **이름 문자열이 그대로 `userValueId`에 실려** 400이 나던 버그. 판정에 `canonicalFieldName`을
+   태우고, 그러려면 `hasField`가 먼저 필요해 `TOP_LEVEL_ONLY`/`selectInput`/`hasField` 정의를
+   위로 옮겼다. 실측 대조: `{"담당쟈":"양시열"}` → 전 `"userValueId":"양시열"` / 후 UUID
 2. **`client.ts:462`** — user 배열 분기의 `if (errors.length > 0) continue`가 **전역** `errors`를
    본다. 앞선 다른 필드의 에러만으로 정상인 필드가 누락된다
 3. **`client.ts:141` 207 힌트** — *"실패한 연결만 `salesmap-update-object`로 처리하세요"* 가
@@ -367,15 +385,16 @@ v3는 400으로 막으므로 **v2 경로에도 같은 검사를 넣어 두 경�
 5. **커오 어휘 충돌** — update는 `"custom-object"` 리터럴을 **강제**하고,
    create/read는 리터럴을 **금지**하고 정의 이름을 요구한다. 정면 충돌.
    새 도구는 create 쪽에 맞추되 **v2 URL용 역변환**(정의 이름 → 리터럴)이 내부에 필요
-6. **description 문구** — `batch-create-objects`의 *"활성 사용자 이름"* 은 부정확.
-   Pending도 허용되므로 "사용 중인 사용자"가 맞다
+6. ✅ **완료** (`d1c84a1`) — `batch-create-objects`의 *"활성 사용자 이름"* 이 부정확했다.
+   Pending(초대 대기)도 지정 가능하므로 "사용 중이거나 초대 대기 중인 사용자"로 교정,
+   `tool-spec.md` 재생성
 
 ### B-6. 내부 분기 시 주의
 
-**v2 순회는 `Promise.all` 병렬 금지.** `client.ts`의 `lastRequestTime`이 모듈 전역이라
-동시 진입 시 모두 같은 `elapsed`를 읽고 같은 시각에 깨어나는 thundering herd가 된다
-(`V3_OBJECT_READ`의 v2 폴백 경로에 남아 있는 취약점 — 여기서 재현하지 않는다).
-`MIN_INTERVAL_MS` 전역 스로틀이 순차 호출을 이미 직렬화한다.
+**v2 순회는 `Promise.all` 병렬 금지.** 스로틀의 `lastRequestAt`은 호출 **시작 시점**에
+기록되므로, 동시 진입하면 모두 같은 `elapsed`를 읽고 같은 시각에 깨어나는 thundering herd가
+된다 (`V3_OBJECT_READ`의 v2 폴백 경로에 남아 있는 취약점 — 여기서 재현하지 않는다).
+순차 호출이면 `MIN_INTERVAL_MS`(120ms) 스로틀이 이미 간격을 벌려준다.
 
 v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 돌려준다 —
 `{partialSuccess:true, objectList:[…성공 id], errors:[{inputIndex, message}], hint}`.
@@ -388,7 +407,8 @@ v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 
 - `fieldlist-type-key`·`system-select-input-value`·`ai-field-name-correction`의
   `affects` 갱신 — v2 잔존 구간 표기
 - 전 타입 지원 전에 착수하는 경우에만: 신규 quirk `v3-update-partial-type-support`
-- 이슈 **#1**·**#20** → 해결로 이동, **#3**은 기본 연결 항목 해소 표시
+- 이슈 「Association 대량 처리 전용 API 부재」 → 해결로 이동,
+  「v2 Top-level 파라미터 분리」(L-2)는 기본 연결 항목 해소 표시
 - `docs/tool-spec.md` 재생성 (`npx tsx scripts/tool-spec.mts`), `CLAUDE.md` 입력 규약 표 갱신
 - **오버레이는 건드리지 않는다** — v3는 비공개 API라 공개 문서에 실을 수 없다
   (`api-ref-overlay.md` 비공개 API 배제 방침, 실었다 제거한 선례 있음)
@@ -418,4 +438,5 @@ v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 
 2. **계산 필드를 보내면 400 또는 207 `errors`** — 현재 완전 무음(200). 백엔드도 동의
 3. **429에 `Retry-After` 헤더** — 현재 본문 문구를 정규식으로 파싱 중
 4. **딜·리드·커오·상품 update 로드맵** — 제품 담당자 확인 필요 (**이 문서의 착수 조건**)
-5. **상품 수정 경로 부재** — v2·v3 모두 없음. 생성만 되고 못 고침 (이슈 #21)
+5. **상품 수정 경로 부재** — v2·v3 모두 없음. 생성만 되고 못 고침
+   (이슈 「상품(Product) 수정·삭제 API 부재」)
