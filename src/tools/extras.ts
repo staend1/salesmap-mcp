@@ -135,7 +135,7 @@ const getRecordingRaw = (client: ReturnType<typeof getClient>, id: string) =>
  *
  * 실측 2026-07-31 — 같은 메일에서 `htmlBody` 9,398자 vs `text` 339자로 **마크업이 96%**다.
  * 둘 다 실으면 응답이 28배가 되는데 AI가 읽을 내용은 같다. v3에서 `note.htmlBody`를
- * 중복이라 제거한 것과 같은 판단이다. 첨부 정보는 응답에 없다 (원장 #9 잔여 항목).
+ * 중복이라 제거한 것과 같은 판단이다. 첨부 정보는 응답에 없다 (원장 #3 잔여 항목).
  */
 async function readEmail(client: ReturnType<typeof getClient>, id: string) {
   const { htmlBody, text, ...rest } = await getEmailRaw(client, id);
@@ -220,13 +220,18 @@ async function readRecording(client: ReturnType<typeof getClient>, id: string) {
  * 본문·녹취 전문은 read-engagement로 미룬다. 상세 조회는 캐시를 공유하므로
  * 뒤이은 read-engagement가 API를 다시 부르지 않는다.
  */
-const INLINE_FETCH_LIMIT = 20;   // 한 응답에서 상세를 열어볼 최대 건수
+// 서버 페이지가 50건 고정이므로 50이면 **페이지 전체**를 덮는다.
+// 20이던 시절엔 21번째부터 내용이 안 붙어, 같은 목록 안에서 앞은 보이고 뒤는 id만 남는
+// 절단면이 생겼다 — 방금 없앤 limit 절단과 같은 계열의 문제였다.
+// 비용(실측, 테스트 워크스페이스): 목록 85ms + 인라인 50건 5,940ms ≒ 6.0초.
+// 건당 119ms로 client.ts의 일반 버킷 스로틀(120ms)에 묶여 있어 서버가 빨라져도 안 줄어든다.
+const INLINE_FETCH_LIMIT = 50;   // 한 응답에서 상세를 열어볼 최대 건수 = 서버 페이지 전체
 const NOTE_PREVIEW_CHARS = 300;  // 실측 분포상 64%가 이 안에 통째로 들어간다
 
 type ActivityQuery = {
   objectType: string; objectId: string;
   types?: string[]; startDate?: string; endDate?: string;
-  limit?: number; after?: string;
+  after?: string;
 };
 
 async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQuery) {
@@ -234,7 +239,7 @@ async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQ
   const types = q.types?.map(t => ACTIVITY_TYPE_ALIAS[t] ?? t);
   const unknown = types?.filter(t => !(V2_ACTIVITY_TYPES as readonly string[]).includes(t)) ?? [];
   if (unknown.length) {
-    // 백엔드가 잘못된 types에 **본문 없는 400**을 주므로(원장 #32 계열) 우리가 먼저 막는다
+    // 백엔드가 잘못된 types에 **본문 없는 400**을 주므로(Activity 유형 계약) 우리가 먼저 막는다
     throw new Error(`알 수 없는 활동 유형: ${unknown.join(", ")}\n사용 가능: ${V2_ACTIVITY_TYPES.join(", ")}`);
   }
 
@@ -248,8 +253,11 @@ async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQ
   const data = await client.get<Record<string, unknown>>(`/v2/${q.objectType}/activity`, query);
   const key = `${q.objectType}ActivityList`;
   const raw = (data[key] as Array<Record<string, unknown>>) ?? [];
-  // API는 limit을 무시하고 항상 50건을 준다(실측) — 응답 크기만 우리가 줄인다
-  const items = (q.limit ? raw.slice(0, q.limit) : raw).map(i => compactRecord(i));
+  // 서버가 준 페이지를 **그대로** 반환한다. 여기서 자르면 안 된다 —
+  // nextCursor는 다음 *서버* 페이지(51번째)를 가리키므로, 앞 N건만 남기고 커서를 그대로
+  // 넘기면 잘라낸 나머지가 영영 조회되지 않는다. 200으로 성공해 보이는 조용한 유실이다.
+  // (실측: 활동 55건 레코드에 limit=10 → 15건만 수집, 40건 유실)
+  const items = raw.map(i => compactRecord(i));
 
   // 상세 인라인 — 같은 id는 한 번만, 전체 상한 20건
   let budget = INLINE_FETCH_LIMIT;
@@ -403,7 +411,7 @@ get-pipelines(objectType: "deal")                 # 파이프라인·단계 ID �
   → list-products()                               # 상품 ID·가격 확인
   → create-quote(dealId OR leadId, properties{이름…}, quoteProductList[{productId, properties{이름,금액,수량…}}])
 \`\`\`
-⚠️ 구독형 상품 포함 시: \`paymentCount\`(결제 횟수)·\`startPaymentDate\`(시작 결제일) 필수.
+⚠️ 구독형 상품 포함 시: \`quoteProductList[].properties["결제 횟수"]\`·\`quoteProductList[].properties["시작 결제일"]\` 필수.
 
 ### 파이프라인 체류 시간 분석
 \`\`\`
@@ -1002,7 +1010,7 @@ export function registerExtrasTools(server: McpServer) {
         if (after) query.cursor = after;
         const data = await client.get<Record<string, unknown>>("/v2/sequence", query);
         const list = (data.sequenceList as Array<Record<string, unknown>>) ?? [];
-        // @quirk underscore-id-key — 시퀀스 목록만 id 키가 _id (원장 #23)
+        // @quirk underscore-id-key — 시퀀스 목록만 id 키가 _id (원장 #8)
         return ok({ sequences: list.map(s => ({ id: s._id, name: s.name })), nextCursor: data.nextCursor ?? null });
       } catch (e: unknown) {
         return err((e as Error).message);
@@ -1288,18 +1296,16 @@ export function registerExtrasTools(server: McpServer) {
         .describe("시작일. 날짜만 쓰면 한국시간 그날 00:00부터 (예: 2026-07-01). **최근 활동을 볼 땐 꼭 지정하세요** — 정렬이 오래된 순이라 안 주면 옛날 것부터 나옵니다"),
       endDate: z.string().optional()
         .describe("종료일. 날짜만 쓰면 한국시간 그날 23:59:59까지 — 종료일 당일이 포함됩니다"),
-      limit: z.number().int().min(1).max(50).optional()
-        .describe("반환 건수 상한 (1~50). API는 항상 50건을 주므로 응답 크기만 줄입니다."),
       after: z.string().optional()
-        .describe("페이지네이션 커서. 이전 응답의 nextCursor 값."),
+        .describe("페이지네이션 커서. 이전 응답의 nextCursor 값. 더 볼 게 없으면 nextCursor가 null입니다."),
     },
     READ,
-    async ({ objectType, objectId, types, startDate, endDate, limit, after }, extra) => {
+    async ({ objectType, objectId, types, startDate, endDate, after }, extra) => {
       try {
         const client = getClient(extra);
 
         if (V2_ACTIVITY) {
-          return ok(await listActivityV2(client, { objectType, objectId, types, startDate, endDate, limit, after }));
+          return ok(await listActivityV2(client, { objectType, objectId, types, startDate, endDate, after }));
         }
 
         if (V3_ACTIVITY) {
@@ -1310,7 +1316,6 @@ export function registerExtrasTools(server: McpServer) {
           for (const t of activeTypes) {
             const opt: Record<string, unknown> = {};
             if (after) opt.cursor = after;
-            if (limit !== undefined) opt.limit = limit;
             body[t] = opt;
           }
           const res = await client.post<Record<string, unknown>>("/v3/object/activity", body);
