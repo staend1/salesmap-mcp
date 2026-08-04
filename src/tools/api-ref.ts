@@ -2568,7 +2568,7 @@ Content-Type: application/json   # 쓰기(POST)에만
 | \`filterGroupList[].filters\` | body  | array                                | 필수  | 한 그룹 내 필터 배열. 필터 간 AND로 결합되며, 최대 3개입니다.                                                                                                                                           |
 | \`…filters[].fieldName\`      | body  | string                               | 필수  | 기본/커스텀 필드의 한글 이름(예: \`이름\`, \`금액\`, \`실패 사유\`). 정확한 이름은 \`GET /v2/field/{type}\`로 확인합니다.                                                                                                  |
 | \`…filters[].operator\`       | body  | enum                                 | 필수  | 아래 연산자표 참고. 필드 타입과 맞아야 합니다.                                                                                                                                                       |
-| \`…filters[].value\`          | body  | string \\| number \\| boolean \\| array | 조건부 | \`EXISTS\`/\`NOT_EXISTS\`에서만 생략할 수 있고, 그 외 연산자에서는 필수입니다. 빈 문자열 \`""\`은 허용되지 않습니다. \`IN\`/\`NOT_IN\`/\`DATE_BETWEEN\`은 배열로 전달합니다. boolean 필드는 따옴표 없는 \`true\`/\`false\`로 전달합니다(문자열 \`"true"\`는 400). |
+| \`…filters[].value\`          | body  | string \\| number \\| boolean \\| array | 조건부 | \`EXISTS\`/\`NOT_EXISTS\`에서만 생략할 수 있고, 그 외 연산자에서는 필수입니다. 빈 문자열 \`""\`은 허용되지 않습니다. \`DATE_BETWEEN\`은 배열입니다. \`IN\`/\`NOT_IN\`은 보통 배열이며, 다중 관계에서는 UUID 하나 또는 UUID 배열을 받습니다. boolean 필드는 따옴표 없는 \`true\`/\`false\`로 전달합니다(문자열 \`"true"\`는 400). |
 
 > **참고:** 고객·회사·딜·리드의 이름 필드는 모두 \`이름\`입니다. \`고객 이름\`·\`회사 이름\`·\`딜 이름\`·\`리드 이름\`처럼 타입명을 붙이면 400 \`Invalid fieldName: <이름>\`을 반환합니다. 정확한 필드 이름은 \`GET /v2/field/{type}\`로 확인합니다.
 
@@ -2582,6 +2582,7 @@ Content-Type: application/json   # 쓰기(POST)에만
 | 참/거짓   | \`EQ\`, \`NEQ\`                                                                                                                              | boolean               | value는 따옴표 없는 \`true\`/\`false\`. 문자열 \`"true"\`·숫자는 400    |
 | 선택(단일) | \`IN\`, \`NOT_IN\`                                                                                                                           | singleSelect          | value는 배열입니다                                          |
 | 선택(다중) | \`LIST_CONTAIN\`, \`LIST_NOT_CONTAIN\`                                                                                                       | multiSelect 등 list 타입 | string 등 비-list 필드에는 사용할 수 없습니다(400)                  |
+| 관계(다중) | \`LIST_CONTAIN\`, \`LIST_NOT_CONTAIN\`, \`IN\`, \`NOT_IN\`                                                                                | multiPeople 등        | LIST는 UUID 하나의 scalar, IN/NOT_IN은 UUID 하나 또는 배열 |
 | 날짜(지정) | \`DATE_ON_OR_AFTER\`, \`DATE_ON_OR_BEFORE\`, \`DATE_IS_SPECIFIC_DAY\`, \`DATE_BETWEEN\`                                                          | dateTime/date         | \`DATE_BETWEEN\` value=\`["2025-01-01","2025-12-31"]\` 배열 |
 | 날짜(경과) | \`DATE_MORE_THAN_DAYS_AGO\`, \`DATE_LESS_THAN_DAYS_AGO\`, \`DATE_LESS_THAN_DAYS_LATER\`, \`DATE_MORE_THAN_DAYS_LATER\`, \`DATE_AGO\`, \`DATE_LATER\` | dateTime/date         |                                                       |
 
@@ -2589,7 +2590,7 @@ Content-Type: application/json   # 쓰기(POST)에만
 
 * **boolean(체크박스)**: \`EQ\`/\`NEQ\`(값 비교)와 \`EXISTS\`/\`NOT_EXISTS\`(설정 여부)를 지원합니다. value는 따옴표 없는 \`true\`/\`false\`이며, 문자열 \`"true"\`/\`"false"\`나 숫자(\`1\`/\`0\`)는 400 \`Operator "EQ" on field "<필드>" requires a boolean value.\`를 반환합니다(숫자 필드와 달리 문자열 변환을 허용하지 않습니다). **\`EQ\`+\`false\`(명시적으로 false로 설정된 레코드)와 \`NOT_EXISTS\`(값이 설정되지 않은 레코드)는 서로 다른 조건이며 결과가 다릅니다** — "체크 해제된 레코드"를 찾을 때 \`NOT_EXISTS\`를 쓰면 안 되고 \`EQ\`+\`false\`를 씁니다.
 * **multiSelect**: \`EQ\`/\`NEQ\` 대신 \`LIST_CONTAIN\`/\`LIST_NOT_CONTAIN\`을 사용합니다. value는 옵션의 \`value\`(한글) 또는 옵션 \`id\`(UUID) 둘 다 허용합니다.
-* **relation/user 필드**(담당자, 파이프라인, 고객 등): UUID 값만 사용합니다. \`CONTAINS\`/\`NOT_CONTAINS\`는 사용할 수 없으며 400 \`Invalid operator … (type: user)\`를 반환합니다. 존재 여부는 \`EXISTS\`/\`NOT_EXISTS\`로 확인합니다.
+* **relation/user 필드**(담당자, 파이프라인, 고객 등): 표시명이 아니라 UUID 또는 레거시 ObjectId만 사용합니다. 단일 관계는 \`EQ\`/\`NEQ\` 또는 \`IN\`/\`NOT_IN\`, 다중 관계는 UUID 하나를 찾을 때 \`LIST_CONTAIN\`/\`LIST_NOT_CONTAIN\`, 여러 후보 중 하나를 찾을 때 \`IN\`/\`NOT_IN\` + UUID 배열을 사용합니다. \`CONTAINS\`/\`NOT_CONTAINS\`는 사용할 수 없으며 400 \`Invalid operator … (type: user)\`를 반환합니다. 존재 여부는 \`EXISTS\`/\`NOT_EXISTS\`로 확인합니다.
 * **빈 값 체크**: \`EXISTS\`/\`NOT_EXISTS\`를 사용합니다. \`NEQ\`+\`""\`은 검증 실패합니다.
 
 **요청 예시**

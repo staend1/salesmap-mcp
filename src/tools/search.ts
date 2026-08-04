@@ -232,8 +232,8 @@ async function resolveFilterIds(
       if (relType && GROUP_TYPES.has(relType) && f.operator !== "EXISTS" && f.operator !== "NOT_EXISTS") {
         return { error: `"${f.propertyName}" 그룹 필드는 값 검색이 불가합니다 (id 조회 수단 없음). EXISTS/NOT_EXISTS만 사용하세요.`, resolved: [] };
       }
-      // 관계 필드는 LIST_CONTAIN/LIST_NOT_CONTAIN 미지원 → IN/NOT_IN으로 자동 변환 (API 거부 방지)
-      if (relType && isRelationType(relType) && REL_LIST_OP_MAP[f.operator]) {
+      // 관계 LIST_*은 UUID 하나의 scalar 전용이다. LLM이 배열로 넣으면 다중 후보용 IN/NOT_IN으로 정규화한다.
+      if (relType && isRelationType(relType) && Array.isArray(f.value) && REL_LIST_OP_MAP[f.operator]) {
         f.operator = REL_LIST_OP_MAP[f.operator];
       }
 
@@ -395,7 +395,7 @@ const filterSchema = z.object({
     "DATE_AGO", "DATE_LATER",
   ]),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]).optional()
-    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. boolean(체크박스) 필드는 따옴표 없는 true/false. DATE_BETWEEN은 ['시작','끝'] 배열. 빈 문자열 불가"),
+    .describe("검색 값. EXISTS/NOT_EXISTS는 생략. boolean(체크박스) 필드는 따옴표 없는 true/false. DATE_BETWEEN은 ['시작','끝'] 배열. 다중 관계의 LIST_CONTAIN/LIST_NOT_CONTAIN은 UUID 하나, 여러 UUID 후보는 IN/NOT_IN 배열. 빈 문자열 불가"),
 });
 
 const filterGroupSchema = z.object({

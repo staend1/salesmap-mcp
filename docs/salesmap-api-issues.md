@@ -1,270 +1,240 @@
 # 세일즈맵 API MCP Readiness 리포트
 
-> 작성: 2026-04-14 / 최신화: 2026-07-23
+> 작성: 2026-04-14 / 최신화: 2026-08-04
 > 작성자: CX팀 (MCP 서버 구현 경험 기반)
 > 대상: 세일즈맵 API 팀 / 공식 MCP 서버 개발 시 참고
 > 운영 방침: 본문은 **현재 없는 것만** 현재형으로 기술. 해결된 이슈는 본문에서 제거하고 문서 하단 "해결됨 (메모)"에 한 줄로만 남김.
 
 ## 요약
 
-세일즈맵 CRM API v2를 MCP(Model Context Protocol) 서버로 래핑하면서, AI 에이전트가 API를 사용할 때 발생하는 구조적 문제들을 발견했습니다. HubSpot 공식 MCP 서버(20개 도구)와 비교하며 정리합니다.
+세일즈맵 CRM API v2를 MCP(Model Context Protocol) 서버로 래핑하면서, AI 에이전트가 API를 사용할 때 발생하는 구조적 문제들을 발견했습니다. HubSpot 공식 MCP 서버(당시 확인한 20개 도구)와 비교하며 정리합니다.
 
 **핵심 메시지: 공식 MCP를 만들려면 API가 먼저 잘 되어있어야 합니다.**
 
-MCP는 API 위에 얇은 래퍼를 씌우는 구조인데, API 설계에 문제가 있으면 MCP 레이어에서 우회 로직이 폭발적으로 늘어납니다. 현재 세일즈맵 MCP는 19개 도구 중 절반 이상에서 API 레거시를 보완하는 변환/우회 로직이 들어가 있습니다.
+MCP는 API 위에 얇은 래퍼를 씌우는 구조인데, API 설계에 문제가 있으면 MCP 레이어에서 우회 로직이 폭발적으로 늘어납니다. 2026-08-04 현재 세일즈맵 MCP는 29개 도구를 제공하며, 그중 절반 이상에서 API 레거시를 보완하는 변환/우회 로직이 들어가 있습니다.
+
+이번 최신화에서는 API 실측·내부 API 계획·MCP 소스를 함께 대조했습니다. 아래 본문은 업스트림 API의 한계이고, 문서 뒤의 **MCP 코드 감사 추가 이슈**는 래퍼 자체의 결함입니다. 두 종류를 섞으면 API 팀이 고칠 문제와 MCP 팀이 즉시 고칠 문제가 흐려지므로 분리합니다.
+
+## 우선순위 (필요성 기준)
+
+공수는 평가하지 않고, 데이터 정확성·잘못된 완료 보고·핵심 업무 차단·실사용 빈도를 기준으로 정렬했습니다.
+
+| 등급 | 먼저 볼 항목 | 판단 기준 |
+|---|---|---|
+| **T1** | #3-6~#3-10, #16, #2-3, #13 | 성공처럼 보이는 누락·오판, 핵심 타임라인·대량 수정의 구조적 차단. 즉시 사용자 피해가 있거나 피해를 발견하기 어렵다. |
+| **T2** | #1-1·#1-3·#1-4·#1-5, #2-1, #3-1~#3-5·#3-9, #5·#8·#9·#2-2·#2-4·#2-5·#12·#2-6, MCP-B1~B3 | 핵심 CRM·아웃바운드·카탈로그 업무가 막히거나, 가능한 작업이 N+1·전체 스캔·추가 왕복으로 크게 느려진다. |
+| **T3** | #4·#6·#7·#10·#11·#14·#15·#2-7, MCP-C1 | 현재 MCP가 대부분 흡수했거나 기능·스키마 일관성 문제다. 뉴버전 설계에는 중요하지만 즉시 데이터 손실이나 핵심 흐름 차단은 아니다. |
+
+**T1 실행 순서:** (1) #3-10의 MCP-A1/A2 활동 누락을 먼저 막고, (2) #3-8과 #16의 날짜 계약을 통일하고, (3) #3-6·#3-7의 타임라인 정렬·페이지·배치 계약과 #2-3의 관계 배치 경로를 같이 엽니다. #13의 모든 목록에 대한 페이지 신호도 함께 보강합니다. 이 순서는 구현 난이도가 아니라 “틀린 결과를 성공으로 보고하는 위험”과 반복 사용량을 기준으로 한 것입니다.
 
 ---
 
-## 1. Batch Update API 부재
+## v3 이관 중 잔존 레거시 문제
 
-### 문제
+이 섹션은 v3 계약에서 이미 해결됐거나 해결되는 방향이 확정됐지만, MCP가 아직 v2 경로를
+호환해야 해서 남아 있는 문제를 모읍니다. 본문의 현재 API 이슈와 달리 T1/T2/T3 우선순위에는
+넣지 않습니다. v2 경로가 사라지거나 v3로 이관되면 관련 MCP 변환도 함께 제거합니다.
 
-수정(`POST /v2/{type}/{id}`)은 1건씩만 처리 가능합니다. (조회는 `POST /v3/object/read`로 최대 500건, 생성은 `POST /v3/object/create`로 최대 100건 배치 가능 — 하단 해결 메모 참조)
+### L-1. v2 `fieldList` 타입 키 패턴
 
-**2026-07-31 부분 해소 — 이관은 보류**: `POST /v3/object/update`가 열렸으나 **회사·고객 2종만** 지원합니다(딜·리드·커스텀 오브젝트·상품은 400). 지금 이관하면 한 도구 안에 v3 배치 경로와 v2 단건 순회 경로를 동시에 유지해야 하고, 그 분기가 사용자 필드 변환 방향·관계 문법·커오 어휘에서 전부 갈립니다. **나머지 타입이 열린 뒤 한 번에 이관하기로 결정.** 확정된 스펙과 설계는 `docs/internal/v3-update-migration-plan.md`에 보존돼 있어 착수 조건 충족 시 재질의 없이 바로 시작할 수 있습니다.
+**v3 현재 상태:** `POST /v3/object/create`는 필드명→값의 평탄한 `data` 객체를 받고,
+MCP도 `properties`를 그대로 `data`로 보냅니다. v3 update 계약도 값이
+`string | number | boolean | string[] | null`인 같은 `data` 구조입니다. 따라서
+`userValueId`·`numberValue`·`stringValueList` 같은 타입별 `fieldList` 키를 클라이언트가
+선택할 필요가 없습니다.
 
-### 실제 영향
+**잔존 범위:** 현재 `salesmap-update-object`와 `create-quote`의 v2 쓰기 경로는 여전히
+`fieldList`를 사용합니다. MCP의 `resolveProperties()`는 스키마를 조회해
+`{ "부가 서비스": "A" }`를 해당 타입의 값 키로 변환하고, 사용자 이름도 UUID로 해석합니다.
+이 호환 변환은 v2 경로가 남아 있는 동안 유지합니다.
 
-"이 리드 20건의 담당자를 홍길동으로 바꿔줘" → 20번의 개별 POST 호출 필요. 텔레메트리 기준 `update-object → update-object` 연속 전이 1,074회 — 일괄 수정 수요가 실사용에서 확인됨.
+**제거 조건:** 해당 쓰기 경로가 v3 `data` 계약으로 이관되고, 견적서 전용 입력도 같은 수준의
+평탄 계약을 갖추면 제거합니다.
 
-### HubSpot 비교
+### L-2. v2 Top-level 파라미터 분리
 
-```
-HubSpot: batch/update (최대 100건)
+**v3 현재 상태:** v3 batch create는 시스템 필드를 포함한 필드 값을 `data`의 필드명→값으로
+받습니다. v2처럼 `fieldList`와 `name`·`price`·`pipelineId`·`pipelineStageId`·`status` 같은
+top-level 슬롯을 오가게 하지 않습니다.
 
-POST /crm/v3/objects/deals/batch/update
-  → { inputs: [{ id:"1", properties: {"amount":50000} }, ...] }
-```
+**잔존 범위:** 현재 v2 수정 경로에서는 오브젝트별 top-level 전용 값이 남아 있습니다. 예를 들어
+딜은 이름·금액·파이프라인·단계·상태를 top-level body로 보내야 하고, 다른 필드는
+`fieldList`에 넣습니다. MCP는 `TOP_LEVEL_BY_TYPE`으로 알려진 표시명(`금액`, `파이프라인 단계`
+등)을 API 파라미터로 자동 추출하지만, 잘못된 위치로 보내면 API가 200으로 조용히 무시하는
+경우가 있어 매핑 유지가 필요합니다.
 
-허브스팟 MCP는 이를 `batch-update-objects` 도구로 직접 노출합니다.
+견적서 상품의 별도 top-level 계약은 일반 경로와 다르므로 #15에서 계속 다룹니다.
 
-### MCP에서의 우회
+**제거 조건:** v2 단건 수정과 견적서 관련 쓰기 경로가 v3의 평탄한 필드 입력 계약으로 이관되면
+제거합니다.
 
-미구현. 단건 도구를 LLM이 반복 호출하거나 `run-script`로 순회합니다. 생성은 `salesmap-batch-create-objects`로 우회 없이 처리합니다.
+## 1. Search API 제한
 
----
-
-## 2. fieldList 타입 키 패턴
-
-### 문제
-
-필드 값을 쓸 때 타입별로 다른 키를 사용해야 합니다.
-
-```json
-// 세일즈맵: 클라이언트가 15개 이상의 타입 키를 알아야 함
-{ "fieldList": [
-    { "name": "담당자", "userValueId": "uuid" },
-    { "name": "금액", "numberValue": 50000 },
-    { "name": "이메일", "stringValue": "a@b.com" },
-    { "name": "참여자", "userValueIdList": ["uuid1", "uuid2"] },
-    { "name": "소속팀", "teamValueIdList": ["team-uuid"] }
-]}
-```
-
-```json
-// HubSpot: 평탄한 name→value 맵. 타입 키 없음 (2026-07 공식 문서 재검증, 원문 예시)
-{ "properties": {
-    "dealname": "New deal",
-    "amount": "1500.00",
-    "closedate": "2019-12-07T16:50:06.678Z",
-    "hubspot_owner_id": "910901",
-    "hs_buying_role": ";BUDGET_HOLDER;END_USER"
-}}
-```
-
-허브스팟은 프로퍼티 **이름**만으로 서버가 자기 스키마에서 타입을 찾아 해석합니다. 타입별 부담이 "키 선택"이 아니라 "값 표기 규칙"(날짜=ISO 8601 또는 epoch ms, 복수선택=세미콜론 문자열)으로만 남고, 그마저 관대함 — 복수선택 필드에 단일 문자열을 보내도 400이 아니라 단일 값으로 수용됩니다. 클라이언트(LLM)가 타입을 몰라도 대부분 통과하는 구조.
-
-### 실제 영향
-
-LLM이 필드 **타입**을 모르면 잘못된 값 키를 사용합니다. 예: 사용자가 `{ "부가 서비스": "A" }`로 요청 — 그런데 '부가 서비스'는 **복수 선택(multiSelect)** 필드라 `{ "name": "부가 서비스", "stringValueList": ["A"] }`(배열) 형태로 보내야 합니다. AI는 필드가 multiSelect인지 모르니 단일 문자열로 보내고, API는 `"부가 서비스에 stringValueList가 없습니다"`로 거부합니다.
-
-### MCP에서의 우회
-
-`resolveProperties()` 함수를 구현했습니다. 매번 `/v2/field/{type}` API로 스키마(필드 타입)를 조회한 뒤, 타입별 올바른 값 키로 변환합니다: `{ "부가 서비스": "A" }` → `{ "name": "부가 서비스", "stringValueList": ["A"] }`. (multiSelect→stringValueList 등 타입 매핑 + 리스트 타입은 단일값을 배열로 자동 변환). **AI가 필드 타입을 몰라도 자연스러운 값만 넘기게** 흡수하는 게 핵심 — 대신 스키마 조회 API 콜 1회가 추가됨.
-
----
-
-## 3. Top-level 파라미터 분리
-
-### 문제
-
-특정 필드들이 `fieldList` 안에 들어갈 수 없고, top-level body 파라미터로만 전달 가능합니다.
-
-```json
-POST /v2/deal
-{
-  "name": "딜 이름",           // ← top-level만 가능
-  "price": 50000,              // ← top-level만 가능
-  "pipelineId": "uuid",        // ← top-level만 가능
-  "pipelineStageId": "uuid",   // ← top-level만 가능
-  "status": "In progress",     // ← top-level만 가능
-  "fieldList": [               // ← 나머지 필드
-    { "name": "담당자", "userValueId": "uuid" }
-  ]
-}
-```
-
-### 실제 영향
-
-LLM은 "모든 필드를 properties에 넣으면 됨"이라는 단일 규칙으로 동작해야 효율적입니다. top-level 예외가 있으면 매번 "이 필드는 top-level인가 fieldList인가"를 판단해야 하고, 에러율이 높아집니다.
-
-**연결(관계)도 같은 이중성을 겪습니다.** 세일즈맵은 연결을 위치에 따라 두 문법으로 나눕니다:
-- **기본(primary) 연결** — top-level 파라미터 (`peopleId`, `organizationId`)
-- **커스텀 연결** — `fieldList`의 관계 타입 키 (`peopleValueIdList`, `customObjectValueIdList` 등)
-
-같은 개념(레코드 연결)이 primary냐 custom이냐에 따라 문법이 갈리는 게 혼란원입니다. 참고로 타 CRM은 한 축으로 통일: Salesforce는 기본 연결도 **전부 필드**, HubSpot은 기본이든 커스텀이든 **전부 association 리소스**. 세일즈맵만 혼합.
-
-### MCP에서의 우회
-
-`TOP_LEVEL_ONLY` 맵으로 properties에 `"금액": 50000`을 넣으면 자동으로 body `price: 50000`으로 추출합니다.
-
-```typescript
-const TOP_LEVEL_ONLY = {
-  "금액": "price", "이름": "name",
-  "파이프라인": "pipelineId", "파이프라인 단계": "pipelineStageId", "상태": "status",
-};
-```
-
-- **커스텀 연결**은 `resolveProperties()`가 스키마 조회로 관계 타입 키를 자동 변환 → AI는 `properties: {"요청자": [id]}`처럼 관계명으로만 쓰면 됨 (관계명은 list-associations로 확인)
-- **기본 연결(회사·고객)만 아직 우회 미적용** — AI가 top-level `organizationId`/`peopleId`를 써야 함. `TOP_LEVEL_ONLY`에 objectType-스코프로 `"회사"→organizationId`·`"고객"→peopleId`를 추가하면 여기도 properties 단일 문법으로 흡수 가능 (미구현, 코드 십수 줄). 그러면 AI 멘탈 모델이 **"뭐든 properties에 이름으로"** 하나로 통일됨.
-
-### 백엔드 방향 (뉴버전 API 설계 시)
-
-top-level 파라미터·기본연결·커스텀연결을 **전부 `properties` 한 곳으로 통일**하는 게 맞습니다 (Salesforce 축 — 연결도 필드로 취급). 서버가 이름→타입을 스키마로 해석하면(이슈 #2 참조) 클라이언트는 위치·타입 구분 없이 이름-값만 보내면 됨. 단, top-level→properties 통합은 기존 연동을 깨는 breaking change라 뉴버전에서만. 그 전까진 위 MCP 우회로 체감 해소.
-
----
-
-## 4. Search API 제한
-
-### 4-1. 정렬 미지원
+### 1-1. 정렬 미지원
 
 `sorts` 파라미터를 보내도 API가 무시합니다. 금액순 정렬, 최신순 정렬 등이 서버단에서 불가능합니다.
 
-**MCP 우회**: 전체 결과를 가져온 후 클라이언트에서 정렬해야 하지만, 페이지네이션과 충돌합니다 (1페이지 50건만 정렬됨).
+**MCP 우회**: 전체 결과를 가져온 후 클라이언트에서 정렬해야 해서 비용이 많이 듭니다.
 
-### 4-2. 빈 필터 불가
+### 1-2. 빈 필터 불가
 
 `filterGroupList: []`를 보내면 에러. 전체 목록 조회가 search로 안 됩니다.
 
 **MCP 우회**: `{ fieldName: "이름", operator: "EXISTS" }` 더미 필터를 삽입합니다.
 
-### 4-3. 응답이 `{ id, name }`만 반환
+### 1-3. 응답이 `{ id, name }`만 반환
 
 검색 결과에 상세 필드가 없습니다. 사용자가 "금액 1억 이상인 딜"을 검색하면, 검색은 되지만 금액 값을 보려면 다시 개별 조회해야 합니다.
 
 **HubSpot**: search 응답에 `properties[]`로 지정한 필드가 포함됩니다.
 
-### 4-5. custom-object 검색 미지원
+### 1-4. custom-object·상품 검색 미지원
 
-`POST /v2/object/custom-object/search` → 미지원 (`Invalid Parameters`).
+`POST /v2/object/custom-object/search`는 `Invalid Parameters`,
+`POST /v2/object/product/search`는 `400 Bad Request`를 반환합니다. 두 object type이 공통
+Search API 대상에서 빠져 있습니다.
 
----
+상품은 목록 API에도 이름·코드 같은 필터가 없어 특정 `productId`를 찾으려면 전체
+`GET /v2/product` 목록을 cursor로 순회해야 합니다. `create-quote`의 카탈로그 연동이 특히
+영향을 받습니다. custom-object도 전용 search 경로가 없어 일반 object와 같은 조건 검색을
+표현할 수 없습니다.
 
-## 5. Association 구조 차이
+**API 개선안:** custom-object와 product를 공통 object search dispatcher에 포함하고, 상품에는
+최소한 이름·코드 exact filter를 지원합니다. 상품 수정·삭제 경로의 부재는 #2-4에서 다룹니다.
 
-### 문제
+### 1-5. string 필드 다중 exact match(`IN`) 미지원
 
-세일즈맵 association API는 `primary`와 `custom`이 분리되어 있고, 활동(engagement)에 대한 association이 없습니다.
+`POST /v2/object/{targetType}/search`는 string 타입 필드에 `IN` 연산자를 허용하지 않습니다.
+따라서 "회사명 80개를 CRM organization과 exact match" 같은 작업을 한 번에 표현할 수 없습니다.
 
-```
-세일즈맵:
-  GET /v2/object/{type}/{id}/association/{toType}/primary  → ID 배열
-  GET /v2/object/{type}/{id}/association/{toType}/custom   → {id, label} 배열
-  → memo, email, todo 등은 association 대상이 아님
-```
-
-```
-HubSpot:
-  list-associations(objectType, objectId, toObjectType)
-  → notes, emails, tasks도 objectType으로 취급 → association 조회 가능
-```
-
-### 실제 영향
-
-Claude가 "이 고객의 메모를 보고 싶다"고 할 때:
-- **HubSpot**: `list-associations(contacts, id, notes)` → note ID 목록 → `batch-read`
-- **세일즈맵**: association으로 memo를 조회할 수 없음. activity API(`/v2/{type}/activity`)를 통해서만 접근 가능.
-
-Claude는 HubSpot 패턴을 학습했기 때문에 association → 개별 조회 패턴을 시도합니다. 세일즈맵에서는 이 패턴이 memo에 대해 작동하지 않아서 우회해야 합니다.
-
-### MCP에서의 우회
-
-`salesmap-list-engagements` 도구를 별도 구현하여 activity API를 래핑하고, 이메일 제목과 메모 본문을 자동으로 인라인합니다. 하지만 Claude가 이 도구의 존재를 모르고 association 패턴을 시도하는 경우가 빈번합니다.
-
----
-
-## 6. Rate Limit
-
-### 문제
-
-세일즈맵 API는 10초당 100건 제한(추정)이 있고, 초과 시 429를 반환합니다. 문서화되어 있지 않습니다.
-
-### 실제 영향
-
-AI 에이전트는 병렬로 빠르게 호출하는 패턴이 일반적입니다. batch-read 20건, association 카운트 조회, engagement 조회 등이 동시에 발생하면 쉽게 한도에 도달합니다.
-
-### MCP에서의 우회
-
-모든 API 호출 전 120ms 인터벌을 강제 삽입하고, 429 시 exponential backoff로 재시도합니다. 이로 인해 응답 시간이 불필요하게 늘어납니다.
-
-### HubSpot 비교
-
-HubSpot MCP는 rate limit 처리 로직이 없습니다. HubSpot API 자체가 충분한 한도(초당 100~200건)를 제공하고, 초과 시에도 retry-after 헤더로 명확하게 안내합니다.
-
----
-
-## 7. 응답 래핑 비일관성 — 기본 오브젝트는 1요소 배열, 커스텀 오브젝트는 객체
-
-### 문제
-
-단건 조회 응답에서 레코드를 감싸는 형태가 오브젝트 종류에 따라 다릅니다.
+실제 MCP 사용 로그에서 아래 요청이 실패했습니다.
 
 ```json
-// 기본 오브젝트 4종 — 1건인데 배열로 감쌈 (실측 2026-07, 일관됨)
-GET /v2/deal/{id}         → { "data": { "deal":         [ {...} ] } }
-GET /v2/organization/{id} → { "data": { "organization": [ {...} ] } }
-GET /v2/people/{id}       → { "data": { "people":       [ {...} ] } }
-GET /v2/lead/{id}         → { "data": { "lead":         [ {...} ] } }
-
-// 커스텀 오브젝트 · 노트 — 객체 (배열 아님)
-GET /v2/custom-object/{id} → { "data": { "customObject": {...} } }
-GET /v2/memo/{id}          → { "data": { "memo":         {...} } }
-```
-
-즉 "타입마다 제각각"이 아니라 **기본 오브젝트(배열) vs 커스텀 오브젝트·노트(객체)** 두 갈래입니다. 기본 4종은 서로 일관되며, 1건 조회인데 배열로 감싸는 점만 어색.
-
-### 왜 커오·노트만 객체인가 (추정)
-
-기본 오브젝트가 오히려 "덜 깔끔한" 배열이고 커오가 객체인 게 역설적으로 보이지만, **설계 세대 차이**로 추정됩니다. 기본 오브젝트(딜·회사·고객·리드)는 초창기 설계라 목록 조회의 `dealList: [...]` 배열 관습을 단건 조회에도 그대로 적용한 흔적(1건이어도 배열로 감쌈)이고, 커오·노트는 나중에 추가되면서 "1건이면 객체로" 라는 더 상식적인 방식으로 구현된 것. 즉 오류가 아니라 두 세대의 관습이 공존하는 상태.
-
-### MCP에서의 우회
-
-`getOne()`이 **타입을 따지지 않고 "온 값이 배열이냐"만 보는 범용 로직**으로 흡수 — 배열이면 `[0]`을 꺼내고 아니면 그대로. 그래서 딜이든 커오든 호출부는 항상 객체 하나를 받음.
-
-```typescript
-async getOne(path, key) {
-  const data = await this.get(path);
-  const arr = data[key];                       // data.deal 또는 data.customObject
-  if (Array.isArray(arr) && arr.length > 0) return arr[0];  // 배열 → 0번째 (기본 4종)
-  // 배열 아니면 객체 그대로 (커오·노트)
+{
+  "fieldName": "이름",
+  "operator": "IN",
+  "value": ["A병원", "B의원", "C피부과"]
 }
 ```
 
-(주의: 이 항목의 이전 버전은 "deal=객체, organization=배열"로 서술했으나 실측 결과 사실과 반대 — 4종 전부 배열. 2026-07 정정)
+서버 응답은 다음 취지입니다.
 
-### API 개선안
+```text
+Invalid operator "IN" for field "이름" (type: string)
+허용 연산자: EQ, NEQ, CONTAINS, NOT_CONTAINS, EXISTS, NOT_EXISTS
+```
 
-뉴버전에서 단건 조회는 1요소 배열이 아니라 객체로 통일 (기본 오브젝트도 커오·노트처럼). 우선순위 최하 — MCP가 범용 로직으로 이미 완전 흡수, 성능·기능 영향 없음.
+현재 서버 검증 기준 string 허용 연산자는 `EQ`, `NEQ`, `CONTAINS`, `NOT_CONTAINS`,
+`EXISTS`, `NOT_EXISTS`뿐입니다.
+
+#### 실제 영향
+
+MCP/LLM이 합리적인 대량 이름 조회를 API로 표현하지 못해, 아래처럼 전체 organization을
+페이지네이션으로 가져온 뒤 JS 메모리에서 매칭하는 위험한 우회를 수행했습니다.
+
+```js
+const all = await salesmap.getAll('/v2/organization');
+const orgList = all.organizationList;
+```
+
+이후 이름 기준 `Map`을 만들어 로컬 매칭했습니다.
+
+```js
+const byName = new Map();
+for (const o of orgList) {
+  const n = o['이름'];
+  // ...
+}
+```
+
+다음 유사검색 스크립트도 동일하게 전체 organization을 가져왔습니다.
+
+```js
+const all = await salesmap.getAll('/v2/organization');
+const orgs = all.organizationList.map(o => ({ id: o.id, name: o['이름'] }));
+```
+
+실측 소요 시간은 첫 전체 스캔 약 22.4초, 두 번째 약 20.3초로 120초 제한 안에는 들어왔지만,
+레코드 수가 증가하면 실패·부하 위험이 큽니다.
+
+전체 스캔 우회는 다음 문제가 있습니다.
+
+- `/v2/organization` 전체를 끝까지 읽어야 함
+- 회사가 수만~수십만 개면 MCP 서버 메모리·CPU 사용량 증가
+- Salesmap API/DB에도 페이지네이션 부하 전파
+- `getAll`에 max page 제한이 있으면 일부만 읽고도 성공처럼 보일 수 있음
+- 여러 사용자가 동시에 실행하면 MCP가 병목 또는 DoS 지점이 될 수 있음
+
+EQ 반복 호출 우회도 느립니다. search API가 100 request / 10s 쿼타이고 search 호출 1회가
+10 request치를 소모한다면, 80개 이름을 개별 `EQ`로 찾는 데 800 request quota가 필요합니다.
+현재 search API의 `filterGroup` 제한이 3개라 OR로 묶어도 약 27회 호출이 필요합니다.
+
+#### MCP에서의 우회
+
+현재는 전용 우회가 없습니다. LLM이 `IN` 실패 후 `CONTAINS`를 여러 번 호출하거나,
+`run-script`에서 전체 목록을 가져와 메모리 매칭을 수행합니다.
+
+MCP 레벨에서 할 수 있는 완화책:
+
+- 큰 object 타입에 대한 무제한 `getAll('/v2/organization')` 사용 금지 또는 경고
+- max page 도달 시 성공 반환 금지 (`truncated=true` 또는 error)
+- 임시로 `batchSearchOrganizationsByName(names)` 같은 도구 제공
+
+단, MCP 전용 batch lookup 도구도 내부 구현이 전체 스캔이면 안 됩니다. 반드시 서버/API/DB에서
+exact lookup으로 후보만 가져와야 합니다.
+
+#### API 개선안
+
+string 필드에 제한된 `IN`을 지원합니다. 목적은 문자열 포함검색이 아니라 여러 문자열의
+exact match입니다.
+
+```json
+{
+  "fieldName": "이름",
+  "operator": "IN",
+  "value": ["A병원", "B의원", "C피부과"]
+}
+```
+
+동작은 `이름 = A OR 이름 = B OR 이름 = C`와 같고, SQL 레벨에서는
+`WHERE name IN (...)` 형태로 처리할 수 있습니다. `CONTAINS`와는 별개이며 fuzzy/partial batch 검색은
+지원하지 않아도 됩니다.
+
+제한 조건:
+
+- string `IN`은 string 배열만 허용
+- 빈 배열 불가
+- 배열 길이 제한 필요 (예: 최대 100개 또는 200개)
+- 중복 value는 서버에서 dedupe 가능
+- 개별 문자열 길이 제한 적용
+- CRM 리스트 UI에는 노출하지 않고 API/MCP 용도로만 먼저 열어도 됨
 
 ---
 
-## 8. 누락된 API
+## 2. API 부재 — 없는 기능 모음
+
+API 자체가 없거나 정상 동작 경로가 없어 MCP가 작업을 완료할 수 없는 항목을 모았습니다.
+검색 대상 누락은 Search API 문맥을 보존하기 위해 #1-4에, activity의 목록·상세·쓰기 부재는
+한곳에서 보도록 #3에 둡니다. 이 섹션에는 그 밖의 업무·스키마·카탈로그 API 부재를 모읍니다.
+
+| 이슈 | 없는 기능 | 상세 위치 또는 MCP 영향 |
+|------|-----------|-------------------------|
+| #1-4 | custom-object·상품 조건 검색 | Search API 제한 섹션 |
+| #3-1·#3-2·#3-4·#3-7·#3-9 | 활동 공통 CRUD·전역 발견, 이메일 분석, TODO lifecycle, activity batch, 녹음 목록/역방향 조회 | Engagement / Activity 섹션 |
+| #2-1 | 이메일 템플릿·시퀀스 생성 및 등록 | 아웃바운드 자동화 전체 차단 |
+| #2-2 | 필드(Property) 수정 | 옵션·라벨·설정 변경이 UI 전용 |
+| #2-3 | 관계만 대량 처리하는 경로 | batch update 전까지 단건 반복 |
+| #2-4 | 상품 수정·삭제 | 잘못 만든 카탈로그를 API로 정정·정리 불가 |
+| #2-5 | 레코드 병합 | 중복 데이터 정리가 UI 전용 |
+| #2-6 | 견적서 발행/공유 링크 생성 | 견적 자동화의 마지막 단계 차단 |
+| #2-7 | 상품 구성 읽기 | 생성 결과를 API로 검증 불가 |
+
+### 2-1. 시퀀스·아웃바운드 API 부재
 
 CRM 업무에서 일상적으로 필요하지만 API가 없거나 작동하지 않는 기능들:
 
 | 기능 | 현재 상태 | 비즈니스 필요 |
 |------|-----------|-------------|
-| TODO 생성 | `POST /v2/todo` → 500 | 미팅 후 후속 조치 등록, 팀원에게 업무 할당 |
 | 이메일 템플릿 생성 | API 없음 | 시퀀스의 재료 — 아웃바운드 자동화의 시작점 |
 | 시퀀스 생성 | API 없음 | 템플릿을 엮어 캠페인 구성 |
 | 시퀀스 등록 | `POST /v2/sequence/enrollment` → 500 | 신규 리드 자동 시퀀스 배정, 대량 아웃바운드 |
@@ -280,29 +250,386 @@ CRM 업무에서 일상적으로 필요하지만 API가 없거나 작동하지 �
 
 "이 리드 20명에게 온보딩 시퀀스 돌려줘"는 등록만 있으면 되지만, "이런 내용으로 3단계 팔로업 시퀀스 만들어서 돌려줘"(AI에게 가장 자연스러운 요청)는 템플릿부터 등록까지 전부 필요. 현재는 셋 다 없어서 **아웃바운드 자동화 전체가 GUI 전용**.
 
-> 이메일(#9), engagement 상세(#14), 커스텀 오브젝트(#13), 리드→딜 전환(#15)은 각 독립 이슈 참조.
+> 개별 이메일·TODO·활동 상세·활동 전파는 #3 Engagement / Activity API에서 함께 다룹니다.
+
+### 2-2. 필드(Property) 수정 API 부재
+
+#### 문제
+
+필드 **수정** API가 없습니다. 옵션 값 변경, 라벨 변경, 필드 설정 변경은 UI에서만 가능합니다.
+(생성은 `POST /v2/field/{type}`으로 가능 — 하단 해결 메모 참조)
+
+#### 실제 영향
+
+- **옵션 값 관리 불가**: 선택형 필드에 옵션 추가/변경이 UI 전용 — "기능 카테고리에 '보안' 옵션 추가해줘" 불가
+- **마이그레이션 제약**: 타 CRM 이관 시 기존 필드의 설정 변경을 프로그래밍적으로 못 함
+
+#### HubSpot 비교
+
+```text
+HubSpot: list/get/create/update property를 분리해 제공
+  - list: 축소 응답으로 전체 목록을 가볍게 탐색
+  - get: 옵션·validation·설정 상세
+  - create/update: 커스텀 필드 lifecycle
+```
+
+#### MCP에서의 우회
+
+없음 — `list-properties`로 조회만 가능. 수정이 필요하면 사용자를 UI로 안내.
+
+### 2-3. Association 대량 처리 전용 API 부재
+
+#### 문제
+
+레코드 연결 **자체는 update로 가능**합니다 (기본 연결 = top-level `peopleId`/`organizationId`,
+커스텀 연결 = fieldList 관계 키). 세일즈맵은 연결을 별도 리소스가 아닌 **관계 필드**로 취급하기
+때문입니다. 없는 것은 **연결만 대량으로 처리하는 전용 경로** — 현재는 단건 update를
+반복해야 합니다.
+
+#### 실제 영향
+
+"고객 500명을 회사 A로 재연결" 같은 대량 연결 변경이 update 500회입니다. 예정된 batch
+update가 v3의 `association` 객체를 그대로 수용하면 별도 association API 없이 함께 해소됩니다.
+
+#### 세일즈맵 vs HubSpot (모델 차이)
+
+- **HubSpot**: 연결이 독립 리소스 → 전용 association API(batch 최대 2,000쌍). update로는 연결 변경 불가
+- **세일즈맵**: 연결이 관계 필드 → update로 변경 가능. 대신 "연결만" 대량 처리하는 전용 API는 없음
+
+#### MCP에서의 우회
+
+`list-associations`로 가능한 관계명 확인 → `update-object` properties에 관계명으로 연결 지정.
+대량은 단건 반복 또는 run-script입니다. **예정된 batch update가 `association` 객체를 지원하면
+별도 association API 없이 커버 가능합니다.**
+
+### 2-4. 상품(Product) 수정·삭제 API 부재
+
+#### 문제
+
+상품 생성은 `POST /v3/object/create`, 상세 조회는 `POST /v3/object/read`로 가능하며 MCP도 두
+경로를 사용합니다. 반면 수정과 삭제에는 MCP가 사용할 수 있는 API가 없습니다.
+
+```text
+POST /v3/object/create  (product) → 가능
+POST /v3/object/read    (product) → 가능
+POST /v3/object/update  (product) → 지원하지 않는 오브젝트 유형
+삭제 경로                         → v2·v3 모두 MCP 사용 가능 경로 없음
+```
+
+2026-07-31에 열린 `POST /v3/object/update`는 회사·고객만 지원합니다(백엔드 코드 실측:
+`updateObjectListForApiFunc`에서 Organization·People 외는 `지원하지 않는 오브젝트 유형입니다`).
+v2에도 상품 수정·삭제 경로가 없으므로, **만들고 읽을 수는 있지만 고치거나 지울 수 없습니다.**
+상품 이름·코드로 ID를 찾는 검색/필터 문제는 #1-4에서 다룹니다.
+
+#### 실제 영향
+
+- 상품명·가격 수정 불가 — 잘못 생성하면 UI에서만 수정 가능
+- 테스트용 상품 삭제 불가
+- 카탈로그를 대량 생성한 뒤 정정·정리하는 자동화가 불가
+
+#### HubSpot 비교
+
+HubSpot은 Product/Line Item lifecycle에 create·read·update·delete 경로를 제공합니다.
+
+#### MCP에서의 우회
+
+MCP는 `salesmap-batch-create-objects`와 `salesmap-batch-read-objects`로 생성·조회만 처리합니다.
+수정·삭제는 UI에서 해야 합니다. `create-quote`는 카탈로그 연동 없이 `name` + `price`로 항목을
+만들 수 있지만, 이미 만든 카탈로그 상품을 정정하지는 못합니다.
+
+### 2-5. 레코드 병합(Merge) API 부재
+
+#### 문제
+
+중복 레코드를 하나로 병합하는 API가 없습니다. CRM 운영에서 중복 고객/회사 레코드는 빈번하게
+발생하며, 병합은 일상적인 데이터 정리 작업입니다.
+
+#### 비즈니스 필요
+
+- 동일 고객이 여러 경로로 유입되어 중복 레코드 생성 (웹폼, 수동 입력, CSV 임포트)
+- 병합 시 활동 이력, 노트, 연관 딜 등을 보존하면서 하나로 통합해야 함
+- 현재는 UI에서만 가능 — API/자동화로 대량 중복 정리 불가
+
+#### HubSpot 비교
+
+```text
+HubSpot: POST /crm/v3/objects/{objectType}/merge
+  body: { primaryObjectId, objectIdToMerge }
+  → 두 레코드를 병합하고 활동/연관 관계를 primary로 이전.
+```
+
+허브스팟 공식 MCP에는 merge 도구가 아직 없지만, API는 존재합니다.
+
+#### MCP에서의 우회
+
+우회 불가. 중복 레코드 감지는 search로 가능하지만, 병합 자체는 API가 없어 실행 불가.
+
+### 2-6. 견적서 발행(공유 링크 생성) API 부재 — 견적 자동화의 최종 장벽
+
+#### 문제
+
+견적서 관련 엔드포인트는 3개뿐이다 (2026-07 라이브 OpenAPI + 테스트 워크스페이스 실측):
+- `POST /v2/quote` — 생성
+- `GET /v2/deal/{id}/quote`, `GET /v2/lead/{id}/quote` — 딜/리드별 조회
+
+**발행(publish)·발송·수정·삭제 엔드포인트가 없다.** 발행은 세일즈맵 GUI에서 사람이 눌러야만
+일어나는 액션이며, 그 순간에 `공유 링크`(고객 전달용 공개 URL)가 생성된다.
+
+#### 실제 영향 (실측)
+
+견적서 조회 응답에 `공유 링크` 필드가 있어 "생성 → 링크 획득 → 이메일 발송(`POST /v2/email`)"으로
+자동화가 이어질 것처럼 보이지만, 실측 결과:
+
+| 검증 | 결과 |
+|---|---|
+| API로 생성한 견적서의 `공유 링크` | **null** |
+| `isMainQuote: true` | 메인 견적서로 지정되지만 공유 링크는 여전히 **null** |
+| 미문서 경로 probing (`/quote/{id}/publish`·`/share`·`/issue`) | 전부 **404** |
+| 기존에 링크가 있던 견적서 | 사람이 GUI에서 발행한 메인 견적서 |
+
+즉 **API/MCP로는 생성까지만 되고, 발행(공유 링크 발급)이 불가**해서 이메일에 첨부할 URL 자체가
+안 나옵니다. "AI가 견적서 만들어 바로 고객에게 발송"은 생성까지만 자동화되고, 발행+발송은
+사람이 GUI에서 마무리해야 합니다.
+
+#### 백엔드 제안
+
+1. **견적서 발행 API** (예: `POST /v2/quote/{id}/publish` → 공유 링크 반환)
+2. 또는 생성 시 발행 옵션 (`POST /v2/quote`에 `publish: true` → 응답에 공유 링크 포함)
+3. (부수) 견적서 수정·삭제 API
+
+### 2-7. 상품 구성(productElementList) 읽기 API 부재
+
+#### 문제
+
+`POST /v3/object/create`가 `productElementList`(상품의 하위 상품 묶음)를 지원하지만,
+**만든 구성을 다시 읽을 방법이 없습니다.** `GET /v2/product` 응답에 구성 상품이 없습니다.
+
+#### MCP에서의 결정
+
+**지원하지 않기로 결정했습니다.** 구성 상품은 상품의 하위 상품 묶음을 의미하는데,
+역으로 읽는 방법이 없어 AI가 생성 결과를 검증할 수 없습니다.
+
+#### API 개선안
+
+상품 조회 응답에 `productElementList`를 포함하는 읽기 경로를 제공합니다.
 
 ---
 
-## 9. 이메일 API — 목록 조회 부재 + 첨부 정보 없음
+## 3. Engagement / Activity API — 목록·상세·쓰기·타임라인을 한곳에
 
-> **✅ 본문 미제공은 해소됨 (2026-07-29 릴리즈).** `GET /v2/email/{emailId}` 응답에
-> `snippet`·`htmlBody`·`text`가 추가됐다. MCP는 `salesmap-read-engagement(type:"email")`로 제공.
-> 주석 처리돼 있던 `read-email`을 이 도구로 되살렸다.
->
-> 실측 참고 — 같은 메일에서 `htmlBody` 9,398자 vs `text` 339자로 **마크업이 96%**다.
-> 본문이 필요하면 `text`를 먼저 보고 없을 때만 `htmlBody`를 쓰는 편이 낫다.
+> 범위: 노트, 이메일, TODO, SMS, 미팅, 카카오 알림톡, 녹음/AI transcript와 이들을 보여주는
+> activity 타임라인. 활동과 직접 무관한 시퀀스·템플릿 API는 #2-1에 남깁니다.
+> `3-1~3-5`는 타입·발견·쓰기·전파, `3-6~3-10`은 타임라인 완전성·확장성·MCP 정확성입니다.
 
-### 남은 문제
+### 3-1. 타입별 API 표면이 분절됨
 
-**① 이메일 목록 조회 API가 없다.** `emailId`를 얻는 경로가 activity뿐이라,
-"이번 주 주고받은 메일 전부"는 레코드를 하나씩 돌며 activity를 뒤지는 수밖에 없다.
+세일즈맵의 engagement는 일관된 CRM object 계약으로 노출되지 않습니다. 기본 접근은 특정
+레코드의 activity 타임라인이며, 공통 search/association/batch-read·CRUD 대상이 아닙니다.
+노트만 `GET /v2/memo`라는 독립 목록을 가진 부분적 예외입니다.
 
-**② 첨부파일 정보가 응답에 없다** (실측 확인). 첨부 유무·파일명·크기를 알 수 없다.
+| Engagement 타입 | 독립 목록/역방향 조회 | 상세 조회 | 쓰기 | 주요 제약 |
+|----------------|:-------------------:|:---------:|:----:|----------|
+| memo (노트) | ✅ `GET /v2/memo` (날짜·작성자·유형·연결 레코드 필터) | ✅ `GET /v2/memo/{id}` | ⚠️ 레코드 update의 `memo` 파라미터로만 생성 | 날짜/담당자/유형 지정 불가, 수정·삭제 불가 |
+| email | ❌ 알려진 레코드의 activity에서만 발견 | ✅ `GET /v2/email/{id}` | 외부 발송만 가능 | 전역 목록·open/click 고객 집계 없음 |
+| todo | ❌ | ❌ 미확인 | ❌ `POST /v2/todo` → 500 | 수정·삭제도 불가 |
+| sms | ❌ | ❌ 404 | — | |
+| 카카오 알림톡 | ❌ | ❌ 404 | — | |
+| meeting | ❌ | ❌ 404 | — | |
+| AI transcript | ❌ | ✅ `GET /v2/recording/{id}/transcript` | — | 목록·역방향 조회와 응답 상한이 없음 |
 
-### API 개선안
+- activity 타임라인에서 `smsId` 등이 나와도 상세 내용 조회 경로가 없습니다.
+- **meeting·카카오 알림톡은 id조차 없습니다** (2026-07-31 실측). 기본 오브젝트 4종의 activity
+  응답에는 `meetingId`·`kakaoAlimtalkId`가 없어, 타임라인에 보여도 무엇에 대한 활동인지 열 수
+  없습니다. 커스텀 오브젝트 응답에만 해당 필드가 존재합니다.
 
-`GET /v2/email` 목록(기간·상대·방향 필터) + 응답에 첨부 메타(`attachments[]`).
+### HubSpot 비교 (공식 문서 재검증: 2026-08-04)
+
+현재 HubSpot의 기준은 예전 단일 `engagements/v1`가 아니라 CRM object API입니다. calls
+(`0-48`), communications (`0-18`), emails (`0-49`), meetings (`0-47`), notes (`0-46`),
+postal mail (`0-116`), tasks (`0-27`)는 각각 자체 object type과 record ID를 가진 activity입니다.
+공통 object API는 단건·전역 목록·batch read와 생성/수정/삭제를 같은 자원 계열에서 제공합니다.
+
+| 능력 | HubSpot 현재 | 세일즈맵 현재 |
+|---|---|---|
+| 독립 발견 | `GET /crm/objects/2026-03/{objectTypeId}`로 activity 타입별 전역 목록 | 노트만 독립 목록, 나머지는 특정 레코드 activity에서 발견 |
+| 단건/배치 | `GET /crm/objects/2026-03/{objectTypeId}/{id}`, `POST .../batch/read` | 타입별 detail API가 일부만 존재, 통합 batch read 없음 |
+| 쓰기 | 공통 `properties` + `associations` 계약으로 create/update/delete | 노트도 레코드 update 우회이며, 다수 타입은 쓰기 경로 없음 |
+| 관계 | association API 하나의 자원 계열에서 primary·unlabeled·custom label을 함께 다룸 | engagement 다수는 관계 그래프 밖 |
+| 검색 | 공식 Search CRM 문서에 calls·emails·meetings·notes·tasks의 `/search`가 명시됨 | 전역 activity 검색 없음 |
+
+`communications`와 postal mail도 CRM object type이지만, 현재 Search CRM 안내에서 검색 endpoint가
+명시된 것은 위 다섯 타입뿐입니다. 카카오 알림톡·녹음·AI transcript는 현재 HubSpot 표준 CRM
+activity object 목록에 동일한 타입으로 열거되어 있지 않습니다. 즉 이 표는 "모든 상호작용이
+완전히 같은 기능"이라는 뜻이 아니라, 이메일 같은 핵심 활동이 **독립 object collection**으로
+존재한다는 대비입니다.
+
+참조: [HubSpot CRM object 개요](https://developers.hubspot.com/docs/api-reference/latest/crm/understanding-the-crm),
+[Object API](https://developers.hubspot.com/docs/api-reference/latest/crm/using-object-apis),
+[Email activity API](https://developers.hubspot.com/docs/api-reference/latest/crm/activities/emails/guide),
+[Search CRM](https://developers.hubspot.com/docs/api-reference/latest/crm/search-the-crm),
+[Association schema](https://developers.hubspot.com/docs/api-reference/latest/crm/associations/associations-schema/guide).
+
+### 9-2. 이메일 전역 목록·이벤트 분석 API 부재
+
+`GET /v2/email/{emailId}`는 이미 알고 있는 이메일 한 건만 읽습니다. `GET /v2/email` 같은
+전역 목록·검색 API가 없습니다. `emailId`는 특정 레코드의 activity 타임라인이나 직접 발송 응답에서만
+알 수 있고, MCP의 `salesmap-list-engagements`도 `objectId`를 필수로 받는 레코드 관점 API입니다.
+
+따라서 "이번 주 주고받은 메일 전부"는 후보 레코드를 전부 열거한 뒤 각 activity를 순회해야
+합니다. 특히 아래 질문에는 `emailOpen`·`emailLinkClick`을 기간별 고객으로 집계하는 전역 조회가
+필요합니다.
+
+> 최근 이메일 오픈/클릭을 많이 한 고객 중 연락할 만한 고객은?
+
+현재 API로는 고객 전체를 읽어 각 고객의 activity를 N회 호출하고 MCP 메모리에서 합산해야 합니다.
+규모가 커지면 느리고, 딜·리드 등에 연결된 활동을 어떤 기준으로 고객에게 귀속할지도 호출자가
+결정해야 합니다. 이메일 detail에는 첨부 유무·파일명·크기 같은 첨부 메타도 없습니다(실측 확인).
+
+**API 개선안:**
+
+1. `GET /v2/email`에 기간·방향·상대/연결 레코드 필터와 이메일 id·시각·참여자·연결 레코드,
+   open/click 요약을 제공합니다.
+2. 또는 `POST /v3/activity/search`가 `types: ["emailOpen", "emailLinkClick"]`, 기간,
+   연결 오브젝트 필터, `groupBy: "people"`를 받아 고객별 집계를 반환합니다.
+
+2번은 전체 CRM object 모델을 즉시 도입하지 않아도 이메일 분석 요구를 해결하는 작은 계약입니다.
+HubSpot도 이메일 전역 목록/검색이라는 출발점은 제공하지만, 고객별 open/click 순위에는 실제로
+filter/sort 가능한 tracking property 또는 별도 분석 API가 필요합니다.
+
+### 9-3. 노트 lifecycle과 응답 형식
+
+노트는 두 접근 경로가 있습니다.
+
+- **전역/관계별 목록:** `GET /v2/memo`가 날짜·작성자·유형과 `peopleId`/`organizationId`/
+  `dealId`/`leadId` 필터를 받습니다.
+- **레코드별 타임라인:** `GET /v2/{type}/activity` 또는 v3 activity에서 다른 활동과 함께 봅니다.
+
+따라서 노트는 독립 목록 인덱스가 있는 부분적 예외일 뿐, 완전한 1급 object는 아닙니다. 전용 생성
+API도 없습니다. 레코드 수정 API의 `memo` 파라미터에 텍스트를 넣어 자동 생성해야 합니다.
+
+```json
+POST /v2/deal/{id}
+{ "memo": "미팅 내용 정리" }
+```
+
+이 방식은 날짜·유형·담당자를 지정할 수 없고, 항상 현재 시각과 API 토큰 소유자로 기록됩니다.
+과거 활동 이관, 태그 지정, 타인 작성 기록, 수정·삭제가 모두 막힙니다. MCP의
+`salesmap-create-note`도 이 update 호출을 감싼 제한적 우회입니다.
+
+노트 detail은 일반 v3 read 형식과도 다릅니다. 일반 레코드는
+`objectList[].{ id, data, association }`이지만, `salesmap-read-engagement(type: "note")`는
+`GET /v2/memo/{id}`의 `memo` 객체(`text`, `htmlBody`, `typeList`, 연결 ID 등)를 그대로 반환합니다.
+이는 실제 사용 중인 활동 전용 v2 호환 형식입니다.
+
+HubSpot은 `POST /crm/objects/2026-03/0-46`에서 `hs_note_body`, `hs_timestamp`,
+`hubspot_owner_id`, `associations`를 함께 지정하므로 날짜·담당자·연관 레코드를 제어할 수 있습니다.
+
+### 9-4. TODO 생성·수정·삭제 경로 부재
+
+`POST /v2/todo`가 500을 반환합니다. 미팅 후 후속 조치 등록이나 팀원 업무 할당을 API로 수행할 수
+없고, detail/수정/삭제 경로도 확인되지 않았습니다. 이는 #8의 시퀀스·템플릿 부재와 별개로,
+개별 CRM 활동을 기록하는 기본 업무가 막힌 문제입니다.
+
+### 9-5. 리드/딜 생성 시 연결 고객 activity 전파를 제어할 수 없음
+
+UI에서 리드/딜을 만들며 고객을 연결하면, 고객의 활동 내역을 리드/딜 타임라인에 함께 보일지와
+범위(전체·최근 30일·지정일 이후)를 정할 수 있습니다. 이 전파는 **생성 시 고객 활동에만**
+적용됩니다. 그러나 `POST /v2/lead`·`POST /v2/deal`은 `peopleId` 연결만 받고 이 옵션은 받지
+않습니다.
+
+따라서 UI로 만든 리드/딜과 API로 만든 리드/딜의 타임라인이 달라지고, "이 리드에 고객의 최근
+이메일 히스토리도 연결"이라는 의도를 API로 표현할 수 없습니다. MCP 우회도 불가합니다.
+
+세일즈맵·HubSpot 모두 활동은 association을 통해 연결 레코드 타임라인에 표시됩니다. 차이는
+세일즈맵 UI에만 연결 시점의 기간 범위 제어가 있다는 점입니다. `POST /v2/lead`·`POST /v2/deal`에
+아래처럼 고객 활동 전파 옵션을 추가해야 합니다.
+
+```json
+{
+  "name": "...", "peopleId": "...",
+  "linkPeopleActivity": true,
+  "activityRange": "ALL" | "LAST_30_DAYS" | { "from": "2026-01-01" }
+}
+```
+
+### 9-6. 타임라인 페이지·정렬·최근 N건 계약 부재 ★★★
+
+`GET /v2/{object}/activity`는 오래된 순으로 고정되고 한 페이지가 50건으로 고정됩니다.
+`limit` 파라미터를 받아도 조용히 무시합니다. "이 고객 최근 활동"을 찾으려면 전체 커서를 끝까지
+따라가거나 날짜를 추측해 범위를 좁혀야 하며, 호출 횟수와 결과 완전성을 미리 알 수 없습니다.
+
+activity 응답은 `nextCursor`를 주지만 `total`/`hasMore`/정렬/서버 page size 계약이 없습니다.
+MCP는 모든 목록에 `nextCursor`가 있으면 다음 `after` 호출을 안내하는 힌트를 붙이지만, 정확한
+건수는 알 수 없습니다. API는 최소 `hasMore` 또는 `total`, `order`(기본 최신순), `size`를 제공해야
+합니다. `GET /v2/{object}/search`의 정렬 미작동은 별도 Search API 문제로 #4-1에서 다룹니다.
+
+### 9-7. Activity 배치 조회 부재
+
+`/v3/object/activity`는 단일 `objectId`만 받고, `/v3/object/read`도 activity 인라인 파라미터가
+없습니다. N개 레코드의 활동을 분석하려면 N회 호출해야 합니다. 텔레메트리(2026-06)에서
+`list-engagements`는 6,703회로 최다 호출이었고, 연속 호출은 6,385회였습니다. p90은 7.9초,
+20.9%가 5초를 넘었습니다.
+
+MCP는 `limit` 노출, `note.htmlBody` 제거, 429 본문 기반 대기, `run-script` 서버측 순회로만
+완화합니다. 근본적으로는 `/v3/object/read`에 `activityTypes: ["email", "note"]` 인라인을
+추가하거나 여러 `objectId`를 받는 batch activity endpoint가 필요합니다.
+
+### 9-8. 노트/activity 날짜 경계 불일치 ★★★
+
+date-only 범위에서 `GET /v2/{object}/activity`는 KST 달력일을 쓰지만 `GET /v2/memo`만 UTC로
+해석합니다. `endDate=D`가 `D T00:00:00Z`까지가 되어 종료일 당일 노트가 전부 빠집니다.
+
+```text
+노트 createdAt = 2026-07-31T04:27:55Z  (KST 13:27)
+GET /v2/memo?startDate=2026-07-31  →  1건
+GET /v2/memo?endDate=2026-07-31    →  0건  # 당일 누락
+```
+
+텔레메트리에서 `list-notes` 358회 중 날짜 필터 29회, `endDate` 사용 22회가 모두 종료일 당일을
+누락했습니다. 200으로 성공해 사용자와 로그가 누락을 알아채기 어렵습니다. MCP는 endDate를
+다음 날 또는 오프셋 포함 date-time으로 보정하지만, API가 memo도 activity와 같은 KST day-bound로
+통일해야 합니다. 일반 v3 `dateTime` 필드의 date-only 저장 문제는 활동 고유 문제가 아니므로 #32에
+남깁니다.
+
+### 9-9. 녹음/AI transcript 목록·역방향 조회·응답 상한 부재
+
+`GET /v2/recording/{id}`와 `/transcript`가 생겨 녹취 detail은 읽을 수 있지만, `recordingId`를
+얻는 경로가 activity뿐입니다. "이번 주 녹음 전부 요약"은 레코드를 하나씩 돌며 activity를
+뒤져야 합니다.
+
+detail 응답에도 연결 레코드가 없어서 `recordingId`만 있으면 어느 딜·리드·고객·회사 것인지
+역추적할 수 없습니다. transcript에는 상한·페이지네이션도 없습니다. 실측으로 59분 회의가
+404 세그먼트, 85KB, 20,687자였고 3시간 회의는 약 250KB가 될 수 있습니다.
+
+필요한 계약은 `GET /v2/recording`의 기간·담당자 필터, detail의 연결 레코드 ID, transcript의
+`fromMs`/`toMs` 구간 조회 또는 페이지네이션입니다.
+
+### 9-10. MCP activity 래퍼의 T1 정확성 위험
+
+**MCP-A1 — custom-object activity 키:** `listActivityV2`가 `custom-object`를 그대로
+`${objectType}Id`/`${objectType}ActivityList`에 조합해 `custom-objectId`와
+`custom-objectActivityList`를 만듭니다. 저장된 API reference의 실제 계약은
+`customObjectId`/`customObjectActivityList`입니다. 빈 결과를 성공으로 반환하거나 검증 오류가
+날 수 있으므로 실제 워크스페이스에서 요청·응답을 확인해 키와 입력 계약을 고정해야 합니다.
+
+**MCP-A2 — `limit`과 cursor:** v2 activity가 50건을 준 뒤 MCP가 `raw.slice(0, limit)`로 앞부분만
+반환하면서 원래 `nextCursor`를 유지합니다. `limit=10` 뒤 그 cursor를 쓰면 같은 서버 페이지의
+나머지 40건을 건너뜁니다. 전체 페이지 반환, 서버 페이지 내부 offset 보존, 잘라낸 응답의 cursor
+제거 중 하나가 필요합니다. 두 항목 모두 **T1**이며, 활동 누락을 성공처럼 보고할 수 있습니다.
+
+### 현재 MCP 우회와 장기 방향
+
+- `list-notes`: 노트의 전역/관계별 목록
+- `list-engagements`: 레코드별 타임라인과 email 제목/memo 본문 인라인
+- `create-note`: 레코드 update의 `memo` 우회
+- `read-engagement`: email·note·recording 단건 detail 통합
+
+단기적으로는 노트처럼 전역 activity 목록/검색·집계 경로를 제공해 CRM 전체 분석을 가능하게 해야
+합니다. 장기적으로는 각 engagement에 독립 object identity와 공통 search/association/batch-read·CRUD
+계약을 제공합니다. 하나의 거대한 engagement 테이블을 뜻하는 것이 아니라, HubSpot처럼 타입별
+object가 공통 자원 계열을 공유하는 형태면 충분합니다.
+
+---
 
 ## 10. 삭제 API 비표준
 
@@ -320,7 +647,7 @@ CRM 업무에서 일상적으로 필요하지만 API가 없거나 작동하지 �
 
 ### 문제
 
-세일즈맵 API는 레코드 조회 시 원하는 필드만 지정하여 받는 기능이 없습니다. 항상 전체 필드가 반환됩니다.
+v2 단건 조회는 원하는 필드만 지정하여 받는 기능이 없습니다. 반면 `POST /v3/object/read`는 `fieldList`를 지원하므로, 현재 문제는 v2 레거시와 MCP가 어느 경로에서 projection을 적용하느냐로 나뉩니다.
 
 ```
 // 세일즈맵: 전체 필드 반환만 가능
@@ -346,52 +673,11 @@ HubSpot: GET /crm/v3/objects/deals/{id}?properties=dealname,amount,closedate
 
 두 가지 방식을 조합합니다.
 
-**1. DEFAULT_PROPERTIES** (2026-04-16 추가): `batch-read-objects`에서 `properties`를 명시하지 않으면 타입별로 미리 정의된 코어 필드 목록만 반환합니다 (HubSpot 방식). 딜은 금액·파이프라인·상태 등, 고객은 이메일·전화 등. 커스텀 오브젝트는 `GET /v2/field/custom-object` 조회 후 시스템 필드를 동적으로 감지.
+**1. DEFAULT_PROPERTIES** (2026-04-16 추가): 원래 v2 fallback 경로의 `batch-read-objects`에서 `properties`를 명시하지 않으면 타입별 코어 필드만 반환하도록 만들었습니다. 그러나 **현재 `V3_OBJECT_READ = true`인 기본 경로에서는 `fieldList`를 명시했을 때만 v3에 전달하고, 생략하면 전체 필드를 요청합니다.** 따라서 README·architecture의 "미지정 시 코어 필드" 설명과 실제 기본 경로가 어긋납니다. 커스텀 오브젝트 이름 필드 휴리스틱도 v2 fallback에만 남아 있습니다.
 
 **2. pickProperties()**: `properties`를 명시한 경우, 전체 API 응답을 받은 후 해당 필드만 클라이언트에서 잘라냅니다. 네트워크/API 부하는 줄지 않습니다.
 
-두 방식 모두 API가 `properties[]` 파라미터를 지원하면 불필요해집니다.
-
----
-
-## 12. ★★★★★ 노트(메모) 생성 API 제한
-
-### 문제
-
-전용 노트 생성 API가 없습니다. 레코드 수정 API(`POST /v2/{type}/{id}`)의 `memo` 파라미터에 텍스트를 넣으면 메모가 자동 생성되는 구조입니다.
-
-```json
-// 세일즈맵: 레코드 update 요청에 memo 파라미터 끼워넣기
-POST /v2/deal/{id}
-{ "memo": "미팅 내용 정리" }
-→ 메모 생성되지만, 날짜/유형/담당자는 서버가 자동 설정 (현재 시각, API 토큰 소유자)
-```
-
-### 실제 영향
-
-- **날짜 지정 불가**: "지난주 미팅 메모를 남겨줘" → 현재 시각으로만 생성됨. 과거 활동 기록 불가.
-- **유형(태그) 지정 불가**: 메모 스키마에 `유형` 필드가 있지만 생성 시 설정할 수 없음.
-- **담당자 지정 불가**: 항상 API 토큰 소유자가 작성자. "팀장이 작성한 메모"로 남길 수 없음.
-- **데이터 마이그레이션 불가**: 타 CRM에서 이관 시 원래 작성 시각·작성자를 보존할 수 없음.
-
-### HubSpot 비교
-
-```
-HubSpot: POST /crm/v3/objects/notes
-{
-  "properties": {
-    "hs_note_body": "미팅 내용 정리",
-    "hs_timestamp": "2026-04-10T09:00:00Z",   ← 날짜 지정 가능
-    "hubspot_owner_id": "12345"                ← 담당자 지정 가능
-  },
-  "associations": [{ "to": { "id": "deal-id" }, "types": [...] }]
-}
-→ 노트가 독립 오브젝트. 날짜·담당자·연관 레코드 모두 지정 가능.
-```
-
-### MCP에서의 우회
-
-`salesmap-create-note` 도구를 만들었지만 내부적으로는 레코드 update 호출입니다. 텍스트만 전달 가능하고 메타데이터 제어는 불가능합니다.
+v3 read가 이미 `fieldList`를 지원하므로, 이 문제의 API 측 해결은 v2 단건·목록에도 동일한 projection 계약을 제공하는 것이고, MCP 측에서는 v3 기본 경로에 코어 필드 정책을 적용할지 문서와 함께 결정해야 합니다.
 
 ---
 
@@ -437,110 +723,6 @@ const nameFields = schema.fieldList
 
 1. **(근본) 이름 필드 식별자 제공** — 스키마가 이름 필드를 명시적으로 지목(internal name을 `name`으로 고정, 또는 `isNameField`/primary 플래그). 있으면 **추론 자체가 불필요**해지고 definition 오염도 동시에 사라집니다.
 2. **(차선) definition 단위 필드 조회** — `GET /v2/field/custom-object?definitionId={id}` (또는 `/{definitionId}`). 추론은 유지하되 definition별로 스코프 → 오염만 제거. 1번이 어려울 때의 대안.
-
----
-
-## 14. Engagement 종합 — 2급 데이터 구조 + API 대부분 부재
-
-> #22(Engagement 통합 CRUD 부재)를 이 섹션으로 통합.
-
-### 구조적 문제
-
-세일즈맵의 engagement(노트, 이메일, TODO, SMS, 미팅, 카카오 알림톡, AI transcript)는 **1급 오브젝트가 아닌 activity API 종속 데이터**입니다. search/association/batch-read 대상이 아니며, 개별 API가 타입별로 분산되어 있고 대부분 미구현입니다.
-
-### API 현황
-
-| Engagement 타입 | 상세 조회 | 생성 | 수정 | 비고 |
-|----------------|:---------:|:----:|:----:|------|
-| memo (노트) | ✅ `GET /v2/memo/{id}` | ⚠️ 레코드 update의 `memo` 파라미터로 우회 | ❌ | 날짜/담당자/유형 지정 불가 (#12) |
-| email | ⚠️ `GET /v2/email/{id}` | — (외부 발송) | — | 본문 없음 (#9), 목록 API 404 |
-| todo | ❌ 미확인 | ❌ `POST /v2/todo` → 500 | ❌ | |
-| sms | ❌ 404 | — | — | |
-| 카카오 알림톡 | ❌ 404 | — | — | |
-| meeting | ❌ 404 | — | — | |
-| AI transcript | **✅ 2026-07-29 신설** | `GET /v2/recording/{id}/transcript` | `read-engagement(type:"recording")` | 목록·역방향 조회는 여전히 없음 → #34 |
-
-### 실제 영향
-
-- activity 타임라인에서 `smsId` 등이 나오지만 상세 내용 조회 불가
-- ⚠️ **meeting·카카오 알림톡은 id조차 없다** (2026-07-31 실측). 기본 오브젝트 4종
-  (고객·회사·딜·리드)의 activity 응답에 `meetingId`·`kakaoAlimtalkId` 필드가 아예 없어,
-  활동이 타임라인에 떠도 **무엇에 대한 것인지 열어볼 방법이 없다.** 커스텀 오브젝트 응답에만
-  이 필드들이 존재한다. → `read-engagement`가 email·recording·note만 지원하는 이유
-- 노트 생성은 레코드 update 우회만 가능 — 날짜/담당자/유형 지정 불가
-- 노트 수정, 태스크 생성/수정, engagement 삭제 모두 불가
-
-### HubSpot 비교
-
-```
-허브스팟: engagement = 1급 오브젝트. 통합 CRUD + 개별 타입 오브젝트 조회.
-
-통합 도구 (3개):
-  hubspot-create-engagement(type: "NOTE"|"TASK", metadata, associations, ownerId)
-  hubspot-get-engagement(engagementId)
-  hubspot-update-engagement(engagementId, metadata)
-
-개별 타입도 오브젝트:
-  GET /crm/v3/objects/meetings/{id}?properties=hs_meeting_title,hs_meeting_body
-  GET /crm/v3/objects/calls/{id}?properties=hs_call_body,hs_call_duration
-  GET /crm/v3/objects/tasks/{id}?properties=hs_task_body,hs_task_status
-  → search, association, batch-read 모두 가능
-
-단, NOTE/TASK만 지원. EMAIL/CALL/MEETING은 미지원 — 점진적 확장 중.
-```
-
-### MCP에서의 우회
-
-- `list-engagements`: activity API 래핑 + email 제목/memo 본문 자동 인라인 (~80줄)
-- `create-note`: 레코드 update의 memo 파라미터 우회 (제한적)
-- `read-note`: memo 단건 상세 조회
-- sms/meeting/alimtalk/transcript: ID만 반환, 상세 내용 불가
-
-### 최종 방향
-
-engagement를 1급 오브젝트로 승격 → search/association/batch-read 대상화. MCP에서는 `read-note`를 `read-engagement(id)` 통합 도구로 발전시킬 예정. 현재 `list-engagements` 인라인은 임시 우회.
-
----
-
-## 15. 리드/딜 생성 시 연결 고객의 활동 전파를 API로 제어 불가
-
-### 문제
-
-UI에서 **리드/딜을 생성하며 고객(people)을 연결**하면, 그 **고객의 활동 내역(이메일 등)을 리드/딜 타임라인에 함께 표시할지**, 그리고 **어느 기간까지** 표시할지를 선택할 수 있습니다. (전파는 **리드/딜 생성 시 + 고객 활동에만** 적용 — 회사(organization) 활동이나, 생성 외 다른 동작에는 전파가 없음)
-
-```
-☑ 고객 활동 내용도 함께 연결   [ 범위 ▼ ]
-                                ├ 모든 활동
-                                ├ 최근 30일
-                                └ 지정 날짜부터
-```
-
-그러나 `POST /v2/lead`·`POST /v2/deal`로 생성할 때는 `peopleId`로 **연결은 되지만 이 활동 전파 옵션을 줄 파라미터가 없습니다.**
-
-### 실제 영향
-
-- **UI로 만든 리드/딜 ≠ API로 만든 리드/딜** — 동일하게 고객을 연결해도 활동 타임라인의 유무·범위가 달라짐
-- "이 리드에 연결한 고객의 최근 이메일 히스토리도 같이 보이게 해줘" 같은 의도를 API로는 표현할 방법이 없음
-- **skill/프롬프트로도 우회 불가** — 설정할 파라미터 자체가 없음. 순수 API 레벨 갭
-
-### HubSpot 비교
-
-세일즈맵·허브스팟 모두 활동은 **연결관계(association)로 전파**됩니다 — 복사가 아니라 연결된 레코드의 타임라인에 함께 표시되는 방식. 차이는 세일즈맵이 그 전파를 **연결 시점에 기간 단위로 스코프**할 수 있다는 점(전체 / 최근 N일 / 특정일~)인데, 이 제어가 UI엔 있고 API엔 없습니다. (허브스팟은 이런 기간 스코프 제어 없이 연결되면 전량 표시)
-
-### MCP에서의 우회
-
-우회 불가. `POST /v2/lead`·`POST /v2/deal`에 활동 전파 파라미터가 없어 MCP가 노출할 방법이 없습니다. 활동 전파가 필요하면 UI에서 생성해야 합니다.
-
-### 수정 방향 제안
-
-`POST /v2/lead`·`POST /v2/deal`에 활동 전파 옵션 파라미터 추가(고객 활동 한정). 예:
-```json
-{
-  "name": "...", "peopleId": "...",
-  "linkPeopleActivity": true,
-  "activityRange": "ALL" | "LAST_30_DAYS" | { "from": "2026-01-01" }
-}
-```
 
 ---
 
@@ -611,7 +793,9 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 **사용자/팀**: `fetchUserMap()`, `fetchTeamMap()`으로 이름→UUID 자동 변환 구현. 검색 필터와 properties 쓰기 모두에서 "홍길동" → UUID 자동 해석.
 
-**파이프라인/단계**: 자동 변환 미구현. 이름 문자열 감지 시 에러 메시지에 `salesmap-get-pipelines로 조회하세요` 힌트만 추가. LLM이 2단계(파이프라인 조회 → ID로 재시도)를 거쳐야 함.
+**파이프라인/단계**: 표면마다 다릅니다. `search-objects`는 목록을 조회해 이름→ID 자동 변환하지만, v2 `update-object`는 여전히 ID만 검증하고, v3 `batch-create-objects`는 단계 이름을 받습니다. 따라서 같은 `properties["파이프라인 단계"]`라도 검색·수정·생성에서 값 계약이 다릅니다.
+
+**동명이인 위험**: 현재 MCP의 `fetchUserMap()`·`fetchTeamMap()`은 `name → id` 단일 `Map`으로 만들며 같은 이름이 있으면 마지막 항목이 조용히 앞 항목을 덮습니다. 동명이인 사용자/팀이 있는 워크스페이스에서 이름 기반 쓰기가 잘못된 대상에 적용될 수 있으므로, 중복 이름을 오류로 돌리거나 ID를 요구해야 합니다. 실제 중복 워크스페이스 재현은 별도 확인이 필요합니다.
 
 ---
 
@@ -619,7 +803,7 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 
 ### 문제
 
-세일즈맵 API 에러는 `reason` 문자열 하나로만 반환됩니다. 에러 카테고리, 에러 코드, 문제가 된 필드명 등의 구조화된 정보가 없습니다.
+v2의 대다수 에러는 `reason` 문자열 하나로 반환됩니다. 다만 2026-07 이후 v3 batch API, 특히 update의 일부 검증/부분 성공 응답은 `errors[]`에 code·inputIndex·fieldName·context를 담을 수 있습니다. 즉 전부 비구조화라고 쓰면 최신 경로를 놓칩니다.
 
 > **참고 (2026-06)**: 전부 비구조화는 아님 — **유니크 중복 에러는 `data: {id, name}`(충돌한 기존 레코드)** 를 함께 반환하고, status enum 위반은 허용값(Won/Lost/In progress)을 나열함. MCP는 중복 에러의 `data`를 보존해 힌트에 기존 레코드 id를 노출(검색 없이 update 유도). 다만 대다수 에러는 여전히 `reason` 문자열뿐이라 이슈 자체는 유효.
 
@@ -675,7 +859,7 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 - **429**: `errorType: "RATE_LIMIT"` + `policyName: "TEN_SECONDLY_ROLLING"` → 어떤 제한에 걸렸는지 명시
 - **권한 부족**: `category: "MISSING_SCOPES"` + `context.requiredScopes` → 필요한 권한 목록
 
-허브스팟 MCP는 이 구조화된 에러를 **추가 가공 없이 그대로 전달**합니다. API 에러 자체가 충분히 상세하기 때문에 MCP 레이어에서 보강할 필요가 없습니다.
+허브스팟 MCP는 이 구조화된 에러를 **추가 가공 없이 그대로 전달**합니다. 세일즈맵도 v3 구조화 오류를 그대로 보존해야 하지만, 현재 `SalesMapClient`는 `errors[]`의 객체를 JSON 문자열로 합쳐 일반 메시지로 평탄화합니다. 따라서 API가 이미 제공한 `code`·`inputIndex`·`fieldName`·`context`를 MCP 소비자가 구조적으로 사용할 수 없습니다.
 
 ### MCP에서의 우회
 
@@ -692,95 +876,6 @@ HubSpot도 owner ID(숫자)를 요구하지만, `search-objects`에서 owner nam
 ```
 
 이 방식은 API 에러 메시지 문구에 의존하므로, API 측에서 문구를 변경하면 힌트 매칭이 깨집니다.
-
----
-
-## 19. 필드(Property) 수정 API 부재
-
-### 문제
-
-필드 **수정** API가 없습니다. 옵션 값 변경, 라벨 변경, 필드 설정 변경은 UI에서만 가능합니다. (생성은 `POST /v2/field/{type}`으로 가능 — 하단 해결 메모 참조)
-
-### 실제 영향
-
-- **옵션 값 관리 불가**: 선택형 필드에 옵션 추가/변경이 UI 전용 — "기능 카테고리에 '보안' 옵션 추가해줘" 불가
-- **마이그레이션 제약**: 타 CRM 이관 시 기존 필드의 설정 변경을 프로그래밍적으로 못 함
-
-### HubSpot 비교
-
-```
-HubSpot: 4개 Property 도구
-  hubspot-list-properties — 축소 응답 (name, label, type, description, groupName)
-  hubspot-get-property    — 개별 필드 상세 (옵션, validation, 설정 전체)
-  hubspot-create-property — 커스텀 필드 생성
-  hubspot-update-property — 필드 수정 (라벨, 옵션 등)
-```
-
-참고: 허브스팟이 `list`와 `get`을 분리한 이유는 토큰 효율. `list`는 5개 필드만 반환하여 전체 목록을 가볍게 훑고, 특정 필드의 옵션이나 validation 규칙이 필요할 때만 `get`으로 상세 조회.
-
-### MCP에서의 우회
-
-없음 — `list-properties`로 조회만 가능. 수정이 필요하면 사용자를 UI로 안내.
-
----
-
-## 20. Association 대량 처리 전용 API 부재
-
-### 문제
-
-레코드 연결 **자체는 update로 가능**합니다 (기본 연결 = top-level `peopleId`/`organizationId`, 커스텀 연결 = fieldList 관계 키). 세일즈맵은 연결을 별도 리소스가 아닌 **관계 필드**로 취급하기 때문입니다(이슈 #3 참조). 없는 것은 **연결만 대량으로 처리하는 전용 경로** — 현재는 단건 update를 반복해야 합니다.
-
-### 실제 영향
-
-"고객 500명을 회사 A로 재연결" 같은 대량 연결 변경이 update 500회. 이는 별도 문제가 아니라 **배치 update 부재(#1)의 한 사례** — batch update가 관계 필드를 그대로 수용하면 함께 해소됩니다.
-
-### 세일즈맵 vs HubSpot (모델 차이)
-
-- **HubSpot**: 연결이 독립 리소스 → 전용 association API(batch 최대 2,000쌍). update로는 연결 변경 불가
-- **세일즈맵**: 연결이 관계 필드 → update로 변경 가능. 대신 "연결만" 대량 처리하는 전용 API는 없음
-
-### MCP에서의 우회
-
-`list-associations`로 가능한 관계명 확인 → `update-object` properties에 관계명으로 연결 지정. 대량은 단건 반복 또는 run-script. **batch update(#1)가 생기면 별도 association API 없이 커버 가능.**
-
----
-
-## 21. 상품(Product) API — 생성만 가능, 조회·수정·삭제 없음
-
-### 문제
-
-상품(Product) API는 목록 조회(`GET /v2/product`)와 생성(`POST /v2/product`)만 작동합니다. 단건 조회, 수정, 삭제 엔드포인트가 없습니다.
-
-```
-GET  /v2/product           → ✅ 목록 조회 (cursor 페이지네이션만 지원)
-POST /v2/product           → ✅ 생성 (name + price 필수, memo + fieldList 선택)
-GET  /v2/product/{id}      → ❌ 404 (HTML 반환)
-POST /v2/product/{id}      → ❌ 404 (HTML 반환)
-POST /v2/product/{id}/delete → ❌ 404 (HTML 반환)
-POST /v2/object/product/search → ❌ 400 Bad Request (product는 search 미지원)
-```
-
-`GET /v2/product`는 이름·코드 등 필터 파라미터 없이 cursor 페이지네이션만 지원합니다. 상품 수가 많은 워크스페이스에서는 원하는 상품 ID를 찾기 위해 전체 목록을 순회해야 합니다.
-
-**2026-07-31 확정 — 상품은 수정 경로가 아예 없습니다.** 2026-07-29에 `POST /v3/object/create`가 상품을 지원하게 됐지만, 2026-07-31에 열린 `POST /v3/object/update`는 **회사·고객만** 지원합니다(백엔드 코드 실측: `updateObjectListForApiFunc`에서 Organization·People 외는 `지원하지 않는 오브젝트 유형입니다`). v2에도 `POST /v2/product/{id}`가 없으므로 **v2·v3 어느 쪽으로도 상품을 고칠 수 없습니다** — 만들 수는 있는데 못 고칩니다. v3 update가 상품을 지원하는 것이 유일한 해결 경로입니다.
-
-### 실제 영향
-
-- 생성한 상품의 상세 정보를 API로 확인 불가 (목록에서만 확인 가능)
-- 상품명·가격 수정 불가 — 잘못 생성하면 UI에서만 수정 가능
-- 테스트용 상품 삭제 불가
-- MCP `batch-read-objects`에서 product 타입 지원 불가 (단건 조회가 없으므로)
-- `create-quote`에서 `productId`를 찾으려면 전체 목록 순회 필요 — 대규모 카탈로그에서 비현실적
-
-### HubSpot 비교
-
-HubSpot은 Product(Line Item)도 다른 오브젝트와 동일하게 `batch-read/create/update` + 개별 CRUD를 모두 지원합니다.
-
-### MCP에서의 우회
-
-MCP는 `salesmap-batch-create-objects`에서 상품 생성을 처리합니다. 2026-07-31에 **v2 단건 루프를 폐기하고 v3 배치(`POST /v3/object/create`)로 이관**했으므로 top-level/`fieldList` 분리는 더 이상 하지 않고 `{필드명: 값}`을 그대로 보냅니다(`가격`→`금액` 별칭 교정은 유지). 생성 메모/노트(memo)는 create 도구 표면에서 지원하지 않습니다. **생성 후 상세 조회·수정·삭제는 여전히 불가합니다** — 특히 수정은 위 확정 사항대로 v2·v3 양쪽에 경로가 없습니다.
-
-`create-quote`의 `quoteProductList`에서 `productId`는 선택 필드 — 카탈로그 연동 없이 `name` + `price`만으로도 견적 항목 생성 가능. 카탈로그 연동이 필요하면 CRM UI에서 상품 ID를 직접 확인해야 합니다.
 
 ---
 
@@ -845,35 +940,6 @@ HubSpot은 모든 리소스에서 `id` 필드명을 일관되게 사용합니다
 
 ---
 
-## 24. 레코드 병합(Merge) API 부재
-
-### 문제
-
-중복 레코드를 하나로 병합하는 API가 없습니다. CRM 운영에서 중복 고객/회사 레코드는 빈번하게 발생하며, 병합은 일상적인 데이터 정리 작업입니다.
-
-### 비즈니스 필요
-
-- 동일 고객이 여러 경로로 유입되어 중복 레코드 생성 (웹폼, 수동 입력, CSV 임포트)
-- 병합 시 활동 이력, 노트, 연관 딜 등을 보존하면서 하나로 통합해야 함
-- 현재는 UI에서만 가능 — API/자동화로 대량 중복 정리 불가
-
-### HubSpot 비교
-
-```
-HubSpot: POST /crm/v3/objects/{objectType}/merge
-  body: { primaryObjectId, objectIdToMerge }
-  → 두 레코드를 병합. 활동/연관 관계를 primary로 이전.
-  → contacts, companies, deals, tickets 등 모든 오브젝트 지원.
-```
-
-허브스팟 공식 MCP에는 merge 도구가 아직 없지만, API는 존재합니다.
-
-### MCP에서의 우회
-
-우회 불가. 중복 레코드 감지는 search로 가능하지만, 병합 자체는 API가 없어 실행 불가.
-
----
-
 ## 25. IP 화이트리스트 + 프록시 아키텍처 충돌
 
 ### 문제
@@ -909,77 +975,25 @@ HubSpot: POST /crm/v3/objects/{objectType}/merge
 
 ---
 
-## 26. 관계 필드 검색 — 리스트 연산자(LIST_CONTAIN) 미지원 + 힌트 오발동
-
-### 문제
-
-검색 필터에서 **관계 필드**(user·multiUser·people·multiPeople 등)에 `LIST_CONTAIN`/`LIST_NOT_CONTAIN`을 쓰면 거부됩니다. 관계 필드는 `IN`/`NOT_IN`만 지원합니다.
-
-연산자별 검증 (`참여자` = multiPeople, 2026-06):
-
-| 연산자 | 결과 |
-|--------|------|
-| `IN` / `NOT_IN` | ✅ 지원 (관계 멤버십 검색) |
-| `LIST_CONTAIN` / `LIST_NOT_CONTAIN` | ❌ `Operator LIST_CONTAIN is not supported for relation field "참여자"` |
-| `CONTAINS` / `EQ` | ❌ `Invalid operator "CONTAINS" for field "참여자" (type: multiPeople)` |
-
-### 실제 영향
-
-- "참여자(다중)에 특정인 포함" 검색 시 LLM이 의미상 자연스러운 `LIST_CONTAIN`을 선택 → API 거부. **정상 UUID를 넣어도 실패.**
-- 게다가 기존 MCP 힌트(`errWithSchemaHint`)가 에러에 `relation field` 문자열만 있으면 무조건 *"UUID를 확인하라"* 고 안내 → **값(UUID)은 멀쩡한데 LLM이 UUID를 재조회하며 무한 삽질.** (실제 고객 사례: 동일 호출 5회 연속 실패)
-
-### MCP에서의 우회 (2026-06 적용)
-
-1. **연산자 자동 변환** — `resolveFilterIds`에서 필드가 관계 타입이면 `LIST_CONTAIN→IN`, `LIST_NOT_CONTAIN→NOT_IN`으로 매핑(의미 동일: "리스트에 포함" ≈ "IN"). LLM이 어느 쪽을 보내든 통과. (비관계 다중 필드 multiSelect 등은 그대로 둠 — 거긴 LIST_CONTAIN이 유효할 수 있음)
-2. **힌트 분리** — `errWithSchemaHint`에 `"is not supported for relation field"`·`"Invalid operator"` 패턴을 UUID 힌트보다 **먼저** 추가 → *"관계 필드엔 IN/NOT_IN을 쓰세요"* 로 정확히 안내(UUID 힌트 오발동 제거).
-
-### 근본 해결 (백엔드)
-
-관계 필드에 `LIST_CONTAIN`/`LIST_NOT_CONTAIN`도 지원하거나, 미지원이면 에러 메시지에 권장 연산자(`IN`/`NOT_IN`)를 명시.
-
----
-
 ## 27. 페이지네이션 — `nextCursor`를 반환해도 LLM이 추가 탐색을 안 함
 
 ### 문제
 
-커서 페이지네이션 메커니즘 자체는 **정상 작동**합니다. `list-engagements`(activity), `search`, `list-*` 등은 `after` 입력을 받고, 다음 페이지가 있으면 응답에 `nextCursor`를 채워 반환합니다 (예: activity는 페이지당 50건 + 다음 커서).
-
-문제는 **소비자(LLM)가 `nextCursor`를 받고도 "이게 전부"라고 단정**하고 추가 조회를 멈추는 것입니다. 응답 어디에도 *"이건 일부다, 이어서 조회하라"* 는 신호가 없어서, 50건을 전체로 간주합니다.
-
-```
-GET /v2/people/activity?peopleId=X
-→ { peopleActivityList: [50건], nextCursor: "019e38df-…" }   ← 더 있다는 뜻
-→ LLM: "활동 50건 확인했습니다" (끝)   ← 230건 중 50건인데 단정
-```
-
-부수적으로 입력 파라미터는 `after`인데 응답 키는 `nextCursor`라 **이름이 비대칭**입니다(GraphQL Relay 컨벤션이긴 함 — `after` 입력 / `endCursor` 출력). LLM에는 "nextCursor 값을 after에 넣어라"가 한 단계 더 헷갈리는 지점.
+커서 페이지네이션 자체는 정상 동작하지만, LLM은 `nextCursor`를 받고도 "이게 전부"라고 단정하고
+추가 탐색을 멈춥니다. 입력은 `after`, 응답은 `nextCursor`라 값의 다음 사용처도 한 단계 추론해야
+합니다.
 
 ### 실제 영향
 
-- "이 고객 전체 활동/히스토리 요약해줘" → 최근 50건만 보고 결론 → **불완전한 분석**
-- 전체 건수를 알 수 없어 "50건 중 50건"인지 "230건 중 50건"인지 구분 불가
-
-### 근본 원인 / API 한계
-
-- **activity API가 `total`/count를 안 줌** — 응답 키가 `peopleActivityList`(+`nextCursor`)뿐. "230건 중 50건" 같은 정확한 진행률을 표시하려면 전부 페이지네이션해서 세야 함.
-- activity API에 `order`/`sort`/`size` 파라미터 없음 (검색 정렬 미지원 #4-1과 같은 결).
-
-### 해결 아이디어 검토
-
-| 아이디어 | 평가 | 세일즈맵 현실 |
-|---|---|---|
-| 디폴트 최신순 + 정렬 지원 | 타임라인 정석 | **API 미지원** (order 파라미터 없음) |
-| 전체 건수 노출 "50/230" | LLM에 매우 효과적 | **API가 total 미제공** → count 엔드포인트 신설 전엔 불가 |
-| 서버단 상한까지 자동 페이지네이션 | 가장 강력(LLM 커서 루프 제거) | 토큰 폭발 + engagements는 항목별 email/memo 인라인이라 호출 N배 → **상한 필수** |
-| 응답에 "더 있음" 힌트 | 저비용·즉효 | ✅ **채택** (아래) |
+- 목록 결과만 보고 분석을 끝내면 불완전한 결론을 낼 수 있습니다.
+- 전체 건수가 없으면 현재 페이지가 전부인지 일부인지 판단할 수 없습니다.
 
 ### HubSpot 비교 (조사: REST + 공식 MCP 소스 검증)
 
-- **REST**: 커서(`paging.next.after` + `paging.next.link`), `limit`로 페이지 크기. **List API(`GET …/objects/{type}`)는 total 없음**(세일즈맵과 동일), **Search API(`POST …/search`)만 `total` 제공**(`limit:0`으로 카운트하는 우회가 관행). 즉 "조회엔 total 없음"은 허브스팟도 같음.
-- **공식 MCP(`@hubspot/mcp-server` v0.4.0, 21개 도구)**: `after`를 입력으로 노출하고 `paging`을 응답에 그대로 직렬화하지만 — **"더 있음" 힌트는 0건**(런타임 주입 문자열 없음). 자동 페이지네이션도 안 하고, 심지어 search의 `total`마저 버려서 모델에 매치 수를 안 알려줌. → **허브스팟 MCP조차 이 문제를 방치**.
-- **MCP 스펙**: 커서/`nextCursor` 페이지네이션은 **프로토콜 list 연산(`tools/list` 등)에만** 규정, **tool 호출 결과는 미표준**. 제안 #799가 `hasMore`/`paginationHint`를 논의 중(계류).
-- **커뮤니티 베스트프랙티스**: LLM은 컨텍스트 압축으로 페이지네이션 상태를 잃으므로, 구조화 메타데이터(`total`/`has_more`/`truncated`)와 **자연어 힌트를 함께** 주라고 권장(예: "Showing 50 of 15,234 — refine the query").
+- HubSpot list API도 커서와 `limit`을 사용하며 total을 항상 주지는 않습니다.
+- 공식 MCP도 커서를 노출하지만, 자연어 "더 있음" 힌트나 자동 페이지네이션은 제공하지 않습니다.
+- MCP 프로토콜은 tool 결과의 페이지 표준을 정하지 않으므로, 도구 응답에 구조화 메타데이터와 자연어
+  힌트를 함께 주는 것이 필요합니다.
 
 ### MCP에서의 우회 (2026-06 채택)
 
@@ -996,72 +1010,14 @@ function withMoreHint(data) {
 
 - `nextCursor`가 `null`이면(마지막 페이지) **미부착** → 노이즈 없음.
 - 힌트가 `after="<값>"`을 직접 박아줘서 **`after`/`nextCursor` 이름 비대칭도 동시에 브리지**.
-- 적용 범위: `search-objects`·`list-engagements`·`list-changelog`·`list-products`/`sequences`/`webforms`·`list-users`/`teams` **전부** + 향후 페이지네이션 도구 자동(단일 지점이라).
-- **허브스팟 MCP도 안 하는 신호** — 이 힌트로 오히려 앞섬. 다만 *정확한 total*은 여전히 불가(부분 신호일 뿐).
+- 적용 범위: 커서를 반환하는 모든 목록 도구와 향후 도구입니다.
+- 정확한 total은 여전히 불가합니다. activity 고유의 페이지·정렬·cursor 문제는 #9-6과 #9-10에
+  모았습니다.
 
 ### 근본 해결 (백엔드)
 
-1. activity·목록 조회 응답에 **`total`(또는 최소한 `hasMore`) 포함** → "50/230" 정확 표시 가능
-2. activity에 **정렬(`order`, 기본 최신순) + `size`** 파라미터
-3. (선택) 검색처럼 **count 전용 조회** 또는 `limit:0` 카운트 지원
-
----
-
-## 28. Activity(타임라인) 배치 조회 엔드포인트 부재
-
-### 문제
-
-`/v3/object/activity`는 **단일 `objectId`만** 받는다. 여러 레코드의 타임라인을 한 번에 조회하는 배치 엔드포인트가 없고, `/v3/object/read`(배치 읽기)도 `activity`를 인라인으로 포함하는 파라미터가 없다. (2026-07 백엔드 코드 확인: `objectReadApi`와 `objectActivityApi`가 완전 분리, activity 합산 경로 없음)
-
-### 실제 영향
-
-N개 레코드의 활동을 조회 = **N회 호출**. 텔레메트리(2026-06) 기준 `list-engagements`가 6,703호출로 최다이며, `list-engagements → list-engagements` 연속 전이가 6,385회 — 대부분 레코드별 순회 배치 작업이다. p90 7.9초·20.9%가 5초 초과·rate limit 429 다발의 근본 원인.
-
-### MCP에서의 우회 / 완화 (근본 해결 아님)
-
-- `salesmap-list-engagements`에 `limit`(1~50) 노출 + `note.htmlBody` 제거로 응답 경량화 (2026-07)
-- 429를 body의 "N초 후 재시도" 파싱 기반으로 정확 대기 (2026-07)
-- `salesmap-run-script`로 서버측 순회 유도 (중간 데이터가 컨텍스트에 안 쌓임)
-
-### 백엔드 제안
-
-1. **`/v3/object/read`에 activity 인라인 파라미터** (예: `activityTypes: ["email","note"]` → 각 레코드에 활동 동봉) — 가장 이상적. batch-read 1콜로 레코드+활동 확보
-2. 또는 **여러 objectId를 받는 배치 activity 엔드포인트**
-3. (부수) 429 응답에 `Retry-After` / `X-RateLimit-Remaining` 헤더 — 현재는 body 텍스트("8.316초 후 재시도해주세요.")만 제공
-
----
-
-## 29. 견적서 발행(공유 링크 생성) API 부재 — 견적 자동화의 최종 장벽
-
-### 문제
-
-견적서 관련 엔드포인트는 3개뿐이다 (2026-07 라이브 OpenAPI + 테스트 워크스페이스 실측):
-- `POST /v2/quote` — 생성
-- `GET /v2/deal/{id}/quote`, `GET /v2/lead/{id}/quote` — 딜/리드별 조회
-
-**발행(publish)·발송·수정·삭제 엔드포인트가 없다.** 발행은 세일즈맵 GUI에서 사람이 눌러야만 일어나는 액션이며, 그 순간에 `공유 링크`(고객 전달용 공개 URL)가 생성된다.
-
-### 실제 영향 (실측)
-
-견적서 조회 응답에 `공유 링크` 필드가 있어 "생성 → 링크 획득 → 이메일 발송(`POST /v2/email`)"으로 자동화가 이어질 것처럼 보이지만, 실측 결과:
-
-| 검증 | 결과 |
-|---|---|
-| API로 생성한 견적서의 `공유 링크` | **null** |
-| `isMainQuote: true`는 정상 반영 (메인 견적서로 지정됨) | 하지만 공유 링크는 여전히 **null** — 메인 지정과 발행은 별개 액션 |
-| 미문서 경로 probing (`/quote/{id}/publish`·`/share`·`/issue`) | 전부 **404** |
-| 기존에 링크가 있던 견적서 | 전부 **사람이 GUI에서 발행한** 메인 견적서 (인과 아님 — 보통 메인을 발행하기 때문) |
-| 그 발행 링크 접속 | HTTP 200, 인증 없이 열리는 공개 페이지 |
-
-즉 **API/MCP로는 "생성"까지만 되고, 발행(공유 링크 발급)이 불가**해서 이메일에 첨부할 URL 자체가 안 나온다. "AI가 견적서 만들어 바로 고객에게 발송"은 현재 완결 불가 — 생성까지만 자동화되고 발행+발송은 사람이 GUI에서 마무리하는 반쪽 자동화.
-
-> **의미:** 견적 업무 자동화의 최종 장벽. 세일즈맵의 핵심 세일즈 플로우(견적→발송→성사)를 AI로 자동화하려면 이 부분이 반드시 해결되어야 한다.
-
-### 백엔드 제안
-
-1. **견적서 발행 API** (예: `POST /v2/quote/{id}/publish` → 공유 링크 반환) — 가장 직접적
-2. 또는 **생성 시 발행 옵션** (`POST /v2/quote`에 `publish: true` → 응답에 공유 링크 포함)
-3. (부수) 견적서 수정·삭제 API — 현재 생성 후 GUI 없이는 손댈 수 없음 (테스트 견적서도 API로 못 지움)
+1. 모든 목록 응답에 **`total` 또는 `hasMore`**를 제공합니다.
+2. (선택) count 전용 조회를 지원합니다.
 
 ---
 
@@ -1165,49 +1121,12 @@ top-level 5종과 fieldList로 분리합니다. fieldList에 금지 필드가 �
 
 ---
 
-## 32. 날짜 파라미터 시간대 규약이 엔드포인트마다 다름 ★★★
+## 32. v3 `dateTime` 필드가 date-only 입력에 호출 시각을 주입 ★★★
 
-### 문제
+노트/activity 날짜 범위의 KST/UTC 불일치와 종료일 누락은 #9-8에서 다룹니다. 이 항목은 활동과
+무관하게 v3 쓰기 전체에 영향을 주는 `dateTime` 필드의 별도 계약 문제입니다.
 
-`2026-07-29`처럼 **날짜만** 넣었을 때 해석이 엔드포인트마다 다릅니다.
-파라미터 이름이 같아도(`startDate`/`endDate`) 내부 처리가 달라, AI가 한 곳에서 배운 규칙을
-다른 곳에 적용하면 **조용히 틀린 범위를 조회**합니다.
-
-| 엔드포인트 | date-only 해석 | 근거 |
-|---|---|---|
-| `GET /v2/{object}/activity` `startDate`·`endDate` | **KST 달력일** | 실측 + 백엔드 확인 |
-| `POST /v2/{object}/search` `DATE_*` (절대) | **KST 달력일** | 백엔드 확인 (`getDateInKSTFromValue`) |
-| `POST /v2/{object}/search` `DATE_*_DAYS_AGO` (상대) | **KST 달력일**(호출 시점 KST 오늘 기준, 현재 시각 아님) | 백엔드 확인 |
-| **`GET /v2/memo` `startDate`·`endDate`** | **⚠️ UTC** | **실측 확정** — `dayjs(value).toDate()`, 타임존 미지정 |
-| `POST /v3/object/create` **`date`** 타입 필드 | **KST 자정** | 실측 확정 |
-| `POST /v3/object/create` **`dateTime`** 타입 필드 | **⚠️ 입력 날짜 + 호출 시점 KST 시각** | **실측 확정** |
-| 모든 응답 | UTC (`Z`) | 전 엔드포인트 확인 |
-
-### 실제 영향 ① — `GET /v2/memo`의 `endDate`가 당일을 통째로 버림 (실피해 확인)
-
-`endDate=D`가 **`D T00:00:00Z`까지**로 해석되어, **종료일 당일 데이터가 전부 빠집니다.**
-
-실측 (테스트 워크스페이스, 2026-07-31):
-```
-노트 createdAt = 2026-07-31T04:27:55Z  (KST 13:27)
-
-GET /v2/memo?startDate=2026-07-31  →  1건   (UTC 00:00 이후라 포함)
-GET /v2/memo?endDate=2026-07-31    →  0건   ⚠️ 당일이 빠짐
-```
-
-**텔레메트리 실측 — 이미 고객이 영향받았습니다.** `salesmap-list-notes` 358회 중 날짜 필터
-29회, 그중 **`endDate` 사용 22회가 전부 종료일 당일 누락**입니다:
-
-```
-2026-07-01  Fast campus B2B  start=2026-06-30  end=2026-07-01   ← 조회 당일
-2026-07-08  sauce            start=2026-06-01  end=2026-07-08   ← 조회 당일
-2026-07-10  세일즈맵          start=2026-06-22  end=2026-07-10   ← 조회 당일
-```
-
-"오늘까지 노트 보여줘"가 **오늘 것만 쏙 빼고** 반환됐고, 사람은 결과만 보므로 아무도 몰랐습니다.
-**성공(200)으로 기록되어 로그에도 흔적이 없습니다.**
-
-### 실제 영향 ② — v3 create의 `dateTime` 필드가 재현 불가능하게 저장됨
+### 실제 영향
 
 ```
 입력: { "마감일": "2026-07-29" }   (KST 13:26에 호출)
@@ -1221,123 +1140,87 @@ GET /v2/memo?endDate=2026-07-31    →  0건   ⚠️ 당일이 빠짐
 
 ### MCP에서의 우회
 
-- `list-notes`: `endDate`에 +1일 보정하거나 오프셋 포함 date-time으로 변환해 전송
-- `list-engagements`(v2 이관분)·`search-objects`: KST 규칙 그대로 사용, 도구 설명에 명시
-- v3 create: `dateTime` 필드는 date-only 사용을 피하고 오프셋 포함 date-time 권장
+- v3 `dateTime` 필드는 date-only 사용을 피하고 오프셋 포함 date-time을 권장합니다.
 
 ### API 개선안
 
-1. **(최우선) `GET /v2/memo`를 activity와 동일한 KST day-bound로** — 파라미터 이름이 같은데
-   해석이 다른 것이 가장 위험합니다. 최소한 `endDate`가 당일을 포함하게라도 고쳐주세요
-2. v3 create의 `dateTime` 필드에 date-only가 오면 **KST 자정**으로 통일 (호출 시각 주입 제거)
-3. 규약을 한 문장으로 문서화 — "date-only는 KST 달력일, 응답은 UTC"
+v3 create의 `dateTime` 필드에 date-only가 오면 **KST 자정**으로 통일하고, 규약을 문서화합니다.
 
 ---
 
-## 33. Activity — 정렬 수단 부재로 "최근 N건" 조회가 성립하지 않음 ★★★
+## MCP 코드 감사 추가 이슈 (업스트림 API와 분리)
 
-### 문제
+아래 항목은 API의 한계가 아니라 현재 래퍼 소스 자체에서 확인한 문제입니다. 실제 API 계약이
+문서와 다를 가능성이 있는 항목은 재현 전까지 추정으로 표시합니다.
 
-`GET /v2/{object}/activity`가 **오름차순(오래된 순) 고정**이고 한 페이지 **50건 고정**입니다
-(`limit` 파라미터는 받아도 조용히 무시 — `limit=abc`·`limit=999`도 200).
+### MCP-B1. v3 batch read가 `DEFAULT_PROPERTIES` 기본 정책을 사용하지 않음
 
-### 실제 영향
+`src/tools/generic.ts`의 v3 `/v3/object/read` 경로는 사용자가 `fieldList`를 주면 그대로
+전달하지만, 생략하면 `fieldList` 자체를 보내지 않아 API가 모든 필드를 반환합니다.
+`src/client.ts`의 `DEFAULT_PROPERTIES`는 v2 단건 조회의 fallback에만 적용됩니다.
 
-"이 고객 최근 활동 보여줘"를 하려면 둘 중 하나입니다:
+즉 README와 일부 설계 문서가 말하는 “기본 핵심 필드만 반환”은 현재 v3 batch-read 경로의
+동작이 아닙니다. 커스텀 필드가 많거나 association을 함께 읽는 경우 응답·토큰·지연이
+불필요하게 커질 수 있습니다. **T2** — 데이터 정확성보다는 반복 조회의 비용과 컨텍스트
+폭발 문제입니다.
 
-1. 커서가 안 나올 때까지 **전체를 무한 조회**
-2. **장님 돌다리 건너듯 날짜를 찍어가며** 범위를 좁히기
+### MCP-B2. v3 구조화 오류가 클라이언트에서 문자열로 평탄화됨
 
-3년 전부터 기록이 있고 마지막 기록이 6개월 전인 레코드라면 **어디를 찍어야 할지 알 방법조차
-없습니다.** 실측한 레코드는 활동이 100건 이상이라 2페이지에도 커서가 남았습니다.
+v3 batch mutation은 `errors[]`에 `code`, `inputIndex`, `fieldName`, `context`를 줄 수 있고
+207 partial success에서는 일부 레코드만 실패할 수 있습니다. 그러나 현재 `SalesMapClient`의
+공통 오류 처리에서는 이 객체들이 문자열 메시지로 합쳐집니다.
 
-**AI가 몇 번을 호출해야 하는지 미리 알 수 없다는 것이 본질입니다.** 토큰·지연·비용이 모두
-예측 불가능해집니다.
+그 결과 LLM은 어떤 입력 인덱스가 실패했는지, 어느 필드가 원인인지, 성공한 레코드와 실패한
+레코드를 어떻게 나눠 재시도해야 하는지 안정적으로 알 수 없습니다. 오류 구조를 MCP 응답의
+고정된 `errors`/`partial` 형태로 보존해야 합니다. **T2** — 배치 결과를 잘못 재시도하거나
+성공·실패를 한 덩어리로 보고할 위험이 있습니다.
 
-`GET /v2/{object}/search`의 `sorts` 미작동(#4-1)과 같은 뿌리 — **조회 계열 전반에 정렬 수단이
-없습니다.**
+### MCP-B3. 이름→ID 조회에서 중복 이름이 조용히 덮어써짐
 
-### MCP에서의 우회
+`fetchUserMap`과 `fetchTeamMap`은 이름을 key로 하는 `Map`을 만들며, 같은 이름이 여러 개면
+마지막 항목이 이전 항목을 덮어씁니다. 현재 중복 이름이 있는 워크스페이스의 재현 데이터는
+확보하지 못했지만, 담당자·팀을 이름으로 지정한 쓰기에서 잘못된 UUID가 선택될 수 있는
+정적 코드 위험입니다.
 
-`startDate`로 범위를 좁히도록 도구 설명에 안내. 근본 해결 아님.
+이름이 유일하지 않으면 후보 목록을 반환해 선택을 요구하거나, 이름+ID를 함께 표시하고
+명시적 ID를 우선해야 합니다. **T2** — 데이터 변경 대상이 틀릴 수 있으므로 단순 UX 문제가
+아닙니다.
 
-### API 개선안
+### MCP-C1. 도구 수와 LLM용 문서가 실제 구현에서 드리프트됨
 
-`sort=asc|desc` 또는 `order` 파라미터. activity만이라도 내림차순이 되면 체감이 크게 달라집니다.
+현재 `src/index.ts`는 29개 도구를 등록하지만 README와 `docs/architecture.md`에는 22개로
+남아 있습니다. `src/tools/extras.ts`의 내장 `SALESMAP_DOCS`에도 현재 입력 계약과 다른
+견적 상품 예시(`startPaymentDate`)가 남아 있고, 정적 `api-ref`는 2026-07-30 v2 reference를
+기반으로 합니다. v3 object CRUD를 설명하는 도구와 v2 reference를 조합해 읽으면 모델이
+존재하지 않는 필드명·도구 수·요청 형식을 학습할 수 있습니다.
 
----
+등록 도구 목록과 내장 문서를 단일 생성 원천에서 만들고, API reference에는 기준일·실측 우선
+원칙을 표시해야 합니다. **T3** — 대부분의 호출은 동작하지만 잘못된 탐색과 불필요한 재시도를
+유발합니다.
 
-## 34. 녹음(Recording) — 목록·역방향 조회 부재
+### 확인 완료: v3 batch create association 계약
 
-### 문제
+백엔드 확인 결과 실제 API 키는 `association`(단수형)입니다. MCP 입력 표면에서
+`associations`(복수형)를 받는 것은 LLM 친화적인 도구 계약이고, outgoing body에서
+`associations` → `association`으로 변환하는 현재 코드는 올바릅니다.
 
-2026-07-29 릴리즈로 `GET /v2/recording/{id}`와 `/transcript`가 생겨 **녹취 접근이 가능해졌지만**
-(구 #14의 "AI transcript ❌ API 없음" 해소), 두 가지가 빠져 있습니다.
+create의 값은 배열을 직접 넣는 형태가 아니라 다음과 같은
+`Record<string, string[]>` 객체입니다.
 
-**① 녹음 목록 엔드포인트가 없습니다.** `recordingId`를 얻는 경로가 activity뿐이라,
-"이번 주 녹음 전부 요약해줘"는 레코드를 하나씩 돌며 activity를 뒤지는 수밖에 없습니다.
-
-**② 연결 레코드 정보가 없습니다.**
 ```json
-{ "id": "...", "title": "...", "duration": 3592, "source": "realtime",
-  "coreSummary": "...", "createdAt": "...", "owner": { "id": "...", "name": "..." } }
+{
+  "association": {
+    "메인 고객": ["people-record-uuid"],
+    "메인 회사": ["organization-record-uuid"]
+  }
+}
 ```
-어느 딜·리드·고객·회사의 녹음인지 알 수 없습니다. activity를 통해 들어온 경우엔 문맥으로 알지만,
-`recordingId`만 들고 있으면 역추적이 불가능합니다.
 
-**③ transcript에 상한·페이지네이션이 없습니다.** 실측: 59분 회의 = 404 세그먼트 / 85 KB /
-텍스트 20,687자. 3시간 회의면 250KB로 응답이 위험해집니다.
-
-### API 개선안
-
-1. `GET /v2/recording` 목록 (기간·담당자 필터)
-2. 단건 응답에 연결 레코드(`dealId`/`leadId`/`peopleId`/`organizationId`) 추가
-3. transcript에 구간 조회(`fromMs`/`toMs`) 또는 페이지네이션
-
----
-
-## 35. 상품 구성(productElementList) — 쓰기만 되고 읽기가 없음
-
-### 문제
-
-`POST /v3/object/create`가 `productElementList`(상품의 하위 상품 묶음)를 지원하지만,
-**만든 구성을 다시 읽을 방법이 없습니다.** `GET /v2/product` 응답에 구성 상품이 없습니다.
-
-### MCP에서의 결정
-
-**지원하지 않기로 결정했습니다.** 구성 상품은 상품의 하위 상품 묶음을 의미하는데,
-**역으로 읽는 방법이 없는 등 기획상 구멍이 있어** 복잡도를 줄이기 위해 미지원합니다.
-AI가 생성 결과를 확인할 수 없으면 "조용히 틀림"을 검증할 수단이 사라집니다.
-
-**추후 상품 단건 조회에 구성 상품이 포함되면 그때 추가할 수 있습니다.**
-
-### API 개선안
-
-상품 단건 조회 신설(#21과 함께) + 응답에 `productElementList` 포함.
-
----
-
-## 36. OpenAPI 스펙(`GET /v2/openapi`)이 실제 구현과 불일치
-
-### 문제
-
-동작을 추측하기 전에 스펙부터 확인하는 것을 원칙으로 삼으려 했으나, 실측과 어긋나는 곳이 여럿입니다.
-
-| 위치 | 스펙 | 실제 |
-|---|---|---|
-| `Activity` 날짜 키 | `createdAt` | **`date`** |
-| `Activity` 응답 필드 | 5개 | **오브젝트별 14~15개** (`documentId`·`dealStatus` 등) |
-| `GET /v2/product` 응답 | `{id, name, price, createdAt}` | `이름`·`fieldList` |
-| `POST /v2/product` 요청 | `name`·`price`·`description` | `fieldList`도 수용 |
-
-### 실제 영향
-
-스펙만 믿고 파서를 짜면 `date`를 못 읽고, 오브젝트별 필드 차이를 놓칩니다.
-실제로 이번 릴리즈 반영 중 스펙을 근거로 잘못 판단할 뻔했고, 실측으로 교정했습니다.
-
-### API 개선안
-
-자동 생성 여부·갱신 주기 명시. 수동 관리라면 최소한 응답 스키마만이라도 실제와 맞추기.
+관계명은 워크스페이스의 관계 설정명 또는 시스템 관계명이어야 하고, 값은 이름이나 unique
+필드가 아닌 레코드 UUID 배열이어야 합니다. create에서는 선택 사항이지만 딜·리드는
+`메인 고객` 또는 `메인 회사`가 최소 하나 필요하며, 상품에 association을 지정하면 400입니다.
+update도 키와 기본 구조는 같고, `null`/빈 배열을 통한 연결 해제와 `rewrite`는 update에서만
+지원합니다. 따라서 이 계약은 MCP 감사 이슈가 아니라 **확인·해결된 구현 계약**으로 기록합니다.
 
 ---
 
@@ -1345,90 +1228,111 @@ AI가 생성 결과를 확인할 수 없으면 "조용히 틀림"을 검증할 �
 
 | # | API 레거시 | MCP 우회 방법 | 추가 코드량 |
 |---|-----------|-------------|-----------|
-| 1 | Batch Update 부재 | 미구현 — 단건 반복 또는 run-script | 우회 불가 |
-| 2 | fieldList 타입 키 패턴 | resolveProperties() 스키마 변환 | ~120줄 |
-| 3 | Top-level 파라미터 분리 | TOP_LEVEL_ONLY 자동 추출 | ~30줄 |
 | 4-1 | Search 정렬 미지원 | 클라이언트 정렬 (불완전) | ~10줄 |
 | 4-2 | Search 빈 필터 불가 | EXISTS 더미 필터 | ~5줄 |
 | 4-3 | Search 응답이 `{id, name}`만 반환 | batch-read 후속 호출 | N+1 패턴 |
-| 4-5 | custom-object 검색 미지원 | — | 우회 불가 |
-| 5 | Association에 engagement 없음 | activity API 별도 래핑 (list-engagements) | ~80줄 |
-| 6 | Rate limit 미문서화 | 120ms 강제 인터벌 + 429 retry | ~20줄 |
-| 7 | 응답 래핑 비일관 | getOne() 분기 처리 | ~15줄 |
-| 8 | 누락 API — TODO 생성·시퀀스 등록 (둘 다 500) | — | 우회 불가 |
-| 9 | 이메일 본문 미제공 + 목록 API 부재 | list-engagements 제목 인라인 | 본문 우회 불가 |
+| 4-5 | custom-object·상품 검색 미지원 | 상품은 전체 목록 순회, custom-object는 우회 불가 | 대규모 카탈로그·커스텀 오브젝트 탐색 불가 |
+| 4-6 | string 필드 다중 exact match(`IN`) 미지원 | 전체 목록 스캔 또는 다중 CONTAINS 우회 | 위험한 우회 |
+| 8 | 이메일 템플릿·시퀀스 생성/등록 API 부재 | — | 아웃바운드 플로우 전체 차단 |
+| 9-1 | Engagement 타입별 목록·상세·쓰기 표면 분절 | `list-notes`/`list-engagements`/`read-engagement` 분리 | 타입마다 가능한 업무 범위가 다름 |
+| 9-2 | 이메일 전역 목록·open/click 고객 분석 API 부재 | 레코드별 activity 순회·MCP 메모리 집계 | CRM 전체 후보 선별은 전체 스캔 위험 |
+| 9-3 | 노트 생성 lifecycle·응답 형식 제한 | 레코드 update의 `memo` 우회 | 날짜/유형/담당자 지정 불가 |
+| 9-4 | TODO 생성·수정·삭제 경로 부재 | — | 후속 조치 자동화 불가 |
+| 9-5 | 리드/딜 생성 시 고객 activity 전파 제어 부재 | — | UI/API 타임라인 불일치 |
+| 9-6 | 타임라인 정렬·page size·최근 N건 계약 부재 | 날짜 범위 안내 | 결과 완전성·호출량 예측 불가 |
+| 9-7 | Activity 배치 조회 부재 | 단건 반복 + run-script | N+1, 반복 지연 |
+| 9-8 | 노트 `endDate` UTC 해석으로 당일 누락 | endDate 보정 | 실피해 22회 |
+| 9-9 | 녹음/AI transcript 목록·역방향 조회·상한 부재 | activity 경유 + 응답 절단 | 전체 녹취 분석 불가 |
 | 10 | 삭제 API 비표준 | 시퀀스 에러 힌트 수동 추가 | ~5줄 |
-| 11 | 조회 시 반환 필드 선택 불가 | DEFAULT_PROPERTIES(타입별 코어 필드 자동) + pickProperties() 후처리 | ~45줄 |
-| 12 | ★★★★★ 노트 생성 API 제한 | 레코드 update의 memo 파라미터 우회 | 날짜/유형/담당자 지정 불가 |
+| 11 | 조회 시 반환 필드 선택 불가 | v2 fallback은 DEFAULT_PROPERTIES, v3 batch-read는 명시한 fieldList만 투영하고 생략 시 전체 반환 | 부분 우회 |
 | 13-b | 커스텀 오브젝트 이름 필드 식별 수단 부재 → 추론 + 다중 definition 오염 | properties 명시로 우회 (LLM 부담) | 미해결 |
-| 14 | Engagement 2급 구조 + API 대부분 부재 (통합 CRUD 없음) | list-engagements 인라인 + create-note + read-note | sms/meeting/알림톡 불가 |
-| 15 | 리드/딜 생성 시 연결 고객 활동 전파 제어 불가 (UI엔 있음·고객 한정) | — | 우회 불가 (API 파라미터 없음) |
 | 16 | 필드 스키마에 description 없음 | FIELD_HINTS 하드코딩 주입 (~44필드) | ~60줄 |
-| 17 | 참조 필드가 ID만 허용 (이름→ID) | 사용자/팀 이름→UUID 자동 변환 | ~60줄 (파이프라인 미구현) |
-| 18 | 에러 응답이 비구조화 문자열 | errWithSchemaHint() 패턴 매칭 | ~20줄 (문구 변경 시 깨짐) |
+| 17 | 참조 필드가 ID만 허용 (이름→ID) | 사용자/팀 이름→UUID, search의 pipeline/stage 이름 자동 변환; v2 update는 여전히 ID 중심 | ~60줄 (중복 이름 위험) |
+| 18 | 에러 응답이 비구조화 문자열 | v2는 errWithSchemaHint(), v3 구조화 `errors[]`는 문자열로 평탄화 | 부분 우회 |
 | 19 | 필드 수정 API 부재 (옵션 값 변경 등 UI 전용) | — | 우회 불가 |
-| 20 | Association 대량 처리 전용 API 없음 (연결 변경 자체는 update로 가능) | update 관계 필드로 우회 | batch update(#1)로 커버 가능 |
-| 21 | 상품 단건 조회·수정·삭제 없음 + search 미지원 | create-quote에서 productId optional, 목록 조회만 | 우회 불가 (대규모 카탈로그) |
+| 20 | Association 대량 처리 전용 API 없음 (연결 변경 자체는 update로 가능) | update 관계 필드로 우회 | 예정된 v3 batch update의 `association`으로 커버 가능 |
+| 21 | 상품 수정·삭제 API 부재 | v3 batch create/read로 생성·조회만 가능 | 정정·정리 작업은 UI 전용 |
 | 22 | user/me와 user 목록 스키마 불일치 | user 목록에서 id 매칭으로 email 추출 | ~5줄 |
 | 23 | 시퀀스 `_id` vs `id` + 필드명 불일치 | `_id`→`id` 재매핑 | ~5줄 |
 | 24 | 레코드 병합(Merge) API 없음 | — | 우회 불가 |
 | 25 | IP 화이트리스트 + 프록시 충돌 (고객 IP제한 시 MCP 기각) | — | 우회 불가 (고정 egress IP 필요) |
-| 26 | 관계 필드 검색에 LIST_CONTAIN 미지원 (IN/NOT_IN만) + 힌트 오발동 | LIST_CONTAIN→IN 자동 변환 + operator 힌트 분리 | ~6줄 |
-| 27 | 페이지네이션 `nextCursor` 신호를 LLM이 무시 (1페이지를 전부로 단정) | `ok()`에서 nextCursor 존재 시 "더 있음 + `after=`" 힌트 자동 주입 | ~12줄 |
+| 27 | 페이지네이션 `nextCursor` 신호를 LLM이 무시 | `ok()`에 다음 `after` 호출 힌트 자동 주입 | 정확한 total은 불가 |
 | 31 | 견적서 상품 타입 표기 3중화 (`quote-product`/`QuoteProduct`/`quoteProductList`) + top-level 전용 필드 에러가 원인을 가림 | 평탄 properties 수용 후 스키마 기반 분리, 타입명 상수 고정 | ~40줄 |
-| 32 | ★★★ 날짜 date-only 해석이 엔드포인트마다 다름 (memo만 UTC → **endDate 당일 통째 누락**, v3 dateTime은 호출 시각 주입) | list-notes endDate 보정 + 도구 설명 분기 | 실피해 22회 확인 |
-| 33 | ★★★ activity 정렬 오름차순 고정 + limit 무시 → "최근 N건"이 성립 안 함 | startDate로 범위 좁히기 안내 | 근본 해결 불가 |
-| 34 | 녹음 목록·역방향 조회 부재, transcript 상한 없음 | activity 경유 + 우리가 절단 | 목록 우회 불가 |
+| 32 | v3 `dateTime` date-only 입력이 호출 시각으로 저장됨 | 오프셋 포함 date-time 권장 | 재현 불가능한 값 |
 | 35 | 구성 상품 쓰기만 되고 읽기 없음 | **미지원 결정** | — |
-| 36 | OpenAPI 스펙이 실제와 불일치 | 실측으로 교차검증 | 스펙 신뢰 불가 |
+
+### MCP 코드 감사 요약
+
+| 항목 | 문제 | 등급 |
+|---|---|---|
+| MCP-B1 | v3 batch-read에서 fieldList 생략 시 전체 필드 반환 | T2 |
+| MCP-B2 | v3 구조화 오류의 inputIndex/fieldName/context 손실 | T2 |
+| MCP-B3 | 동일한 user/team 이름이 Map에서 조용히 덮어써질 수 있음 | T2 |
+| MCP-C1 | 도구 수·내장 문서·정적 API reference가 실제 구현과 드리프트 | T3 |
+
+> Activity 관련 MCP-A1/A2의 상세와 T1 판단은 #9-10에 통합했습니다.
 
 **총 우회 코드: ~527줄** (전체 MCP 서버 코드의 약 30%)
 
 ---
 
-## 제안: 공식 MCP를 위한 API 로드맵
+## 제안: 공식 MCP를 위한 T1/T2/T3 실행 로드맵
 
-### 즉시 (API 변경 없이 MCP 품질 향상)
+공수나 릴리즈 일정이 아니라, 잘못된 성공 응답·데이터 누락·핵심 업무 차단 가능성을 기준으로
+정렬합니다. T1은 MCP와 API가 각각 담당할 일을 나눠 동시에 처리해야 합니다.
 
-1. 조회 API에 `properties[]` 파라미터 지원 → 필요한 필드만 반환
-2. Search 응답에도 `properties[]` 지원 → batch-read 후속 호출 제거
-3. Search `sorts` 파라미터 실제 작동
-4. 에러 응답에 유효값 힌트 포함
-5. 관계 필드 검색에 LIST_CONTAIN/LIST_NOT_CONTAIN 지원 (또는 미지원 시 IN 권장 메시지) (#26)
-6. 조회·activity 응답에 `total`(또는 `hasMore`) 포함 + activity 정렬(`order`, 기본 최신순)·`size` 파라미터 → 페이지네이션 완전성 (#27)
+### T1 — 데이터 누락과 대량 쓰기 안전성
 
-### 단기 (설계 개선)
+1. **#9-10 (MCP-A1/A2)** — `custom-object` activity 키를 검증·수정하고, activity `limit`과
+   cursor가 함께 사용될 때 항목을 건너뛰지 않도록 고칩니다.
+2. **#9-8·#32** — memo의 `endDate`를 당일 포함 KST 경계로 통일하고, v3 `dateTime`의
+   date-only 입력에 호출 시각이 붙지 않게 합니다.
+3. **#9-6·#9-7·#27** — activity의 `hasMore`/`total`, 정렬, page size와 batch 경로를 추가하고,
+   모든 목록 도구는 페이지가 일부라는 신호를 유지합니다.
+4. **#20** — 예정된 v3 batch update가 `association` 객체를 포함하도록 계약을 확정합니다.
 
-1. `properties` 기반 쓰기 (`fieldList` 타입 키 제거, 서버 타입 추론)
-2. Top-level 파라미터를 properties로 통합
-3. Rate limit 문서화 + retry-after 헤더
-4. Engagement를 association 대상으로 포함
-5. 필드 스키마에 description 필드 추가
-6. 참조 필드에서 이름 문자열 허용 (서버단 이름→ID 해석)
-7. 에러 응답 구조화 (category, code, context 포함)
+### T2 — 핵심 업무 차단과 반복 비용
 
-### 중기 (기능 추가)
+1. **검색·투영** — #4-1/#4-3/#4-5/#4-6의 정렬·properties·custom-object/product search와
+   string exact `IN`을 지원합니다.
+2. **오류·참조 안전성** — #18의 구조화 오류(`code`, `inputIndex`, `fieldName`, `context`)와
+   MCP-B2 보존 계약을 마련하고, #17의 이름 참조와 중복 이름 처리 정책을 API/MCP 양쪽에
+   명시합니다(MCP-B1/B3 포함).
+3. **활동** — #9-1~#9-5·#9-9의 전역 이메일 이벤트 조회·고객별 집계, 공통 CRUD/검색,
+   활동 전파, 녹음 역방향 조회를 보강합니다.
+4. **업무 기능** — #8의 시퀀스 등록, #19의 필드 수정, #21의 상품 수정·삭제,
+   #24의 merge, #29의 quote publish를 제공합니다.
+5. **운영 안정성** — #25의 IP whitelist와 MCP egress 충돌에 대한 고정 egress 또는 정책
+   대안을 마련합니다.
 
-1. TODO/시퀀스 등록 API 정상화 (현재 둘 다 500)
-2. 이메일 본문 반환 + 목록 조회 API
-3. 커스텀 오브젝트 검색(search) 지원 (Definition 목록 API는 해결됨 — #13)
-4. Internal field name 도입 — 안정적 필드 식별자. 특히 커스텀 오브젝트 이름 필드 식별 수단 또는 definition 단위 필드 조회 (#13-b)
-5. Engagement 1급 오브젝트화 — 노트 전용 생성 API, 상세 조회 확대 (sms, meeting, 알림톡), 통합 CRUD (#14)
-6. 리드/딜 생성 API에 연결 고객 활동 전파 옵션 추가 (UI '고객 활동 내용도 함께 연결' 대응)
-7. 필드(Property) 수정 API (생성은 해결됨 — #19)
-8. Association 생성·해제 API
-9. 상품(Product) 단건 조회·수정·삭제 API 추가
-10. `/v2/user/me` 응답에 email, role 추가 + status 값 형식 통일
-11. 시퀀스 응답 필드 문서 일치 + `_id` → `id` 통일
-12. 레코드 병합 API (`POST /v2/object/{type}/merge`)
+### T3 — 스키마 일관성과 후속 기능
 
-> Engagement 1급 오브젝트화 아키텍처 방향은 #14 "Engagement 종합" 섹션 참조.
+1. **응답·투영 정책** — MCP-B1의 v3 기본 field projection 정책을 문서와 코드에서
+   일치시킵니다. v2 호환 문제는 별도 「v3 이관 중 잔존 레거시 문제」 섹션에서 관리합니다.
+2. **식별자·옵션·문서** — #10/#16/#22/#23/#30/#31의 API 표기·description·user 응답·
+   sequence ID·관계 옵션·quote-product 타입을 정리합니다.
+3. **커스텀 오브젝트와 상품** — #13-b의 internal field name/definition 단위 스키마와
+   #35의 productElementList 읽기 경로를 추가합니다.
+4. **MCP-C1** — 실제 등록 도구 목록과 README·architecture·내장 `SALESMAP_DOCS`·정적
+   reference의 생성 원천과 갱신 기준일을 통일합니다.
+
+> Engagement 1급 오브젝트화 아키텍처 방향은 #9 "Engagement / Activity API" 섹션 참조.
 
 ---
 
 ## 해결됨 (메모)
 
 해결된 이슈는 본문에서 제거하고 여기 간단히만 남긴다.
+
+### 2026-06-10 릴리즈 — 관계 필드 `LIST_CONTAIN` 지원 (구 #4-7)
+
+- SAL-9179(PR #12674, commit `d23f78a029`)이 2026-06-10 릴리즈에 포함됐고, 현재 production
+  `2026-08-03`에도 배포되어 있습니다.
+- 다중 관계 필드에서 `LIST_CONTAIN`/`LIST_NOT_CONTAIN`은 UUID 하나의 scalar 값, 여러 후보의
+  멤버십 검색은 `IN`/`NOT_IN` + UUID 배열이 현행 계약입니다. UI도 각각 "포함"과
+  "하나라도 포함"에 이 shape을 사용합니다.
+- 2026-06-08 telemetry의 `Operator LIST_CONTAIN is not supported for relation field`는 이 릴리즈
+  전 버전에 UUID 배열을 `LIST_CONTAIN`으로 보낸 과거 실패입니다. 현재 활성 API 이슈가 아닙니다.
 
 ### 2026-07-29 릴리즈 — 반영 완료 (2026-07-31)
 
