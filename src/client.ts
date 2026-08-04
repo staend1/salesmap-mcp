@@ -13,6 +13,17 @@ const BASE_URL = "https://salesmap.kr/api";
 const MIN_INTERVAL_MS = 120; // 100req/10s = 100ms + safety margin
 const MAX_RETRIES = 3;
 
+// 배치 **쓰기**만 별도 쿼타를 쓴다 — 1 req/1s, 버스트 없음, 워크스페이스(room) 단위.
+// (우회가 아니라 항구적 제약이라 quirk 레지스트리에 넣지 않는다 — 백엔드가 의도적으로
+//  건 상한이고 "올리지 말 것"이 코드 주석에 명시돼 있다.)
+// 요청 1건이 레코드 100개 × 백그라운드 잡으로 팬아웃돼 Redis 큐에 쌓이기 때문이고,
+// 2026-06-26 dev 장애(OOM) 이후 일반 버킷과 분리됐다.
+//
+// ⚠️ 읽기 배치(`/v3/object/read`·`list`)는 **일반 버킷**이다. 여기 묶으면 배치 조회가
+// 100배 느려진다. 백엔드 `authenticateApi.ts`의 분기와 같은 패턴을 유지할 것.
+const BATCH_MUTATION_RE = /\/v\d+\/object\/(create|update)$/;
+const BATCH_INTERVAL_MS = 1_100; // 1s + safety margin
+
 // 개별 API 호출 상한. 실측 단일 호출 최대가 29.7초(list-engagements)라 1.5배 여유를 둔다.
 // 계층: Vercel 함수 130초 > run-script 스크립트 컷 125초 > 개별 호출 45초.
 // 멀티홉 스크립트가 여러 번 호출하며 오래 도는 건 그대로 두고, 멈춘 호출 하나만 끊는다.
@@ -29,15 +40,34 @@ const AMBIGUOUS_WRITE_WARNING =
   "\n\n⚠️ 이 요청은 서버에 도달해 **이미 반영됐을 수 있습니다.** 같은 작업을 다시 실행하지 마세요."
   + "\n[다음 단계] salesmap-search-objects로 결과가 반영됐는지 먼저 확인한 뒤, 없을 때만 재시도하세요.";
 
-let lastRequestTime = 0;
+/**
+ * 버킷별 마지막 호출 시각. 키는 `<워크스페이스 지문>:<버킷>`.
+ *
+ * 워크스페이스로 키를 나누는 이유: 쿼타가 room 단위라 A사 호출이 B사를 막을 이유가 없다.
+ * 120ms일 땐 안 보이던 문제지만 배치 1.1초에서는 그대로 체감된다.
+ *
+ * ⚠️ 이건 429를 **줄이는** 장치이지 막는 장치가 아니다. 우리는 stateless 서버리스라
+ * 이 맵은 람다 인스턴스 안에서만 산다 — 인스턴스가 여러 개면 각자 "간격을 지켰다"고
+ * 판단해 합산 초과가 나고, 같은 워크스페이스를 쓰는 우리 밖의 호출자는 보이지도 않는다.
+ * 실제 보장은 429 백오프(아래 재시도 루프)다. 스로틀의 목적은 헛된 왕복을 줄이는 것.
+ */
+const lastRequestAt = new Map<string, number>();
+const MAX_BUCKETS = 512; // 워크스페이스 수 × 2. 무한정 자라지 않게만 막는다
 
-async function rateLimit(): Promise<void> {
-  const now = Date.now();
-  const elapsed = now - lastRequestTime;
-  if (elapsed < MIN_INTERVAL_MS) {
-    await new Promise((r) => setTimeout(r, MIN_INTERVAL_MS - elapsed));
+async function rateLimit(fingerprint: string, path: string): Promise<void> {
+  const isBatch = BATCH_MUTATION_RE.test(path);
+  const interval = isBatch ? BATCH_INTERVAL_MS : MIN_INTERVAL_MS;
+  const key = `${fingerprint}:${isBatch ? "batch" : "general"}`;
+
+  const elapsed = Date.now() - (lastRequestAt.get(key) ?? 0);
+  if (elapsed < interval) {
+    await new Promise((r) => setTimeout(r, interval - elapsed));
   }
-  lastRequestTime = Date.now();
+
+  if (lastRequestAt.size >= MAX_BUCKETS && !lastRequestAt.has(key)) {
+    lastRequestAt.clear(); // 삽입 순서가 곧 오래된 순이 아니라, 통째로 비우는 편이 단순하다
+  }
+  lastRequestAt.set(key, Date.now());
 }
 
 export class SalesMapClient {
@@ -56,7 +86,7 @@ export class SalesMapClient {
     body?: Record<string, unknown>,
     query?: Record<string, string>,
   ): Promise<T> {
-    await rateLimit();
+    await rateLimit(this.fingerprint, path);
 
     const url = new URL(`${BASE_URL}${path}`);
     if (query) {
@@ -363,23 +393,6 @@ export async function resolveProperties(
     fieldMap.set(f.name, f.type);
   }
 
-  // Check if any user-type fields need name→UUID resolution
-  let userMap: Map<string, string> | null = null;
-  const needsUserLookup = Object.entries(properties).some(([name, value]) => {
-    const ft = fieldMap.get(name);
-    if (!ft) return false;
-    const vk = TYPE_TO_VALUE_KEY[ft];
-    if (!vk || !USER_VALUE_KEYS.has(vk)) return false;
-    // If value is a non-UUID string, we need user lookup
-    if (typeof value === "string" && !isValidId(value)) return true;
-    // If value is an array with non-UUID strings
-    if (Array.isArray(value) && value.some(v => typeof v === "string" && !isValidId(v))) return true;
-    return false;
-  });
-  if (needsUserLookup) {
-    userMap = await getUserMap(client);
-  }
-
   const fieldList: Array<Record<string, unknown>> = [];
   const errors: string[] = [];
   const extractedTopLevel: Record<string, unknown> = {};
@@ -394,6 +407,30 @@ export async function resolveProperties(
 
   // top-level로 빠지는 필드는 스키마에 없어도 유효한 대상으로 취급
   const hasField = (n: string) => n in TOP_LEVEL_ONLY || fieldMap.has(n);
+
+  // Check if any user-type fields need name→UUID resolution
+  //
+  // ⚠️ 판정에 쓰는 이름은 반드시 `canonicalFieldName`을 거친 것이어야 한다.
+  // 원본 이름으로 스키마를 조회하면, 별칭·자모 오타로 들어온 user 필드가 여기서
+  // "user 필드 아님"으로 걸러져 userMap이 안 실린다. 그런데 아래 루프는 교정된
+  // 이름으로 user 필드임을 알아채고도 `&& userMap` 가드에 막혀 변환을 건너뛰므로,
+  // 사용자 이름 문자열이 그대로 userValueId에 실려 나간다 → 400.
+  // (실제 발생: `"딜 담당자"`를 `"딥 담당자"`로 보낸 호출 3건)
+  let userMap: Map<string, string> | null = null;
+  const needsUserLookup = Object.entries(properties).some(([rawName, value]) => {
+    const ft = fieldMap.get(canonicalFieldName(rawName, hasField, fieldMap.keys()));
+    if (!ft) return false;
+    const vk = TYPE_TO_VALUE_KEY[ft];
+    if (!vk || !USER_VALUE_KEYS.has(vk)) return false;
+    // If value is a non-UUID string, we need user lookup
+    if (typeof value === "string" && !isValidId(value)) return true;
+    // If value is an array with non-UUID strings
+    if (Array.isArray(value) && value.some(v => typeof v === "string" && !isValidId(v))) return true;
+    return false;
+  });
+  if (needsUserLookup) {
+    userMap = await getUserMap(client);
+  }
 
   for (const [rawName, rawValue] of Object.entries(properties)) {
     if (rawValue === undefined || rawValue === null) continue;
@@ -551,7 +588,7 @@ const SEARCH_OPS_BY_TYPE: Record<string, string[]> = {
   singleSelect: ["EQ", "NEQ", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
   multiSelect: ["LIST_CONTAIN", "LIST_NOT_CONTAIN", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
   singleRelation: ["EQ", "NEQ", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
-  multiRelation: ["IN", "NOT_IN", "EXISTS", "NOT_EXISTS"], // LIST_CONTAIN/LIST_NOT_CONTAIN은 백엔드 버그로 차단 → IN/NOT_IN 사용
+  multiRelation: ["LIST_CONTAIN", "LIST_NOT_CONTAIN", "IN", "NOT_IN", "EXISTS", "NOT_EXISTS"],
 };
 const DATE_SEARCH_OPS = ["EXISTS", "NOT_EXISTS", "DATE_ON_OR_AFTER", "DATE_ON_OR_BEFORE", "DATE_IS_SPECIFIC_DAY", "DATE_BETWEEN", "DATE_MORE_THAN_DAYS_AGO", "DATE_LESS_THAN_DAYS_AGO", "DATE_LESS_THAN_DAYS_LATER", "DATE_MORE_THAN_DAYS_LATER", "DATE_AGO", "DATE_LATER"];
 const SINGLE_RELATION_TYPES = new Set(["user", "people", "organization", "deal", "lead", "pipeline", "pipelineStage", "webForm", "sequence", "customObject"]);
@@ -571,7 +608,7 @@ export function errWithSchemaHint(message: string, objectType: string, filterSum
   if (message.includes("정의 되지 않은 값")) {
     hint = `선택형 필드에 미등록 옵션값이 입력되었습니다. salesmap-list-properties(objectType: "${objectType}")로 허용 옵션을 확인하세요.`;
   } else if (message.includes("is not supported for relation field")) {
-    hint = `관계 필드 검색에는 IN/NOT_IN 연산자만 지원됩니다 (LIST_CONTAIN/LIST_NOT_CONTAIN 등 미지원). 값(UUID)은 그대로 두고 연산자만 IN/NOT_IN으로 바꾸세요.`;
+    hint = `관계 필드의 LIST_CONTAIN/LIST_NOT_CONTAIN은 UUID 하나만 받습니다. 여러 UUID 후보는 IN/NOT_IN과 UUID 배열을 사용하세요.`;
   } else if (message.includes("Invalid operator")) {
     // (type: X) 파싱 → 매트릭스로 그 타입의 정확한 허용 연산자 목록 안내 (API는 유효 목록을 안 줌)
     const m = message.match(/Invalid operator "([^"]+)" for field "[^"]+" \(type: ([^)]+)\)/);
