@@ -98,7 +98,7 @@
 |---|---|:---:|---|
 | `objectType` | `string` | ✅ | 오브젝트 타입. 기본값: 'people' \| 'organization' \| 'deal' \| 'lead' \| 'quote' \| 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. |
 | `objectIds` | `string[]` | ✅ | 레코드 ID 배열 (최대 500개) |
-| `fieldList` | `string[]` |  | 반환할 필드명 목록 (한글). 생략 시 오브젝트별 기본 핵심 필드만 반환. 빈 배열은 일반 필드를 반환하지 않으므로, 필요한 필드는 명시하세요. |
+| `fieldList` | `string[]` |  | 반환할 필드명 목록 (한글). 생략 시 전체 필드 반환. |
 | `associationList` | `string[]` |  | 인라인으로 포함할 연결 관계명 목록. 사용 가능한 관계명은 salesmap-list-associations로 먼저 확인. |
 
 ### `salesmap-batch-create-objects`
@@ -107,7 +107,7 @@
 
 ```
 🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.
-📋 properties는 필드명→값 그대로. 사용자 필드는 사용 중이거나 초대 대기 중인 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열. dateTime 필드는 YYYY-MM-DD만 허용하지 않으며 시각과 UTC offset이 필요.
+📋 properties는 필드명→값 그대로. 사용자 필드는 사용 중이거나 초대 대기 중인 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.
 ⚠️ 딜·리드: associations["메인 고객"] 또는 ["메인 회사"] 필수. 딜은 properties["파이프라인 단계"](단계 이름) 필수, 리드는 선택. "메인 견적서"는 생성 시 지정 불가.
 🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.
 📦 상품: properties에 '이름'(필수)·'금액'(필수, 숫자) + '유형'·'상태'·'담당자'·'코드'·'단위'. 금액 필드명은 '가격'이 아니라 '금액'. 같은 이름의 상품이 이미 있으면 400. associations 미지원.
