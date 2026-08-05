@@ -81,7 +81,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "견적서 상품이 fieldList로 전 필드를 수용하면 (top-level-split과 함께 제거)",
     affects: ["create-quote"],
     location: "api-quirks.ts › QUOTE_PRODUCT_TOP_LEVEL / QUOTE_PRODUCT_ALIAS",
-    ledger: "#31",
+    ledger: "#11",
   },
   {
     id: "quoteproduct-type-name-split",
@@ -90,7 +90,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "백엔드가 /v2/field/{type}에서 quoteProduct·quote-product 양쪽을 받으면 (2026-07-29 수정 예정으로 회신). 그래도 정규화는 남겨두는 편이 낫다 — 견적서 상품(한글)·quote_product 같은 표기까지 흡수하므로",
     affects: ["create-quote"],
     location: "api-quirks.ts › QUOTE_PRODUCT_SCHEMA_TYPE",
-    ledger: "#31",
+    ledger: "#11",
   },
   {
     id: "custom-object-definition-name",
@@ -99,7 +99,6 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "v3가 `custom-object` 리터럴 + definitionId 조합을 받으면",
     affects: ["batch-read-objects", "batch-create-objects"],
     location: "api-quirks.ts › CUSTOM_OBJECT_LITERALS",
-    ledger: "#13-b",
   },
   {
     id: "v3-create-unsupported-types",
@@ -113,10 +112,10 @@ export const QUIRKS: readonly Quirk[] = [
     id: "date-only-timezone-split",
     summary: "date-only 입력의 시간대 해석이 표면마다 다르다 — memo 필터는 UTC, v3 dateTime 쓰기는 호출 시각 주입",
     evidence: "실측 2026-07-31. ① GET /v2/memo는 dayjs(value).toDate()로 타임존 없이 파싱(서버 UTC) → endDate=오늘이 UTC 00:00까지가 되어 당일 누락. 텔레메트리에서 list-notes endDate 사용 22회 전부 피해. ② v3 create의 dateTime 타입 필드는 date-only를 주면 자정이 아니라 호출 시각을 붙인다(같은 요청이 실행 시각마다 다른 값). date 타입·v2 dateValue·activity·search는 KST 정상",
-    removeWhen: "GET /v2/memo가 activity와 같은 KST day-bound로 바뀌고, v3 dateTime의 date-only 입력도 KST 자정으로 고정되면. ⚠️ 그래도 이 변환은 유지하는 편이 낫다 — 오프셋 ISO는 어느 쪽 구현에서도 같은 결과를 주고, 엔드포인트별 분기를 없애준다",
+    removeWhen: "GET /v2/memo가 activity와 같은 KST day-bound로 바뀌고, v3 dateTime이 date-only를 문서화된 400으로 거부하면. MCP의 사전 검증은 그 뒤에도 사용자 안내용으로 유지할 수 있다",
     affects: ["list-notes", "list-engagements", "search-objects", "batch-create-objects", "update-object", "create-quote"],
-    location: "api-quirks.ts › toKstBoundary",
-    ledger: "#9-8, #32",
+    location: "api-quirks.ts › toKstBoundary / isDateOnly + generic.ts › canonicalizeV3CreateProperties",
+    ledger: "#3-5, #12",
   },
   {
     id: "activity-type-v2-v3-names",
@@ -127,13 +126,21 @@ export const QUIRKS: readonly Quirk[] = [
     location: "api-quirks.ts › ACTIVITY_TYPE_ALIAS / V2_ACTIVITY_TYPES",
   },
   {
+    id: "activity-custom-object-key-case",
+    summary: "커오 activity만 경로는 kebab인데 쿼리 파라미터·응답 키는 camel — objectType을 그대로 조합하면 안 된다",
+    evidence: "실측 2026-08-04(실계정). ?customObjectId=<id>는 2건/해당 레코드만, ?custom-objectId=<id>는 필터가 조용히 무시돼 50건/다른 레코드 30종을 반환. 응답 키도 customObjectActivityList라 잘못 읽으면 빈 배열이 된다",
+    removeWhen: "v2 activity가 경로와 파라미터·응답 키의 표기를 통일하면",
+    affects: ["list-engagements"],
+    location: "api-quirks.ts › ACTIVITY_KEY_BASE",
+  },
+  {
     id: "relation-list-value-shape",
     summary: "관계 LIST_CONTAIN은 UUID scalar만, IN/NOT_IN은 UUID 배열을 받는다 — 배열 LIST 입력은 MCP가 IN/NOT_IN으로 정규화",
     evidence: "백엔드 확인 2026-08-04. SAL-9179(PR #12674)가 2026-06-10 릴리즈부터 반영됐고 production 2026-08-03에도 배포됨. 구 telemetry의 LIST_CONTAIN 400은 릴리즈 전 버전에 UUID 배열을 보낸 사례",
     removeWhen: "MCP 필터 입력이 관계 LIST scalar와 IN 배열을 타입으로 구분하거나, API가 LIST_CONTAIN/LIST_NOT_CONTAIN에도 UUID 배열을 수용하면",
     affects: ["search-objects"],
     location: "api-quirks.ts › REL_LIST_OP_MAP",
-    ledger: "해결 메모 (구 #4-7)",
+    ledger: "해결 메모 (관계 LIST/IN 값 shape)",
   },
   {
     id: "group-field-unsearchable",
@@ -198,7 +205,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "두 엔드포인트가 id 키로 통일되면",
     affects: ["list-sequences", "list-notes"],
     location: "extras.ts › list-sequences·list-notes 핸들러",
-    ledger: "#23",
+    ledger: "#8",
   },
   {
     id: "v3-relation-field-hint",
@@ -479,8 +486,12 @@ export const QUOTE_PRODUCT_ALIAS: Record<string, string> = {
  */
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+export function isDateOnly(value: string): boolean {
+  return DATE_ONLY_RE.test(value.trim());
+}
+
 export function toKstBoundary(value: string, edge: "start" | "end"): string {
-  if (!DATE_ONLY_RE.test(value.trim())) return value;
+  if (!isDateOnly(value)) return value;
   return edge === "start"
     ? `${value.trim()}T00:00:00.000+09:00`
     : `${value.trim()}T23:59:59.999+09:00`;
@@ -512,6 +523,21 @@ export const ACTIVITY_TYPE_ALIAS: Record<string, string> = {
   sms: "smsSend",
   meeting: "meeting",
   email: "email",
+};
+
+/**
+ * @quirk activity-custom-object-key-case
+ *
+ * `GET /v2/{object}/activity`에서 **커스텀 오브젝트만** 경로와 키의 표기가 갈린다.
+ * 경로는 kebab(`/v2/custom-object/activity`)인데 쿼리 파라미터·응답 키는 camel이다.
+ * 나머지 4종(people·organization·deal·lead)은 둘이 같아서 objectType을 그대로 조합해도 된다.
+ *
+ * 실측 2026-08-04 (실계정, 활동 2건짜리 커오 레코드):
+ *   ?customObjectId=<id>   → 2건 / 해당 레코드만        ✅
+ *   ?custom-objectId=<id>  → 50건 / 다른 레코드 30종    ❌ 필터가 조용히 무시된다
+ */
+export const ACTIVITY_KEY_BASE: Record<string, string> = {
+  "custom-object": "customObject",
 };
 
 /** @quirk relation-list-value-shape — 관계 LIST 연산자에 배열이 오면 API의 다중 후보 연산자로 정규화 */

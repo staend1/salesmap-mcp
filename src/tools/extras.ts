@@ -5,7 +5,7 @@ import { cached, TTL } from "../cache";
 import { getClient } from "../types";
 import { fingerprint, logFeedback } from "../telemetry";
 import { SALESMAP_API_REF } from "./api-ref";
-import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE, toKstBoundary, V2_ACTIVITY_TYPES, ACTIVITY_TYPE_ALIAS } from "../api-quirks";
+import { V3_CORE_TYPE_MAP, QUOTE_PRODUCT_TOP_LEVEL, QUOTE_PRODUCT_ALIAS, QUOTE_PRODUCT_SCHEMA_TYPE, toKstBoundary, V2_ACTIVITY_TYPES, ACTIVITY_TYPE_ALIAS, ACTIVITY_KEY_BASE } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false } as const;
@@ -243,7 +243,12 @@ async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQ
     throw new Error(`알 수 없는 활동 유형: ${unknown.join(", ")}\n사용 가능: ${V2_ACTIVITY_TYPES.join(", ")}`);
   }
 
-  const query: Record<string, string> = { [`${q.objectType}Id`]: q.objectId };
+  // @quirk activity-custom-object-key-case — 커오만 경로와 키의 표기가 갈린다
+  // 경로는 kebab(`/v2/custom-object/activity`)인데 쿼리 파라미터와 응답 키는
+  // camel(`customObjectId`, `customObjectActivityList`)이다. 나머지 4종은 둘이 같다.
+  const keyBase = ACTIVITY_KEY_BASE[q.objectType] ?? q.objectType;
+
+  const query: Record<string, string> = { [`${keyBase}Id`]: q.objectId };
   if (types?.length) query.types = types.join(",");
   // @quirk date-only-timezone-split — 날짜만 오면 KST 경계를 찍어 보낸다
   if (q.startDate) query.startDate = toKstBoundary(q.startDate, "start");
@@ -251,7 +256,7 @@ async function listActivityV2(client: ReturnType<typeof getClient>, q: ActivityQ
   if (q.after) query.cursor = q.after;
 
   const data = await client.get<Record<string, unknown>>(`/v2/${q.objectType}/activity`, query);
-  const key = `${q.objectType}ActivityList`;
+  const key = `${keyBase}ActivityList`;
   const raw = (data[key] as Array<Record<string, unknown>>) ?? [];
   // 서버가 준 페이지를 **그대로** 반환한다. 여기서 자르면 안 된다 —
   // nextCursor는 다음 *서버* 페이지(51번째)를 가리키므로, 앞 N건만 남기고 커서를 그대로
