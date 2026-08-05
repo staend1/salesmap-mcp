@@ -47,10 +47,31 @@
 🔑 **상품이 처음으로 수정 가능해졌다.** 여태 v2·v3 어느 쪽으로도 못 고치던 유일한 타입이었다
 (이슈 「상품(Product) 수정·삭제 API 부재」). 이 이슈의 해결 경로가 열렸다.
 
-🔑 **딜만 빠졌다 — 개발 중이다** (백엔드 회신 2026-08-05).
-`getObjectModel`은 `딜`을 인식하지만 `updateObjectListForApiFunc` switch에 `ColumnModel.Deal`
-케이스가 없다. 코드 주석에도 *"딜은 아직 수정 dispatcher에 없어 빠져 있다"* 가 남아 있다.
-견적서도 같은 이유로 빠져 있다.
+🔑 **딜만 빠졌다 — 미구현이고, case 하나 추가로 끝나지 않는다** (백엔드 2인 코드 확인 2026-08-05).
+
+`updateObjectList/` 디렉터리에 **`updateDealList.server.ts` 파일 자체가 없다.**
+`createDealList.server.ts`는 있으므로 create만 v3로 열고 update는 배선하지 않은 상태다.
+v3 update는 타입별로 **순차 배선**됐다 — 회사 → 고객 → 상품 → 커오 → 리드
+(마지막 리드 PR #13530 제목이 *"리드 배치 수정 서비스 + v3 object/update 배선"*).
+커밋 메시지·코드 주석에 *"딜은 아직 수정 dispatcher에 없어 빠져 있다"* 가 남아 있어
+**작성자가 인지한 미구현**이다. 도메인상 불가능해서 막은 게 아니다.
+
+**왜 딜만 어려운가 — 리드에 없는 것 셋**
+
+1. **상태 전이 로직.** `In progress`를 넣으면 현재 파이프라인 단계의 `index`를 조회해
+   0이면 `Convert`, 아니면 `SQL`로 내부 상태를 결정한다. 리드엔 이 계산이 없다.
+   그 외에도 `editDealEach`가 closed date·timeToClose/Won/Lost, 고객·회사·리드 집계 sync,
+   Won 알림을 후처리한다. v3 어댑터는 이 side-effect를 빠뜨리지 않게 기존 경로로 접어야 한다
+2. **`associatePeopleToDeal`/`associateOrganizationToDeal` 전용 서비스.**
+   딜의 메인 고객·회사 연결은 리드처럼 `editEach` 안에서 처리되지 않는다
+3. **연결된 리드의 시스템 필드 동기화 큐** — `DealField`/`DealPipelineStageField`를 Redis로 재계산
+
+**공용 헬퍼도 딜을 모른다**: `getCurrentAssociationList`는 리드만 조회해서, 딜을 붙이면
+필드만 수정하는 요청도 기존 고객·회사 연결을 모른 채 orphan 검증이 돌아 400이 날 수 있다.
+`getPipelineResult`의 현재 파이프라인 조회도 커오·리드만 본다. 딜은 `pipelineStageId`가
+**NOT NULL**이라 `파이프라인:null` 해제를 허용하면 안 되는 별도 계약도 필요하다.
+
+**출시 시점은 코드·스펙에서 확인 불가** — 개발팀 직접 확인 필요.
 
 ⚠️ **딜의 오류가 오해를 부른다 — 검증이 dispatch보다 먼저 돈다.**
 ```
@@ -68,7 +89,18 @@ association 동봉 → 400 "지원하지 않는 오브젝트 유형입니다"   
 | v3 배치 가능 (고객·회사·리드·커오) | 3,880 | **95.4%** |
 | v2 순회 잔존 (**딜만**) | 186 | 4.6% |
 
-**딜이 열리면 v2 순회 경로가 통째로 사라진다.** 그래서 딜만 기다린다.
+**딜이 열리면 v2 순회 경로가 통째로 사라진다.**
+
+### 🔑 백엔드 2인의 설계 권고 (2026-08-05, 양쪽 독립적으로 같은 결론)
+
+> 지금 95.4%를 v3 배치로 옮기고, **딜 4.6%만 `objectType === 딜`일 때의 작은 fallback으로
+> 격리**하라. "전체 v2 순회 경로"를 유지하는 것보다, 딜 전용으로 좁혀두면 딜 v3 update가
+> 붙는 시점에 **제거 비용이 작다.**
+
+§B-2의 설계와 방향이 같되 **범위가 더 좁다.** 우리는 "v2 순회 경로"를 타입 무관하게
+유지하려 했는데, 딜 하나만 남았으므로 `TOP_LEVEL_BY_TYPE.deal`·`peopleId`/`organizationId`·
+`pipelineStageId`(UUID) 만 쓰는 **딜 전용 분기**로 좁힐 수 있다. 나머지 타입의 v2 코드는
+이관과 동시에 삭제 가능하다.
 
 **prod 배포 확인됨** — `HEAD /api/v3/object/update` → 204, 무인증 POST → 401(404 아님).
 
