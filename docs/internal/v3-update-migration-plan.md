@@ -38,7 +38,7 @@
 코드 근거: `updateObjectListForApiFunc`에서 Organization·People 외는
 `throw ApiError.badRequest('지원하지 않는 오브젝트 유형입니다')`.
 
-**상품만 유일하게 수정 경로가 아예 없다** — 생성은 되는데 못 고친다 (이슈 「상품(Product) 수정·삭제 API 부재」).
+**상품만 유일하게 수정 경로가 아예 없다** — 생성은 되는데 못 고친다. 예정된 batch update 지원 범위에 포함해야 합니다.
 
 **prod 배포 확인됨** — `HEAD /api/v3/object/update` → 204, 무인증 POST → 401(404 아님).
 
@@ -98,15 +98,15 @@ AI가 "비워줘"에 `""`를 넣으면 null이 아닌 빈 문자열이 되므로
 | `이름` | 빈 값·공백 400. 생략은 OK |
 | **User 타입** | **이름만.** UUID는 `NOT_FOUND_USER` 400 (UUID로 해석 안 함) |
 | 복수 User | 이름 **배열** — `{"팔로워":["김동우","이영희"]}` |
-| 동명이인 | `AMBIGUOUS_USER` 400 |
+| 사용자 이름 중복 | 제품 정책상 생성 불가. 정상 워크스페이스에서는 ambiguity가 발생하지 않음 |
 | 비활성 | `INACTIVE_USER` 400. **Active + Pending 허용** (Active만이 아님) |
 | `date` 타입 | 시각 버리고 KST 해당 날짜 00:00 저장 |
-| `dateTime` 타입 | offset 명시 ISO는 그대로. **날짜만 보내면 현재 KST 시각 주입** (create와 동일 함정). bugman은 "분 단위 내림"도 언급 — decode 미언급, **미실측** |
+| `dateTime` 타입 | 현재 offset 명시 ISO는 그대로, 날짜만 보내면 현재 KST 시각 주입. **목표 계약은 date-only를 400으로 거부**하며 MCP도 같은 사전 검증을 적용 |
 | 계산 필드 | **완전 무음** — 200에 errors·warning 없이 버려짐 (`if (customField.astTree) return false;`). `allowedDataFieldNameSet`에는 포함돼 `PROPERTY_DOESNT_EXIST`도 안 남 |
 | 값 타입 | string · number · boolean · string[] · null |
 | 지원 시스템 필드 | `이름` · `프로필 사진` · `담당자` · `생성 날짜` |
 
-🔑 **`toKstBoundary`(`T00:00:00.000+09:00`)가 v3 update에서도 그대로 유효하다.**
+🔑 **`toKstBoundary`는 `date`에만 적용한다. `dateTime`의 date-only는 자정으로 추측하지 않고 거부한다.**
 🔑 계산 필드는 **우리 사전 차단(스키마 `formula` 타입 확인)이 유일한 방어다.** 백엔드도
 "400이 더 안전, 개선 요청 대상"이라 동의.
 
@@ -289,7 +289,7 @@ GROUP BY 1;
 
 **회사+고객 = 93.6%.** 착수 조건이 충족되면 나머지 6.4%도 같이 들어온다.
 
-- `update-object → update-object` **연속 전이 3,752회 (92%)** → 이슈 「Association 대량 처리 전용 API 부재」 해소 대상
+- `update-object → update-object` **연속 전이 3,752회 (92%)** → batch update 도입으로 해소할 대상
   (구 #1「Batch Update API 부재」는 원장 재구성 때 이 항목으로 흡수됐다)
 - 리뉴어스랩 7/27~7/28 이틀간 **2,318회를 1초 간격 순차 호출** → 100건 배치면 24회
 - `peopleId`/`organizationId` 전용 파라미터 실사용 88회
@@ -317,7 +317,7 @@ salesmap-batch-update-objects({
 - `objectId`(단수) → `inputList[].id`. **이름을 `id`로 맞춘다** (v3 와이어와 동일)
 - `peopleId`/`organizationId` **제거** → `associations:{"메인 고객"/"메인 회사":[id]}`.
   create가 7/28에 같은 이유로 이미 제거했다 (`CLAUDE.md` 생성 도구 섹션).
-  이슈 「Association 대량 처리 전용 API 부재」가 서술하는 **연결 문법 이중성**
+  기존 v2의 **연결 문법 이중성**
   (기본 연결 = top-level `peopleId`/`organizationId`, 커스텀 연결 = fieldList 관계 키)의
   마지막 미구현 항목 해소
 - 롤백 플래그 `V3_OBJECT_UPDATE`를 `generic.ts` 상단에 신설, v2 경로를 폴백으로 보존
@@ -361,10 +361,11 @@ properties의 각 필드
 | 백엔드 | 내려줄 문구 |
 |---|---|
 | `NOT_FOUND_USER` | *"'{입력값}'에 해당하는 사용자가 없습니다. `salesmap-list-users`로 확인하세요."* — v3가 UUID를 못 읽는다는 내부 사정은 노출하지 않음 |
-| `AMBIGUOUS_USER` | *"'{이름}' 사용자가 여러 명입니다. 레코드 ID로 지정하세요."* ← **ID를 권하는 게 맞는 방향**(우리가 이름으로 바꿔 보냄) |
+| `AMBIGUOUS_USER` | 방어적 API 코드가 남아 있어도 제품 정책상 사용자 이름 중복 생성이 불가하므로 정상 입력에서는 도달하지 않음 |
 | `INACTIVE_USER` | *"'{이름}'은 비활성·취소 상태입니다. 사용 중(Active)이거나 초대 대기(Pending)인 사용자만 가능합니다."* |
 
-동명이인은 현재 **조용히 마지막 사용자가 이긴다** (`fetchUserMap`의 `map.set(u.name, u.id)`).
+사용자와 팀 이름은 제품 정책상 중복 생성할 수 있으므로, 이름 기반 해석에서 별도 동명이인
+분기 처리는 필요하지 않습니다.
 v3는 400으로 막으므로 **v2 경로에도 같은 검사를 넣어 두 경로를 맞춘다.**
 
 ### B-5. 곁다리 수정 대상
@@ -376,9 +377,11 @@ v3는 400으로 막으므로 **v2 경로에도 같은 검사를 넣어 두 경�
    위로 옮겼다. 실측 대조: `{"담당쟈":"양시열"}` → 전 `"userValueId":"양시열"` / 후 UUID
 2. **`client.ts:462`** — user 배열 분기의 `if (errors.length > 0) continue`가 **전역** `errors`를
    본다. 앞선 다른 필드의 에러만으로 정상인 필드가 누락된다
-3. **`client.ts:141` 207 힌트** — *"실패한 연결만 `salesmap-update-object`로 처리하세요"* 가
-   지금은 **실행 불가능한 안내**다(update가 임의 association을 못 받으므로).
-   새 도구명으로 바꾸면 처음으로 실제 실행 가능해진다
+3. **`client.ts` 207 힌트가 create 전용으로 하드코딩** — 두 군데가 틀렸다.
+   ① *"레코드는 **생성**됐으나…"* → update에서 207이 나도 "생성됐다"고 말한다.
+   ② *"실패한 연결만 `salesmap-update-object`로 처리하세요"* → update가 임의 association을
+   못 받으므로 **실행 불가능한 안내**다. 새 도구가 association을 받으면 ②는 처음으로
+   실행 가능해지고, ①은 요청 경로에 따라 문구를 갈라야 한다
 4. **따옴표 필드명 교정** — `normalizeWrappedName`이 v3 create 경로 전용이라 update는 무방비.
    `api-quirks.ts`의 `ai-field-name-correction` `affects`에 update-object가 적혀 있는데
    실제로는 안 걸린다 (**문서-코드 어긋남**)
@@ -388,6 +391,24 @@ v3는 400으로 막으므로 **v2 경로에도 같은 검사를 넣어 두 경�
 6. ✅ **완료** (`d1c84a1`) — `batch-create-objects`의 *"활성 사용자 이름"* 이 부정확했다.
    Pending(초대 대기)도 지정 가능하므로 "사용 중이거나 초대 대기 중인 사용자"로 교정,
    `tool-spec.md` 재생성
+7. **배치 오류의 구조가 문자열로 접힌다** (`client.ts` — `errors.map(JSON.stringify).join("\n")`).
+   백엔드는 `{code, inputIndex, fieldName, message}`를 항목별로 주는데 MCP를 지나면
+   줄바꿈으로 이어붙인 문자열 하나가 된다.
+
+   실측 2026-08-05 (샌드박스, 없는 필드 2건 배치 생성):
+   ```
+   API  → errors:[{code:"PROPERTY_DOESNT_EXIST", inputIndex:0, fieldName:"없는필드1", …},
+                  {…, inputIndex:1, …}]
+   MCP  → {"error":"{\"code\":\"PROPERTY_DOESNT_EXIST\",\"inputIndex\":0,…}\n{…}"}
+   ```
+
+   **우선순위 낮음 — 정보 손실은 없다.** `JSON.stringify`라 `inputIndex`·`fieldName`이
+   문자열 안에 살아 있고, 400은 **저장 전 전체 거부**라 "성공분 빼고 재시도"라는 상황이
+   아예 안 생긴다(통째로 다시 보내면 된다). 부분 성공이 생기는 건 207뿐인데
+   **207은 이미 `errors`를 객체 배열 그대로 넘긴다** — 평탄화는 400 경로에만 해당한다.
+
+   고친다면 `{error, errors:[…원형], hint}` 형태로. 이스케이프 범벅을 LLM이 헛읽을
+   여지를 없애는 가독성 개선이 실익이다.
 
 ### B-6. 내부 분기 시 주의
 
@@ -407,7 +428,7 @@ v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 
 - `fieldlist-type-key`·`system-select-input-value`·`ai-field-name-correction`의
   `affects` 갱신 — v2 잔존 구간 표기
 - 전 타입 지원 전에 착수하는 경우에만: 신규 quirk `v3-update-partial-type-support`
-- 이슈 「Association 대량 처리 전용 API 부재」 → 해결로 이동,
+- 관계 대량 처리는 batch update 반영 후 readiness 원장에 별도 이슈로 남기지 않으며,
   「v2 Top-level 파라미터 분리」(L-2)는 기본 연결 항목 해소 표시
 - `docs/tool-spec.md` 재생성 (`npx tsx scripts/tool-spec.mts`), `CLAUDE.md` 입력 규약 표 갱신
 - **오버레이는 건드리지 않는다** — v3는 비공개 API라 공개 문서에 실을 수 없다
@@ -423,8 +444,9 @@ v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 
 2. **🔴 관계 필드 자동 이동** — `properties:{"상위 협력사":[id]}`(실사용 49% 패턴)가
    정확히 반영되는지. **수정 후 `batch-read-objects`로 전 필드 역확인**
    (2026-07-29 `da4de0a`의 "top-level만 보내면 나머지가 조용히 사라짐" 재발 방지와 같은 검사)
-3. **사용자 필드 양방향** — 이름 입력·UUID 입력 각각 / 동명이인 / 비활성 / Pending
-4. **날짜** — `2026-07-29` 입력이 KST 자정으로 저장되는지 (`date`·`dateTime` 각각)
+3. **사용자 필드 양방향** — 이름 입력·UUID 입력 각각 / 비활성 / Pending
+4. **날짜** — `date`의 `2026-07-29`는 KST 자정, `dateTime`의 같은 입력은 400, offset 포함
+   date-time은 그대로 저장되는지 확인
 5. **v2 잔존 경로** — 부분 실패 정규화 / 커오 정의 이름 ↔ 리터럴 역변환
 6. **회귀** — `npx tsx scripts/tool-spec.mts --check`, `npm run build`,
    `node scripts/quirks.mjs`(제거한 quirk가 매니페스트에서도 빠졌는지)
@@ -438,5 +460,5 @@ v2 순회의 부분 실패는 **v3의 207과 같은 모양으로 정규화**해 
 2. **계산 필드를 보내면 400 또는 207 `errors`** — 현재 완전 무음(200). 백엔드도 동의
 3. **429에 `Retry-After` 헤더** — 현재 본문 문구를 정규식으로 파싱 중
 4. **딜·리드·커오·상품 update 로드맵** — 제품 담당자 확인 필요 (**이 문서의 착수 조건**)
-5. **상품 수정 경로 부재** — v2·v3 모두 없음. 생성만 되고 못 고침
-   (이슈 「상품(Product) 수정·삭제 API 부재」)
+5. **상품 update 지원 범위** — 예정된 batch update에 상품을 포함해야 함. 현재 v2·v3에는
+   수정 경로가 없어 생성만 되고 고칠 수 없음
