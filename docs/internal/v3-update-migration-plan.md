@@ -4,15 +4,20 @@
 
 ## 왜 보류했나
 
-`POST /api/v3/object/update`가 2026-07-31에 열렸지만 **회사·고객 2종만** 지원한다.
-지금 이관하면 도구 하나 안에 **v3 배치 경로와 v2 단건 순회 경로를 동시에 유지**해야 하고,
-그 분기가 사용자 필드 변환 방향(§B-4)·관계 문법(§B-3)·커오 어휘(§B-5)에서 전부 갈린다.
-딜·리드·커오·상품까지 열린 뒤에 한 번에 옮기는 편이 코드가 절반이다.
+**2026-08-05 현재 — 딜 하나만 남았고, 딜은 개발 중이다.**
 
-**착수 조건**: `POST /v3/object/update`가 **딜·리드·커스텀 오브젝트·상품**을 지원할 때.
+| 시점 | 지원 | v3 커버리지 | 판단 |
+|---|---|---:|---|
+| 2026-07-31 | 회사·고객 | 93.6% | 보류 — 분기가 여러 축에서 갈림 |
+| **2026-08-05** | **+ 리드·커오·상품** | **95.4%** | **보류 유지 — 딜 개발 중이라 곧 열림** |
 
-> 백엔드 회신(2026-07-31): 코드·커밋 로그상 계획 확인 안 됨. 제품 담당자 확인 필요.
-> 확인되면 이 문서의 §B대로 진행. §A는 그때 재질의 없이 그대로 쓸 수 있다.
+딜만 v2 단건 순회로 남는데, **딜 지원이 개발 중**이라 지금 그 경로를 만들면 곧 지운다.
+분기 하나 때문에 임시 코드를 넣었다 빼는 것보다 열린 뒤 한 번에 옮기는 편이 낫다.
+
+**착수 조건**: `POST /v3/object/update`가 **딜**을 지원할 때. (나머지는 전부 열렸다)
+
+> 견적서도 미지원이지만 우리는 `create-quote` 전용 도구를 쓰므로 이관 대상이 아니다.
+> 착수 판단에서 제외한다.
 
 **출처**: 백엔드 에이전트 2인(decode·bugman) 릴리즈 노트 + 13문항 추가 질의 회신
 (2026-07-31, 양쪽 prod main 코드 실측 기준). 원장 `docs/salesmap-api-reference-2026-07-30.md`,
@@ -36,13 +41,16 @@
 | **리드** | ✅ | ✅ **08-05 신규** | ✅ |
 | **상품** | ✅ (07-29) | ✅ **08-05 신규** | ❌ 경로 없음 |
 | **딜** | ✅ | ❌ `지원하지 않는 오브젝트 유형입니다` | ✅ |
-| 커스텀 오브젝트 | ✅ | ❓ 미확인 (샌드박스에 정의 0개) | ✅ |
+| **커스텀 오브젝트** | ✅ | ✅ **08-05 신규** (백엔드 코드 확인) | ✅ |
 | 견적서 | ❌ (`create-quote` 전용) | ❌ 500 `Unexpected Server Error` | ❌ |
 
 🔑 **상품이 처음으로 수정 가능해졌다.** 여태 v2·v3 어느 쪽으로도 못 고치던 유일한 타입이었다
 (이슈 「상품(Product) 수정·삭제 API 부재」). 이 이슈의 해결 경로가 열렸다.
 
-🔑 **딜만 빠졌다.** 리드는 되는데 딜이 안 되는 게 이상해 백엔드에 확인 요청함(2026-08-05).
+🔑 **딜만 빠졌다 — 개발 중이다** (백엔드 회신 2026-08-05).
+`getObjectModel`은 `딜`을 인식하지만 `updateObjectListForApiFunc` switch에 `ColumnModel.Deal`
+케이스가 없다. 코드 주석에도 *"딜은 아직 수정 dispatcher에 없어 빠져 있다"* 가 남아 있다.
+견적서도 같은 이유로 빠져 있다.
 
 ⚠️ **딜의 오류가 오해를 부른다 — 검증이 dispatch보다 먼저 돈다.**
 ```
@@ -57,14 +65,10 @@ association 동봉 → 400 "지원하지 않는 오브젝트 유형입니다"   
 
 | | 호출 | 비중 |
 |---|---:|---:|
-| v3 배치 가능 (고객·회사·리드·상품) | 3,868 | **95.1%** |
-| v2 순회 잔존 (딜 186 + 커오 12) | 198 | 4.9% |
+| v3 배치 가능 (고객·회사·리드·커오) | 3,880 | **95.4%** |
+| v2 순회 잔존 (**딜만**) | 186 | 4.6% |
 
-7/31 시점(회사·고객만, 93.6%)보다 나아졌지만 **분기 구조는 그대로다** — 사용자 필드 변환
-방향·관계 문법·커오 어휘가 여전히 v2/v3로 갈린다. 딜이 열리면 커오(0.3%)만 남으므로
-**착수 판단은 딜 지원 여부에 달렸다.**
-
-**상품만 유일하게 수정 경로가 아예 없다** — 생성은 되는데 못 고친다. 예정된 batch update 지원 범위에 포함해야 합니다.
+**딜이 열리면 v2 순회 경로가 통째로 사라진다.** 그래서 딜만 기다린다.
 
 **prod 배포 확인됨** — `HEAD /api/v3/object/update` → 204, 무인증 POST → 401(404 아님).
 
@@ -73,7 +77,7 @@ association 동봉 → 400 "지원하지 않는 오브젝트 유형입니다"   
 ```jsonc
 POST /api/v3/object/update
 {
-  "objectType": "회사" | "고객",          // 그 외 400
+  "objectType": "회사"|"고객"|"리드"|"상품"|"<커오 정의 이름>",   // 딜·견적서는 400
   "rewrite": false,                       // optional, 기본 false
   "inputList": [ {                        // 1~100건
     "id": "<RecordId>",                   // list/read 응답의 id. 이름·이메일 불가
@@ -92,6 +96,9 @@ POST /api/v3/object/update
 - 관계 대상 id: 형식 오류 `INVALID_RECORD_ID`, 없는 대상 `NOT_FOUND_ASSOCIATION_TARGET`
   (둘 다 저장 전 검증)
 - 배치 상한 100 = Redis 큐 OOM 방지용 안전장치. 올리면 안 됨
+- **objectType 표기** (2026-08-05 확인): 커스텀 오브젝트는 create와 같이 **정의 이름**
+  (`티켓(CRM)`), `custom-object` 리터럴이 **아니다**. 정의명은 대소문자 무시로 조회한다.
+  상품은 `상품`.
 
 ### A-3. `rewrite` — **요청에 포함된 키에만** 적용
 
@@ -133,6 +140,24 @@ AI가 "비워줘"에 `""`를 넣으면 null이 아닌 빈 문자열이 되므로
 | 지원 시스템 필드 | `이름` · `프로필 사진` · `담당자` · `생성 날짜` |
 
 🔑 **`toKstBoundary`는 `date`에만 적용한다. `dateTime`의 date-only는 자정으로 추측하지 않고 거부한다.**
+
+#### 🔴 파이프라인·단계 — v2와 어휘가 정반대다 (2026-08-05 실측)
+
+| | v2 update | **v3 update** |
+|---|---|---|
+| 받는 값 | `pipelineStageId` = **UUID** | `파이프라인 단계` = **이름 문자열** |
+
+```
+{"파이프라인 단계": "새 리드"}                      → ✅ 수용 (되읽기 시 {id,name}로 나옴)
+{"파이프라인 단계": "019f83cd-0000-…"}             → ❌ 400 NOT_FOUND_PIPELINE_STAGE
+```
+
+- `파이프라인 단계`만 보내면 **대상 레코드의 현재 파이프라인 안에서** 이름을 해석한다
+- 다른 파이프라인으로 옮기려면 `파이프라인` + `파이프라인 단계` **이름 둘 다** 보낸다
+- `파이프라인`만 단독 변경은 **불가** — 단계가 없어 `파이프라인 단계` 필수 오류
+- 비우기는 `rewrite:true` + `null`, 둘 다 함께 해제된다
+
+**사용자 필드(§B-4)에 이어 두 번째 어휘 역전이다.** v2 경로가 남는 한 양방향 변환이 필요하다.
 🔑 계산 필드는 **우리 사전 차단(스키마 `formula` 타입 확인)이 유일한 방어다.** 백엔드도
 "400이 더 안전, 개선 요청 대상"이라 동의.
 
@@ -146,6 +171,12 @@ AI가 "비워줘"에 `""`를 넣으면 null이 아닌 빈 문자열이 되므로
 
 값은 **RecordId 배열만** (이름·이메일·유니크값 불가). 커스텀 관계도 지원(개수 제한 적용).
 system 관계 연결/해제는 요청당 최대 100건.
+
+**리드(딜도 열리면 동일 예상)** — 2026-08-05 확인:
+- 관계를 **안 보내고 필드만 수정하는 건 된다** (실측 확인)
+- 단 **최종 상태 기준**으로 `메인 고객`/`메인 회사` 중 하나는 남아야 한다.
+  `rewrite:true`로 마지막 하나를 해제하면 400 `REQUIRED_FIELD`
+- **`메인 견적서`는 update에서도 지정 불가.** `null`로 보내도 400 `PROPERTY_DOESNT_EXIST`
 
 🔑 **`data`에 관계 필드명을 넣으면 400** (`PROPERTY_DOESNT_EXIST`).
 관계 타입(MultiPeople·MultiDeal 등)은 `validateInputObjectData`의
@@ -161,13 +192,68 @@ system 관계 연결/해제는 요청당 최대 100건.
 | 필드 성공 + 관계 일부 실패 | **207** | `{success:false, message:"Partial success", objectList, errors}` |
 | 검증 실패 | 400 | `{success:false, message:"Validation failed", errors}` |
 
-`errors[]` = `{code, inputIndex, fieldName, message, context}`
+`errors[]` = `{code, inputIndex?, fieldName?, message, context?}`
 — **create보다 구조화가 낫다** (`inputIndex`로 몇 번째 항목인지 특정 가능).
-코드: `INVALID_OPTION` · `STORAGE_UNIQUE_CONFLICT` · `REQUIRED_FIELD` · `ASSOCIATION_FAILED`.
+⚠️ `inputIndex`·`fieldName`은 **optional**이다. 없을 수 있으니 그 전제로 파싱한다.
+
+**에러 코드 카탈로그** (2026-08-05 백엔드 회신):
+
+| 분류 | code |
+|---|---|
+| 공통 | `INVALID_OPTION` · `REQUIRED_FIELD` · `PROPERTY_DOESNT_EXIST` |
+| 유니크 | `STORAGE_UNIQUE_CONFLICT` · `CONFLICTING_UNIQUE_VALUE` |
+| 숫자 | `INVALID_NUMBER` |
+| 사용자 | `NOT_FOUND_USER` · `AMBIGUOUS_USER` · `INACTIVE_USER` |
+| 파이프라인 | `NOT_FOUND_PIPELINE` · `AMBIGUOUS_PIPELINE` · `NOT_FOUND_PIPELINE_STAGE` · `AMBIGUOUS_PIPELINE_STAGE` |
+| 관계 | `NOT_FOUND_ASSOCIATION_TARGET` · `CONFLICTING_ASSOCIATION_TARGET` · `ASSOCIATION_COUNT_LIMIT_EXCEEDED` · `ASSOCIATION_FAILED` · `INVALID_RECORD_ID` |
 
 **207의 유일한 사례**: 딜·리드가 고객도 회사도 없는 **orphan**이 되는 관계 해제.
 필드는 이미 반영됐으므로 **단순 재시도 금지**.
 `client.ts:132-143`의 207 처리가 공통 경로라 자동 적용된다 (힌트 문구만 §B-5 참조).
+
+### A-6-1. 구성 상품(`productElementList`) — 쓰기만 되고 읽기가 없다
+
+2026-08-05 실측. **백엔드 회신("지원됩니다")과 실동작이 갈린 항목이라 실측을 기준으로 적는다.**
+
+**위치가 `data`가 아니라 `inputList` 항목의 top-level이다:**
+
+```jsonc
+{ "objectType": "상품", "inputList": [ {
+    "id": "…", "data": {},
+    "productElementList": [ { "name": "구성B", "amount": 1, "price": 5000 } ]   // ← data 밖
+} ] }
+```
+
+```
+data 안에 넣으면  → 400 PROPERTY_DOESNT_EXIST
+{name, amount}만  → 400 REQUIRED_FIELD  ("「구성A」 구성 상품이 없어 새로 만들어야…")
+{name, amount, price} → ✅ 수용
+```
+
+`GET /v2/field/product` 스키마에도 `productElementList`가 **없다** — 그래서 `data`로는
+애초에 못 보내는 구조다. v2의 top-level-split과 같은 계열.
+
+**동작** (백엔드 회신): 상품에서만 허용 · 기본 병합 · `rewrite:true`면 보낸 목록이 최종 구성
+(빈 배열이면 전체 해제) · 구성 상품은 **이름으로 찾고 없으면 새로 만든다** · 같은 이름이면
+`price`는 무시되고 기존 금액 유지 · 한 상품 안에서 같은 구성 이름을 두 번 보내면 거부.
+
+#### 🔴 그래서 MCP는 계속 미지원으로 둔다
+
+읽을 수단이 **여전히 없다** (2026-08-05 실측):
+
+```
+POST /v3/object/read  fieldList:["productElementList"]  → 400 "필드를 찾을 수 없습니다"
+GET  /v2/product                                        → 응답에 없음
+GET  /v2/field/product                                  → 스키마에 없음
+```
+
+쓰기만 되고 읽기가 없으면 **"뭘 덮어쓰는지 모르고 덮어쓰는" 도구**가 된다. AI가 구성을
+바꾸려면 현재 구성을 먼저 봐야 하고, `rewrite:true` 전체 교체는 기존 목록을 알아야 성립한다.
+게다가 `price`가 필수인데 기존 이름이면 조용히 버려지므로, 호출자는 자기가 값을 바꾼 건지
+아닌지도 알 수 없다.
+
+**읽기 경로가 생기면 그때 넣는다.** 백엔드에 계획을 물어둔 상태
+(이슈 「상품 구성(productElementList) 읽기 API 부재」).
 
 ### A-7. Rate limit ⚠️ — **배치 mutation만 별도 쿼타**
 
