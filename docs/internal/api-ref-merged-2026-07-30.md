@@ -6,7 +6,9 @@
 
 > **문서 기준일: 2026-07-30.** 이 레퍼런스는 세일즈맵 개발팀이 API를 개발·수정할 때 갱신되며, 최신본은 <https://docs.salesmap.kr/developers/api-reference/ai#api> 에 게시됩니다.
 >
+> * **범위:** 이 문서는 공개 REST **v2** API 기준입니다. MCP 도구의 별도 입력·응답 보정 계약이나 비공개 경로를 REST API 계약으로 해석하지 마세요.
 > * **AI 에이전트:** 호출 결과(키·값·에러)가 이 문서와 다르면 API가 변경된 것일 수 있습니다. 그 경우 위 최신본을 확인하고, 문서보다 **실제 응답을 우선**하세요.
+> * **MCP 사용자:** MCP 도구는 REST API 위의 별도 wrapper 계약을 제공합니다. MCP 도구를 호출할 때는 `salesmap-get-guide`, 도구 설명, `salesmap-list-properties`의 실측 스키마를 우선하고, 이 레퍼런스는 `salesmap-run-script`로 REST API를 직접 호출할 때 참고하세요.
 > * **To User:** 주기적으로(예: 분기마다) 위 링크에서 변경 사항을 확인해 통합을 갱신하길 권장합니다.
 
 ### 목차
@@ -112,11 +114,12 @@
 
 | 파라미터                    | 설명                                                                                                                                                                                                                            |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `types`                 | 조회할 활동 유형(쉼표 구분). 유효값: `create`·`email`·`emailOpen`·`memoCreate`·`todoCreate`·`meeting`·`webFormSubmit`·`recordingCreate`·`smsSend`·`kakaoAlimtalkSend`. 활동 레코드의 `type` 값과 동일해야 하며, 그 외 값은 400 `[<i>]: 유효하지 않은 값입니다.`를 반환합니다. |
+| `types`                 | 조회할 활동 유형(쉼표 구분). 유효값: `create`·`webFormView`·`webFormSubmit`·`email`·`emailOpen`·`emailLinkClick`·`smsSend`·`memoCreate`·`todoCreate`·`meeting`·`documentView`·`kakaoAlimtalkSend`·`merge`·`modusignContractCreated`·`recordingCreate`. 활동 레코드의 `type` 값과 동일해야 하며, 그 외 값은 400을 반환합니다. |
 | `startDate` / `endDate` | 활동 발생 시점(레코드의 `date` 필드) 범위(ISO8601, 예 `2026-07-01T00:00:00+09:00`). `startDate`가 `endDate`보다 늦으면 400 `startDate는 endDate보다 늦을 수 없습니다.`                                                                                       |
 
 * 이 필터(`types`·`startDate`·`endDate`)는 **`…/activity`에만** 적용됩니다. **`…/history`는 이 파라미터를 무시하고 전체를 반환**하므로(에러 없이), 히스토리 증분 수집은 cursor(`cursorId`)로 합니다.
 * 유형값 주의: 통화 녹음은 `recordingCreate`, SMS는 `smsSend`, 카카오 알림톡은 `kakaoAlimtalkSend`입니다. 단순 `recording`·`call`·`sms`는 유효하지 않습니다.
+* 타입별 적용 범위가 있습니다. `webFormView`·`documentView`는 people만, `webFormSubmit`은 people/organization/deal/lead만, `modusignContractCreated`는 people/organization/deal만 나타납니다. 나머지 자동 이벤트도 실제 activity가 생긴 레코드에서만 반환됩니다.
 * 각 활동 레코드에는 `recordingId`가 포함됩니다(통화/녹음 활동이면 녹음 식별자, 아니면 `null`). 이메일 활동의 `emailId`로 `GET /v2/email/{emailId}`(본문 조회)로, `recordingId`로 녹음 상세로 이어서 조회할 수 있습니다.
 
 ### 기본 정보
@@ -885,7 +888,9 @@ id, RecordId, 이름, 주소, 웹 주소, 전화, 업종, 직원수, 프로필 �
   webFormId, webFormName, smsId, memoId, todoId }
 ```
 
-`type` 값: `create`, `email`, `emailOpen`, `webFormSubmit`, `memoCreate`, `meeting`, `todoCreate`. `todoCreate`는 `todoId`가 채워집니다. type 목록은 폐쇄형으로 가정하지 않습니다.
+`type`의 전체 유효값은 "히스토리 vs 액티비티 > 활동 공통 필터"의 15종 목록을 따릅니다.
+이 회사 응답 예시에서 관측된 값은 `create`, `email`, `emailOpen`, `webFormSubmit`, `memoCreate`,
+`meeting`, `todoCreate`이며, `todoCreate`는 `todoId`가 채워집니다.
 
 **에러**
 

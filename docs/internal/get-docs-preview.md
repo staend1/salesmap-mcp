@@ -102,7 +102,7 @@ get-pipelines(objectType: "deal")                  # 파이프라인·단계 ID 
   → list-products()                                # 상품 ID·가격 확인
   → create-quote(dealId OR leadId, quoteProductList)
 ```
-⚠️ 구독형 상품 포함 시: `paymentCount`(결제 횟수)·`startPaymentDate`(시작 결제일) 필수.
+⚠️ 구독형 상품 포함 시: `quoteProductList[].properties["결제 횟수"]`·`quoteProductList[].properties["시작 결제일"]` 필수.
 
 ### 파이프라인 체류 시간 분석
 ```

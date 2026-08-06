@@ -11,18 +11,17 @@ salesmap-mcp/
 ├── app/
 │   └── api/[transport]/route.ts   # Vercel API 엔트리 (auth + MCP transport)
 ├── src/
-│   ├── index.ts                   # MCP 서버 생성 + 22개 tool 등록 + instrument()
+│   ├── index.ts                   # MCP 서버 생성 + tool 등록 + instrument()
 │   ├── client.ts                  # SalesMapClient + DEFAULT_PROPERTIES + pickProperties + compactRecords
 │   ├── types.ts                   # 공통 타입 + getClient(extra) 헬퍼
 │   ├── telemetry.ts               # 토큰 지문 + tool_call/feedback 로깅 + instrument() 래퍼
 │   └── tools/
-│       ├── field.ts               # 1 tool: salesmap-list-properties
+│       ├── field.ts               # object/property schema tools
 │       ├── search.ts              # 1 tool: salesmap-search-objects
 │       ├── generic.ts             # 4 tools: batch-read, create, update, delete
-│       └── extras.ts              # 16 tools: associations, note, engagements, changelog,
-│                                  #           quotes, pipelines, lead-time, users, teams,
-│                                  #           user-details, get-link, create-property,
-│                                  #           get-docs, report-feedback
+│       └── extras.ts              # associations, note, engagements, changelog,
+│                                  # quotes, pipelines, lead-time, users, teams,
+│                                  # guide, API ref, run-script, feedback 등 지원 도구
 └── docs/
     ├── _internal/                     # gitignored — PRD, 내부 참조 문서
     ├── architecture.md
@@ -37,7 +36,7 @@ salesmap-mcp/
 ```
 Claude → MCP Client → Streamable HTTP → Vercel (Next.js App Router)
   → route.ts (Bearer 토큰 추출) → createServer() → tool 매칭
-  → SalesMapClient.get/post() → https://salesmap.kr/api/v2/...
+  → SalesMapClient.get/post() → https://salesmap.kr/api/v2, /api/v3
   → JSON 응답 → Claude에 반환
 ```
 
@@ -79,13 +78,17 @@ err(msg)                 // → { content: [...], isError: true }
 function createServer(): McpServer {
   const server = new McpServer({ name: "salesmap-mcp", version: "2.0.0" });
   instrument(server);             // tool 등록 전 — 전 tool 핸들러를 로깅 래퍼로 감쌈
-  registerFieldTools(server);     // 1: salesmap-list-properties
-  registerSearchTools(server);    // 2: salesmap-search-objects
-  registerGenericTools(server);   // 3-6: batch-read, create, update, delete
-  registerExtrasTools(server);    // 7-22: 지원 도구 16개
+  registerFieldTools(server);     // 오브젝트/필드 스키마 도구
+  registerSearchTools(server);    // 필터 검색 도구
+  registerGenericTools(server);   // batch-read, batch-create, update, delete
+  registerExtrasTools(server);    // 노트/활동/견적/파이프라인/문서/피드백 등 지원 도구
   return server;
 }
 ```
+
+현재 등록 도구 수와 상세 파라미터의 단일 기준은 `docs/tool-spec.md`입니다.
+도구를 추가·변경하면 `npx tsx scripts/tool-spec.mts`로 생성물을 갱신하고,
+README·architecture에는 상세 목록을 중복해서 고정하지 않습니다.
 
 ## 텔레메트리 (사용 로그 + 피드백)
 

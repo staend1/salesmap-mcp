@@ -42,6 +42,21 @@ MCP 내부적으로 미공개 엔드포인트를 쓰더라도 **`get-api-ref` �
 
 ***
 
+## 0. 공개 REST v2 API와 MCP 도구 계약 분리 경고
+
+- **무엇**: API 레퍼런스가 공개 REST v2 기준이며, MCP 도구의 입력 계약은 도구 설명·get-guide·실측 스키마를 우선해야 한다는 경고
+- **어디에**: 문서 기준일/최신본 안내가 있는 도입부 경고 박스 안
+- **왜**: MCP는 `salesmap-batch-create-objects` 등에서 v3 API와 보정 로직을 감싼다. REST v2의 `fieldList`·top-level 파라미터 설명과 MCP의 `properties`·`associations` 계약을 섞어 읽으면 AI가 존재하지 않는 필드명이나 잘못된 요청 형식을 학습한다.
+- **삭제 조건**: REST API 레퍼런스와 MCP 도구 레퍼런스가 완전히 분리되어 `salesmap-get-api-ref`가 MCP 호출용 컨텍스트에 노출되지 않게 되면 삭제한다.
+- **본문**:
+
+````overlay
+> * **범위:** 이 문서는 공개 REST **v2** API 기준입니다. MCP 도구의 별도 입력·응답 보정 계약이나 비공개 경로를 REST API 계약으로 해석하지 마세요.
+> * **MCP 사용자:** MCP 도구는 REST API 위의 별도 wrapper 계약을 제공합니다. MCP 도구를 호출할 때는 `salesmap-get-guide`, 도구 설명, `salesmap-list-properties`의 실측 스키마를 우선하고, 이 레퍼런스는 `salesmap-run-script`로 REST API를 직접 호출할 때 참고하세요.
+````
+
+***
+
 ## 1. run-script 응답 래퍼 벗김 경고
 
 - **무엇**: run-script 샌드박스의 `salesmap.get/post`는 `success`/`data` 래퍼를 벗겨서 반환한다는 경고
