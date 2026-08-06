@@ -81,7 +81,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "견적서 상품이 fieldList로 전 필드를 수용하면 (top-level-split과 함께 제거)",
     affects: ["create-quote"],
     location: "api-quirks.ts › QUOTE_PRODUCT_TOP_LEVEL / QUOTE_PRODUCT_ALIAS",
-    ledger: "#11",
+    ledger: "#12-4",
   },
   {
     id: "quoteproduct-type-name-split",
@@ -90,7 +90,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "백엔드가 /v2/field/{type}에서 quoteProduct·quote-product 양쪽을 받으면 (2026-07-29 수정 예정으로 회신). 그래도 정규화는 남겨두는 편이 낫다 — 견적서 상품(한글)·quote_product 같은 표기까지 흡수하므로",
     affects: ["create-quote"],
     location: "api-quirks.ts › QUOTE_PRODUCT_SCHEMA_TYPE",
-    ledger: "#11",
+    ledger: "#12-4",
   },
   {
     id: "custom-object-definition-name",
@@ -115,7 +115,7 @@ export const QUIRKS: readonly Quirk[] = [
     removeWhen: "GET /v2/memo가 activity와 같은 KST day-bound로 바뀌고, v3 dateTime이 date-only를 문서화된 400으로 거부하면. MCP의 사전 검증은 그 뒤에도 사용자 안내용으로 유지할 수 있다",
     affects: ["list-notes", "list-engagements", "search-objects", "batch-create-objects", "update-object", "create-quote"],
     location: "api-quirks.ts › toKstBoundary / isDateOnly + generic.ts › canonicalizeV3CreateProperties",
-    ledger: "#3-5, #12",
+    ledger: "#3-5, #11",
   },
   {
     id: "activity-type-v2-v3-names",

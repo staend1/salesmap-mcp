@@ -553,7 +553,6 @@ export async function getDefaultProperties(
  * nextCursor가 있으면(=다음 페이지 존재) "더 있음 + 이어서 조회법" 힌트를 덧붙인다.
  * LLM이 한 페이지(예: activity 50건)를 전부로 단정하고 추가 탐색을 멈추는 문제 방지.
  * 모든 페이지네이션 도구(search·list-engagements·list-* 등)가 ok()를 거치므로 한 곳에서 일괄 처리.
- * (docs/salesmap-api-issues.md #27)
  */
 function withMoreHint(data: unknown): unknown {
   if (data && typeof data === "object" && !Array.isArray(data)) {

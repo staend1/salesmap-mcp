@@ -4,7 +4,7 @@ import { ok, err, errWithSchemaHint, compactRecord, pickProperties, resolvePrope
 import { getClient } from "../types";
 import {
   V3_TYPE_MAP, V3_CREATE_TYPE_MAP, CUSTOM_OBJECT_LITERALS,
-  CREATE_UNSUPPORTED, PRODUCT_ALIAS, toKstBoundary,
+  CREATE_UNSUPPORTED, PRODUCT_ALIAS, isDateOnly, toKstBoundary,
 } from "../api-quirks";
 
 const READ = { readOnlyHint: true, destructiveHint: false, idempotentHint: true } as const;
@@ -178,11 +178,16 @@ async function canonicalizeV3CreateProperties(
           + (name !== rawName ? ` ("${rawName}"이 "${name}"으로 교정되면서 충돌)` : ""),
         );
       }
-      // @quirk date-only-timezone-split — 날짜 필드에 날짜만 오면 KST 자정을 명시한다.
-      // 안 하면 v3가 date 타입은 자정으로, dateTime 타입은 **호출 시각**으로 저장해
-      // 같은 요청이 실행 시각마다 다른 값이 된다 (실측 2026-07-31).
+      // @quirk date-only-timezone-split — dateTime에 날짜만 주면 v3가 호출 시각을 붙인다.
+      // 임의의 자정으로 보정하지 않고, 시각+offset을 요구해 저장 의도를 명확히 한다.
       const ft = typeOf.get(name);
-      properties[name] = (ft === "date" || ft === "dateTime") && typeof value === "string"
+      if (ft === "dateTime" && typeof value === "string" && isDateOnly(value)) {
+        throw new Error(
+          `inputList[${index}].properties["${name}"]은 dateTime 필드입니다. `
+          + `YYYY-MM-DD만 보내지 말고 "${value.trim()}T09:00:00+09:00"처럼 시각과 UTC offset을 포함하세요.`,
+        );
+      }
+      properties[name] = ft === "date" && typeof value === "string"
         ? toKstBoundary(value, "start")
         : value;
       if (name !== rawName0) warnings.push(`inputList[${index}].properties: "${rawName0}" → "${name}"`);
@@ -239,7 +244,7 @@ export function registerGenericTools(server: McpServer) {
         .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'quote' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가."),
       objectIds: z.array(z.string()).min(1).max(500).describe("레코드 ID 배열 (최대 500개)"),
       fieldList: z.array(z.string()).optional()
-        .describe("반환할 필드명 목록 (한글). 생략 시 전체 필드 반환."),
+        .describe("반환할 필드명 목록 (한글). 생략 시 오브젝트별 기본 핵심 필드만 반환. 빈 배열은 일반 필드를 반환하지 않으므로, 필요한 필드는 명시하세요."),
       associationList: z.array(z.string()).optional()
         .describe("인라인으로 포함할 연결 관계명 목록. 사용 가능한 관계명은 salesmap-list-associations로 먼저 확인."),
     },
@@ -254,7 +259,8 @@ export function registerGenericTools(server: McpServer) {
           if (CUSTOM_OBJECT_LITERALS.has(objectType)) return customObjectLiteralError(client, objectType);
           const apiType = V3_TYPE_MAP[objectType] ?? objectType;
           const body: Record<string, unknown> = { objectType: apiType, idList: objectIds };
-          if (fieldList?.length) body.fieldList = fieldList;
+          // undefined(기본 필드)와 [](일반 필드 미반환)는 v3에서 의미가 다르므로 그대로 구분한다.
+          if (fieldList !== undefined) body.fieldList = fieldList;
           if (associationList?.length) body.associationList = associationList;
           try {
             return ok(await client.post("/v3/object/read", body));
@@ -336,7 +342,7 @@ export function registerGenericTools(server: McpServer) {
   // ── Batch Create ──────────────────────────────────────
   server.tool(
     "salesmap-batch-create-objects",
-    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 사용 중이거나 초대 대기 중인 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(필수, 숫자) + '유형'·'상태'·'담당자'·'코드'·'단위'. 금액 필드명은 '가격'이 아니라 '금액'. 같은 이름의 상품이 이미 있으면 400. associations 미지원.",
+    "🎯 레코드 생성 전용 도구 (1~100건). 1건이든 여러 건이든 생성은 이 도구를 사용. 견적서만 salesmap-create-quote.\n📋 properties는 필드명→값 그대로. 사용자 필드는 사용 중이거나 초대 대기 중인 사용자 이름, 관계는 associations에 관계명→레코드 ID(UUID) 배열. dateTime 필드는 YYYY-MM-DD만 허용하지 않으며 시각과 UTC offset이 필요.\n⚠️ 딜·리드: associations[\"메인 고객\"] 또는 [\"메인 회사\"] 필수. 딜은 properties[\"파이프라인 단계\"](단계 이름) 필수, 리드는 선택. \"메인 견적서\"는 생성 시 지정 불가.\n🧩 커스텀 오브젝트: objectType에 정의 이름을 그대로 넣음(예: '티켓(CRM)'). '이름' 필드가 없고 정의별 대표 필드가 필수이며, system 관계 없이 워크스페이스에 정의한 관계만 사용.\n📦 상품: properties에 '이름'(필수)·'금액'(필수, 숫자) + '유형'·'상태'·'담당자'·'코드'·'단위'. 금액 필드명은 '가격'이 아니라 '금액'. 같은 이름의 상품이 이미 있으면 400. associations 미지원.",
     {
       objectType: z.string()
         .describe("오브젝트 타입. 기본값: 'people' | 'organization' | 'deal' | 'lead' | 'product'. 커스텀 오브젝트는 정의 이름을 그대로 (예: '티켓(CRM)', salesmap-list-objects로 확인) — 'custom-object' 리터럴은 사용 불가. 견적서는 salesmap-create-quote 사용."),
